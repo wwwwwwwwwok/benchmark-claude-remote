@@ -1,7 +1,10 @@
 """Per-frame SSMs for Waymo segments extracted from v1.4.3, comparing three lead-vehicle pairing methods.
 
 Usage:
-    python -I waymo_ssm_frames.py <extracted_root> <out_dir> [--camera FRONT|all] [segment ...]
+    python -I waymo_ssm_frames.py <extracted_root> <out_dir> [--cameras FRONT,FRONT_LEFT,...|none] [segment ...]
+
+Objects count only if they appear in at least one of the given camera images (the views the VLM sees);
+default = all five Waymo cameras. 'none' keeps every labelled object, including ones no camera sees.
 
 Pairing methods (wod_common.py)
     straight : straight corridor in the vehicle frame (|lateral| < 1.75 m)
@@ -139,7 +142,7 @@ LEAD_COLS = ['gap', 'v_ego_long', 'v_lead_long', 'closing', 'TTC', 'RTTC', 'THW'
 
 
 # ------------------------------------------------------------------ per segment
-def process(seg, camera):
+def process(seg, cameras):
     lmap = LaneMap(seg.map)
     n = len(seg.frames)
     if lmap.ok:
@@ -148,7 +151,7 @@ def process(seg, camera):
         ego_lanes, ego_s = [None] * n, np.full(n, np.nan)
     rows, picks = [], []
     for k in range(n):
-        o_all = seg.objects_at(k, camera=camera, types=['vehicle', 'pedestrian', 'cyclist'])
+        o_all = seg.objects_at(k, cameras=cameras, types=['vehicle', 'pedestrian', 'cyclist'])
         o_lead = o_all[o_all['type'].isin(LEAD_TYPES)].reset_index(drop=True)
         R = seg.R[k]
         ego_v_veh = (R.T @ seg.ego_v[k])[:2]
@@ -235,7 +238,7 @@ def plot_ttc_methods(df, seg_name, out):
     plt.close(fig)
 
 
-def plot_snapshot(seg, df, k, lmap, ego_lanes, ego_s, out, camera):
+def plot_snapshot(seg, df, k, lmap, ego_lanes, ego_s, out, cameras):
     """Bird's-eye view (map frame) next to the front image, with each method's lead outlined."""
     row = df.iloc[k]
     leads = {m: row[f'lead_{m}'] for m in METHODS}
@@ -251,7 +254,7 @@ def plot_snapshot(seg, df, k, lmap, ego_lanes, ego_s, out, camera):
         _, route = lmap.route(ego_lanes[k], ego_s[k], future)
         ax.plot(route[:, 0], route[:, 1], color=BLUE, lw=5, alpha=0.25, zorder=3, label='map lane route')
     ax.plot(seg.ego_map[k:, 0], seg.ego_map[k:, 1], color=AQUA, lw=1.6, ls='--', zorder=3, label='ego path (rest of segment)')
-    o = seg.objects_at(k, camera=camera if camera != 'all' else None, types=['vehicle', 'pedestrian', 'cyclist'])
+    o = seg.objects_at(k, cameras=cameras, types=['vehicle', 'pedestrian', 'cyclist'])
     if len(o):
         P, H, _, _ = seg.to_map(k, o)
         for (x, y), h, L, W, oid in zip(P, H, o['length'], o['width'], o['id']):
@@ -303,15 +306,16 @@ def main():
     ap.add_argument('root')
     ap.add_argument('out')
     ap.add_argument('segments', nargs='*')
-    ap.add_argument('--camera', default='FRONT', help="only objects most visible in this camera, or 'all'")
+    ap.add_argument('--cameras', default='FRONT,FRONT_LEFT,FRONT_RIGHT,SIDE_LEFT,SIDE_RIGHT',
+                    help="objects must appear in one of these camera images; 'none' = no camera filter")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    camera = None if a.camera == 'all' else a.camera
+    cameras = None if a.cameras == 'none' else a.cameras.split(',')
     segs = a.segments or sorted(d for d in os.listdir(a.root) if os.path.isdir(os.path.join(a.root, d)))
     frames = []
     for name in segs:
         seg = Segment(a.root, name)
-        df, lmap, ego_lanes, ego_s = process(seg, camera)
+        df, lmap, ego_lanes, ego_s = process(seg, cameras)
         frames.append(df)
         plot_ttc_methods(df, name, a.out)
         diff = df.index[(df['lead_map'].fillna('-') != df['lead_path'].fillna('-')) |
@@ -320,7 +324,7 @@ def main():
         if df['TTC'].notna().any():
             show.append(int(df['TTC'].replace(np.inf, np.nan).fillna(1e9).idxmin()))
         for k in dict.fromkeys(show):
-            plot_snapshot(seg, df, int(k), lmap, ego_lanes, ego_s, a.out, a.camera)
+            plot_snapshot(seg, df, int(k), lmap, ego_lanes, ego_s, a.out, cameras)
         print(f'{name}: {len(df)} frames, ego on a mapped lane in {df["ego_lane"].notna().mean():.0%} of frames, '
               f'{len(diff)} frames where the methods pick different leads')
     fr = pd.concat(frames, ignore_index=True)
@@ -330,7 +334,7 @@ def main():
     pd.set_option('display.width', 200)
     print(summ.round(3).T.to_string())
     with open(os.path.join(a.out, 'params.txt'), 'w', encoding='utf-8') as f:
-        f.write('\n'.join(f'{k} = {v}' for k, v in PARAMS.items()) + f'\ncamera = {a.camera}\n')
+        f.write('\n'.join(f'{k} = {v}' for k, v in PARAMS.items()) + f'\ncameras = {a.cameras}\n')
 
 
 if __name__ == '__main__':

@@ -51,11 +51,19 @@ class Segment:
         self.ego_a = savgol_filter(v, win, 2, deriv=1, delta=dt, axis=0) if win >= 5 else np.gradient(v, self.t, axis=0)
         self.objects = pd.read_parquet(os.path.join(self.dir, 'objects.parquet'))
         self.map = pd.read_parquet(os.path.join(self.dir, 'map.parquet'))
+        pb = pd.read_parquet(os.path.join(self.dir, 'projected_boxes.parquet'), columns=['frame_idx', 'camera', 'id'])
+        pb['laser_id'] = [i[:-(len(c) + 1)] if isinstance(i, str) and i.endswith('_' + c) else i
+                          for i, c in zip(pb['id'], pb['camera'])]
+        self._visible = pb[['frame_idx', 'camera', 'laser_id']]
 
-    def objects_at(self, k, camera=None, types=None):
+    def objects_at(self, k, cameras=None, types=None):
+        """Objects of frame k. `cameras`: keep only objects that appear (have a projected 3D box) in at
+        least one of these camera images; None keeps every labelled object, including ones no camera sees."""
         o = self.objects[self.objects['frame_idx'] == k]
-        if camera:
-            o = o[o['most_visible_camera'] == camera]
+        if cameras:
+            v = self._visible
+            ids = set(v.loc[(v['frame_idx'] == k) & v['camera'].isin(cameras), 'laser_id'])
+            o = o[o['id'].isin(ids)]
         if types:
             o = o[o['type'].isin(types)]
         return o
