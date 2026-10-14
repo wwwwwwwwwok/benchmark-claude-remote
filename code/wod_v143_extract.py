@@ -9,7 +9,8 @@ Usage:
     python -I wod_v143_extract.py <tfrecord_dir> <out_root> [--cameras FRONT,FRONT_LEFT,...]
 
 Writes one folder per segment, <out_root>/<segment>/:
-    context.json            segment name, stats (time of day, location, weather), camera calibrations
+    context.json            segment name, stats (time of day, location, weather), camera and lidar calibrations
+                            (lidar mounting positions also give the ego footprint: front/rear bumper, sides)
     frames.parquet          per frame: timestamp, ego pose (world_from_vehicle, 4x4 row-major),
                             map_pose_offset, ego velocity reported with the FRONT image
     objects.parquet         3D lidar labels (vehicle frame) with speed, acceleration, visibility
@@ -49,8 +50,9 @@ SCHEMA = {
     'Stats': [('laser_object_counts', 1, 'ObjectCount', 1), ('time_of_day', 2, 'string', 0),
               ('location', 3, 'string', 0), ('weather', 4, 'string', 0),
               ('camera_object_counts', 5, 'ObjectCount', 1)],
+    'LaserCalibration': [('name', 1, 'int32', 0), ('extrinsic', 5, 'Transform', 0)],
     'Context': [('name', 1, 'string', 0), ('camera_calibrations', 2, 'CameraCalibration', 1),
-                ('stats', 4, 'Stats', 0)],
+                ('laser_calibrations', 3, 'LaserCalibration', 1), ('stats', 4, 'Stats', 0)],
     'CameraImage': [('name', 1, 'int32', 0), ('image', 2, 'bytes', 0), ('pose', 3, 'Transform', 0),
                     ('velocity', 4, 'Velocity', 0), ('pose_timestamp', 5, 'double', 0), ('shutter', 6, 'double', 0),
                     ('camera_trigger_time', 7, 'double', 0), ('camera_readout_done_time', 8, 'double', 0)],
@@ -94,6 +96,7 @@ SCHEMA = {
 }
 
 CAMERAS = {1: 'FRONT', 2: 'FRONT_LEFT', 3: 'FRONT_RIGHT', 4: 'SIDE_LEFT', 5: 'SIDE_RIGHT'}
+LASERS = {1: 'TOP', 2: 'FRONT', 3: 'SIDE_LEFT', 4: 'SIDE_RIGHT', 5: 'REAR'}
 LABEL_TYPES = {0: 'unknown', 1: 'vehicle', 2: 'pedestrian', 3: 'sign', 4: 'cyclist'}
 MAP_KINDS = ('lane', 'road_line', 'road_edge', 'stop_sign', 'crosswalk', 'speed_bump', 'driveway')
 
@@ -188,7 +191,9 @@ def extract(path, out_root, cameras, Frame):
                 camera_calibrations=[dict(name=CAMERAS.get(c.name, c.name), intrinsic=list(c.intrinsic),
                                           extrinsic=list(c.extrinsic.transform), width=c.width, height=c.height,
                                           rolling_shutter_direction=c.rolling_shutter_direction)
-                                     for c in fr.context.camera_calibrations])
+                                     for c in fr.context.camera_calibrations],
+                laser_calibrations=[dict(name=LASERS.get(c.name, c.name), extrinsic=list(c.extrinsic.transform))
+                                    for c in fr.context.laser_calibrations])
         if len(fr.map_features):
             if mrows is not None:
                 print(f'  note: frame {k} also carries map features; keeping the first set')

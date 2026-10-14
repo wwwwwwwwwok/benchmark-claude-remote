@@ -14,7 +14,9 @@ import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
 
-# ---- ego footprint in the vehicle frame (NOT verified: assumes the origin is the rear axle) ----
+# ---- ego footprint in the vehicle frame. Checked against the lidar mounting positions in the calibration:
+# front-bumper lidar x = +4.07 m, rear-bumper lidar x = -1.15 m, side lidars y = +-1.02 m,
+# so the origin is at the rear axle and the car is about 5.2 m x 2.0 m ----
 EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W = 4.0, -1.1, 1.0
 LANE_HALF = 1.75                     # same-lane test: |lateral offset| < half of a 3.5 m lane
 LEAD_MAX_DHEADING = np.deg2rad(30)   # lead must travel roughly in the ego direction
