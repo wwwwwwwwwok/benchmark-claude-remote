@@ -54,7 +54,8 @@ EGO_BOX = None
 
 def use_ego(front, rear, half_w):
     """Set the ego geometry for the lead gap and the 2D metrics.
-    footprint: the real car (front +4.0, rear -1.1, half width 1.0; checked against the lidar mounts);
+    footprint: the real car, read per segment from the bumper/side lidar mounting positions
+               (front +4.07, rear -1.15, half width 1.02 m on the demo segments);
     camera:    the ego as a point at the FRONT camera, i.e. distances measured from where the image is taken."""
     global EGO_BOX
     wc.set_ego_geometry(front, rear, half_w)
@@ -277,7 +278,7 @@ def plot_snapshot(seg, df, k, lmap, ego_lanes, ego_s, out, cameras):
                     ax.add_patch(MplPolygon(rect(x, y, L + grow, W + grow, h), closed=True, fill=False,
                                             ec=METHOD_COLOR[m], lw=2.2, zorder=5 + j))
     ex, ey = seg.ego_map[k, :2]
-    f_, r_, w_ = wc.FOOTPRINT       # always draw the real car outline
+    f_, r_, w_ = wc.footprint_from_lidars(seg.context)       # always draw the real car outline
     ax.add_patch(MplPolygon(rect(ex + np.cos(seg.yaw[k]) * (f_ + r_) / 2,
                                  ey + np.sin(seg.yaw[k]) * (f_ + r_) / 2,
                                  f_ - r_, 2 * w_, seg.yaw[k]),
@@ -334,7 +335,7 @@ def main():
             cam_x, _ = wc.camera_position(seg.context, 'FRONT')
             use_ego(cam_x, cam_x - 0.02, 0.01)      # a 2 cm box standing in for a point
         else:
-            use_ego(*wc.FOOTPRINT)
+            use_ego(*wc.footprint_from_lidars(seg.context))   # bumper and side lidar positions
         df, lmap, ego_lanes, ego_s = process(seg, cameras)
         frames.append(df)
         plot_ttc_methods(df, name, a.out)

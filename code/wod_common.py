@@ -29,13 +29,25 @@ def wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 
-FOOTPRINT = (EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W)
+FOOTPRINT = (EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W)   # fallback; normally read per segment by footprint_from_lidars
 
 
 def set_ego_geometry(front, rear, half_w):
     """Change the ego footprint used by the lead-vehicle gap (front) and by 2D metrics (whole box)."""
     global EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W
     EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W = front, rear, half_w
+
+
+def footprint_from_lidars(context):
+    """Ego outline (front, rear, half width) in the vehicle frame from the lidar mounting positions:
+    the FRONT and REAR short-range lidars sit on the bumpers and the SIDE lidars on the two sides.
+    Falls back to FOOTPRINT when the calibration is missing."""
+    pos = {c['name']: np.asarray(c['extrinsic'], float).reshape(4, 4)[:3, 3]
+           for c in context.get('laser_calibrations', [])}
+    if not all(k in pos for k in ('FRONT', 'REAR', 'SIDE_LEFT', 'SIDE_RIGHT')):
+        return FOOTPRINT
+    half_w = (abs(pos['SIDE_LEFT'][1]) + abs(pos['SIDE_RIGHT'][1])) / 2
+    return float(pos['FRONT'][0]), float(pos['REAR'][0]), float(half_w)
 
 
 def camera_position(context, camera='FRONT'):
