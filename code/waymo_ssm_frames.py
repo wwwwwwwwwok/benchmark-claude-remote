@@ -25,8 +25,9 @@ from matplotlib.patches import Polygon as MplPolygon, Rectangle
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import wod_common as wc  # noqa: E402
 from wod_common import (Segment, LaneMap, lead_straight, lead_path, lead_map, wrap,  # noqa: E402
-                        EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W, LEAD_TYPES)
+                        LEAD_TYPES)
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -48,8 +49,19 @@ BLUE, ORANGE, AQUA = '#2a78d6', '#eb6834', '#1baf7a'
 METHOD_COLOR = {'map': BLUE, 'path': AQUA, 'straight': ORANGE}
 INK, INK2, MUTED, GRID, SURF = '#0b0b0b', '#52514e', '#898781', '#e1e0d9', '#fcfcfb'
 
-EGO_BOX = np.array([[EGO_X_FRONT, EGO_HALF_W], [EGO_X_FRONT, -EGO_HALF_W],
-                    [EGO_X_REAR, -EGO_HALF_W], [EGO_X_REAR, EGO_HALF_W]])
+EGO_BOX = None
+
+
+def use_ego(front, rear, half_w):
+    """Set the ego geometry for the lead gap and the 2D metrics.
+    footprint: the real car (front +4.0, rear -1.1, half width 1.0; checked against the lidar mounts);
+    camera:    the ego as a point at the FRONT camera, i.e. distances measured from where the image is taken."""
+    global EGO_BOX
+    wc.set_ego_geometry(front, rear, half_w)
+    EGO_BOX = np.array([[front, half_w], [front, -half_w], [rear, -half_w], [rear, half_w]])
+
+
+use_ego(*wc.FOOTPRINT)
 
 
 # ------------------------------------------------------------------ 2D geometry
@@ -265,9 +277,10 @@ def plot_snapshot(seg, df, k, lmap, ego_lanes, ego_s, out, cameras):
                     ax.add_patch(MplPolygon(rect(x, y, L + grow, W + grow, h), closed=True, fill=False,
                                             ec=METHOD_COLOR[m], lw=2.2, zorder=5 + j))
     ex, ey = seg.ego_map[k, :2]
-    ax.add_patch(MplPolygon(rect(ex + np.cos(seg.yaw[k]) * (EGO_X_FRONT + EGO_X_REAR) / 2,
-                                 ey + np.sin(seg.yaw[k]) * (EGO_X_FRONT + EGO_X_REAR) / 2,
-                                 EGO_X_FRONT - EGO_X_REAR, 2 * EGO_HALF_W, seg.yaw[k]),
+    f_, r_, w_ = wc.FOOTPRINT       # always draw the real car outline
+    ax.add_patch(MplPolygon(rect(ex + np.cos(seg.yaw[k]) * (f_ + r_) / 2,
+                                 ey + np.sin(seg.yaw[k]) * (f_ + r_) / 2,
+                                 f_ - r_, 2 * w_, seg.yaw[k]),
                             closed=True, fc=BLUE, ec=SURF, lw=1, zorder=8))
     span = 45
     cx, cy = ex + np.cos(seg.yaw[k]) * span * 0.6, ey + np.sin(seg.yaw[k]) * span * 0.6
@@ -306,6 +319,8 @@ def main():
     ap.add_argument('root')
     ap.add_argument('out')
     ap.add_argument('segments', nargs='*')
+    ap.add_argument('--ego', choices=['footprint', 'camera'], default='footprint',
+                    help='footprint = real car size; camera = ego as a point at the FRONT camera')
     ap.add_argument('--cameras', default='FRONT,FRONT_LEFT,FRONT_RIGHT,SIDE_LEFT,SIDE_RIGHT',
                     help="objects must appear in one of these camera images; 'none' = no camera filter")
     a = ap.parse_args()
@@ -315,6 +330,11 @@ def main():
     frames = []
     for name in segs:
         seg = Segment(a.root, name)
+        if a.ego == 'camera':
+            cam_x, _ = wc.camera_position(seg.context, 'FRONT')
+            use_ego(cam_x, cam_x - 0.02, 0.01)      # a 2 cm box standing in for a point
+        else:
+            use_ego(*wc.FOOTPRINT)
         df, lmap, ego_lanes, ego_s = process(seg, cameras)
         frames.append(df)
         plot_ttc_methods(df, name, a.out)
@@ -334,7 +354,8 @@ def main():
     pd.set_option('display.width', 200)
     print(summ.round(3).T.to_string())
     with open(os.path.join(a.out, 'params.txt'), 'w', encoding='utf-8') as f:
-        f.write('\n'.join(f'{k} = {v}' for k, v in PARAMS.items()) + f'\ncameras = {a.cameras}\n')
+        f.write('\n'.join(f'{k} = {v}' for k, v in PARAMS.items()) + f'\ncameras = {a.cameras}\n'
+                f'ego = {a.ego} (front {wc.EGO_X_FRONT:.2f} m, rear {wc.EGO_X_REAR:.2f} m, half width {wc.EGO_HALF_W:.2f} m)\n')
 
 
 if __name__ == '__main__':

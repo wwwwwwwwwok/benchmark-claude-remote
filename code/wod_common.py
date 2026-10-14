@@ -29,6 +29,24 @@ def wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 
+FOOTPRINT = (EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W)
+
+
+def set_ego_geometry(front, rear, half_w):
+    """Change the ego footprint used by the lead-vehicle gap (front) and by 2D metrics (whole box)."""
+    global EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W
+    EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W = front, rear, half_w
+
+
+def camera_position(context, camera='FRONT'):
+    """(x, y) of a camera in the vehicle frame, from the calibration in context.json."""
+    for c in context['camera_calibrations']:
+        if c['name'] == camera:
+            E = np.asarray(c['extrinsic'], float).reshape(4, 4)
+            return float(E[0, 3]), float(E[1, 3])
+    raise KeyError(camera)
+
+
 # ------------------------------------------------------------------ loading
 class Segment:
     def __init__(self, root, seg):
