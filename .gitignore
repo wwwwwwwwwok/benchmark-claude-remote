@@ -1,0 +1,15 @@
+# 数据和运行结果不进仓库（太大，或者可以重新生成）
+results/
+data/
+*.tfrecord
+*.parquet
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# Excel 打开文件时生成的锁文件
+~$*
+
+# 每台电脑自己的路径和私人说明
+CLAUDE.local.md
