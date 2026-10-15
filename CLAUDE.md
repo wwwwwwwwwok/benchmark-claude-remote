@@ -146,6 +146,15 @@
     - 城市和低速：10% 分位 4.6 m/s²，平均 6.9 m/s²。
   - 报告建议停车视距用的减速度：高速和乡村 3.6 m/s²，城市低速（≤ 45 mph）4.6 m/s²。原来的 AASHTO 值是 3.4 m/s²。
   - 其他来源：NCHRP Report 400（Fambro 1997）平均 8.9 m/s²；车辆最大可用减速度平均 8.45 m/s²（Cunto & Saccomanno 2008）。
+- 同一团队更早的 SHRP2 报告：Savolainen et al. 2018，The Interrelationships between Speed Limits, Geometry, and Driver Behavior，给 Michigan DOT 做的。
+  - 链接：shrp2.transportation.org/Documents/Safety_Michigan_Final_Report.pdf，第 9 章。
+  - 样本：高速公路上需要刹车的碰撞和险情事件，159 起，126 名驾驶人。
+  - 反应时间的起点是 VTTI 标注的 Event Start，也就是引发事件的那个动作开始的时刻。终点有两种：踩下刹车（Gao & Davis 的定义），或面部视频里看到驾驶人开始反应（Higgins 的定义）。
+  - 反应时间结果：平均 1.57 s 和 1.46 s，合起来约 1.51 s（标准差 1.25），85% 分位 2.6 s。
+  - 减速度用的是平均值：从开始刹车到速度最低这一段的平均减速度，均值约 2.9 m/s²（0.30 g），85% 分位约 4.35 m/s²。注意 NCHRP 1081 用的是每起事件里的最大值，两者差很多。
+- Gao & Davis 2017（JSR 63:195–204）：SHRP2 高速公路跟车追尾事件 103 起。没分心时反应时间平均 1.58 s，分心时 2.11 s；分心持续时间越长，反应越慢。
+- Arbabzadeh et al. 2019（TR-C 100:107–124）：用 SHRP2 数据，按驾驶人特征估个性化的反应时间，用于前向碰撞预警。全文不公开，没有可直接引用的平均值。
+- Scribd 上的"Design of Highways and Streets (2024)"是别人上传的 NCHRP 1081，引用和阅读应以 National Academies Press 的官方免费版为准。
 - 各 SSM 的参数取值汇总见 Singh et al. 2023（arXiv 2306.14657）。
 
 ## 已知问题 / 待决定
