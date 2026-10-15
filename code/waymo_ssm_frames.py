@@ -55,14 +55,12 @@ EGO_BOX = None
 def use_ego(front, rear, half_w):
     """Set the ego geometry for the lead gap and the 2D metrics.
     footprint: the real car, read per segment from the bumper/side lidar mounting positions
-               (front +4.07, rear -1.15, half width 1.02 m on the demo segments);
-    camera:    the ego as a point at the FRONT camera, i.e. distances measured from where the image is taken."""
+               (front +4.070, rear -1.154, half width 1.025 m on the demo segments);
+    camera:    the ego as a point at the FRONT camera, i.e. distances measured from where the image is taken.
+    Called for every segment before its metrics are computed; there is no default."""
     global EGO_BOX
     wc.set_ego_geometry(front, rear, half_w)
     EGO_BOX = np.array([[front, half_w], [front, -half_w], [rear, -half_w], [rear, half_w]])
-
-
-use_ego(*wc.FOOTPRINT)
 
 
 # ------------------------------------------------------------------ 2D geometry
@@ -328,7 +326,7 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     cameras = None if a.cameras == 'none' else a.cameras.split(',')
     segs = a.segments or sorted(d for d in os.listdir(a.root) if os.path.isdir(os.path.join(a.root, d)))
-    frames = []
+    frames, ego_lines = [], []
     for name in segs:
         seg = Segment(a.root, name)
         if a.ego == 'camera':
@@ -336,6 +334,8 @@ def main():
             use_ego(cam_x, cam_x - 0.02, 0.01)      # a 2 cm box standing in for a point
         else:
             use_ego(*wc.footprint_from_lidars(seg.context))   # bumper and side lidar positions
+        ego_lines.append(f'ego {name} = front {wc.EGO_X_FRONT:.3f} m, rear {wc.EGO_X_REAR:.3f} m, '
+                         f'half width {wc.EGO_HALF_W:.3f} m')
         df, lmap, ego_lanes, ego_s = process(seg, cameras)
         frames.append(df)
         plot_ttc_methods(df, name, a.out)
@@ -356,7 +356,7 @@ def main():
     print(summ.round(3).T.to_string())
     with open(os.path.join(a.out, 'params.txt'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(f'{k} = {v}' for k, v in PARAMS.items()) + f'\ncameras = {a.cameras}\n'
-                f'ego = {a.ego} (front {wc.EGO_X_FRONT:.2f} m, rear {wc.EGO_X_REAR:.2f} m, half width {wc.EGO_HALF_W:.2f} m)\n')
+                f'ego = {a.ego}\n' + '\n'.join(ego_lines) + '\n')
 
 
 if __name__ == '__main__':

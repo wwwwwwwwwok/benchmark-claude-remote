@@ -14,10 +14,11 @@ import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
 
-# ---- ego footprint in the vehicle frame. Checked against the lidar mounting positions in the calibration:
-# front-bumper lidar x = +4.07 m, rear-bumper lidar x = -1.15 m, side lidars y = +-1.02 m,
-# so the origin is at the rear axle and the car is about 5.2 m x 2.0 m ----
-EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W = 4.0, -1.1, 1.0
+# ---- ego footprint in the vehicle frame, read per segment from the lidar mounting positions in the
+# calibration (footprint_from_lidars). Demo segments: front-bumper lidar x = +4.070 m, rear-bumper lidar
+# x = -1.154 m (-1.155 m in one), side lidars y = +-1.025 m, so the origin is at the rear axle and the car
+# is 5.22 m x 2.05 m. No default: set_ego_geometry must run before lead gaps or 2D metrics are computed ----
+EGO_X_FRONT = EGO_X_REAR = EGO_HALF_W = None
 LANE_HALF = 1.75                     # same-lane test: |lateral offset| < half of a 3.5 m lane
 LEAD_MAX_DHEADING = np.deg2rad(30)   # lead must travel roughly in the ego direction
 LOOKAHEAD = 150.0                    # how far ahead (m) a lead vehicle is searched
@@ -29,9 +30,6 @@ def wrap(a):
     return (a + np.pi) % (2 * np.pi) - np.pi
 
 
-FOOTPRINT = (EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W)   # fallback; normally read per segment by footprint_from_lidars
-
-
 def set_ego_geometry(front, rear, half_w):
     """Change the ego footprint used by the lead-vehicle gap (front) and by 2D metrics (whole box)."""
     global EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W
@@ -41,11 +39,12 @@ def set_ego_geometry(front, rear, half_w):
 def footprint_from_lidars(context):
     """Ego outline (front, rear, half width) in the vehicle frame from the lidar mounting positions:
     the FRONT and REAR short-range lidars sit on the bumpers and the SIDE lidars on the two sides.
-    Falls back to FOOTPRINT when the calibration is missing."""
+    Raises ValueError when the calibration is missing: there is no rounded or guessed default."""
     pos = {c['name']: np.asarray(c['extrinsic'], float).reshape(4, 4)[:3, 3]
            for c in context.get('laser_calibrations', [])}
     if not all(k in pos for k in ('FRONT', 'REAR', 'SIDE_LEFT', 'SIDE_RIGHT')):
-        return FOOTPRINT
+        raise ValueError(f"context.json of segment {context.get('name', '?')} has no lidar calibration, so the "
+                         "ego footprint is unknown; re-extract it with wod_v143_extract.py")
     half_w = (abs(pos['SIDE_LEFT'][1]) + abs(pos['SIDE_RIGHT'][1])) / 2
     return float(pos['FRONT'][0]), float(pos['REAR'][0]), float(half_w)
 

@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wod_common import (Segment, LaneMap, project, cumlen, ego_future_path,  # noqa: E402
-                        EGO_X_FRONT, EGO_X_REAR, EGO_HALF_W)
+                        footprint_from_lidars)
 
 sys.stdout.reconfigure(encoding='utf-8')
 METHODS = ('map', 'path', 'straight')
@@ -154,8 +154,8 @@ def draw_bev(seg, k, objs, out_path):
                                 fc='#ffd600', ec='#141414', lw=1.0, zorder=4))
         ax.text(-r.cy + r.width / 2 + 0.8, r.cx, str(r.num), fontsize=13, fontweight='bold',
                 color='#141414', va='center', ha='left', zorder=5)
-    eq = np.array([[EGO_X_FRONT, EGO_HALF_W], [EGO_X_FRONT, -EGO_HALF_W],
-                   [EGO_X_REAR, -EGO_HALF_W], [EGO_X_REAR, EGO_HALF_W]])
+    front, rear, half_w = footprint_from_lidars(seg.context)
+    eq = np.array([[front, half_w], [front, -half_w], [rear, -half_w], [rear, half_w]])
     ax.add_patch(MplPolygon(np.column_stack([-eq[:, 1], eq[:, 0]]), closed=True, fc='#2a78d6', ec='none', zorder=6))
     ax.set_xlim(-VIEW_LAT, VIEW_LAT)
     ax.set_ylim(-VIEW_BACK, VIEW_FWD)
