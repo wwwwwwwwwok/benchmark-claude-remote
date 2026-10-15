@@ -130,8 +130,22 @@
   - RSS：反应期间加速 3.8、后车刹车 6、前车最大刹车 7 m/s²，反应时间同上
 
 ## 参数的文献依据
-- 反应时间：SHRP2 碰撞和险情平均约 1.3 s、90% 分位 2.2 s（NCHRP 15-75）；Green 2000：有准备约 0.7 s、看到刹车灯约 1.25 s、受惊吓约 1.5 s；AASHTO 设计值 2.5 s。
-- 减速度：AASHTO 设计值约 3.4 m/s²（偏舒适）；SHRP2 险情平均约 6.7 m/s²；车辆最大可用减速度平均 8.45 m/s²（Cunto & Saccomanno 2008）。
+- SHRP2 的数字出自 NCHRP Research Report 1081（2024，项目 NCHRP 15-75，Michigan State University 的 Savolainen 等）。
+  - 报告题目：Acceleration, Deceleration, and Stopping Sight Distance Criteria for Geometric Design of Highways and Streets。
+  - 数据是 SHRP2 自然驾驶数据里 4,735 起碰撞和险情事件。
+  - 公开可读的是两份：TRB 网站上的附录（onlinepubs.trb.org/onlinepubs/nchrp/15-75/15-75_Appendices_to_Final_Report.pdf，附录 D 是建议的绿皮书改写），以及 2025-02-06 TRB 网络研讨会的幻灯片（onlinepubs.trb.org/onlinepubs/webinars/250206.pdf）。
+  - 正文第 3 章讲测量方法，要从 National Academies Press 下载。
+- 反应时间（刹车反应时间）：
+  - SHRP2：平均约 1.3 s（1.255 s，标准差 0.93），90% 分位 2.2 s。没有次要任务的事件 1.12 s，有次要任务的 1.33 s；不同道路环境、车速之间差别不大；涉及动物的事件（占 2.5%）只有 0.65 s。
+  - 报告建议设计值从 2.5 s 改为 2.2 s。
+  - 其他来源：Green 2000，有准备约 0.7 s、看到刹车灯约 1.25 s、受惊吓约 1.5 s；AASHTO 原设计值 2.5 s。
+- 减速度：
+  - SHRP2：取每起事件里的最大减速度。全部事件平均 22.0 ft/s²（6.7 m/s²，标准差 1.9 m/s²）；没有次要任务的 6.3 m/s²，有次要任务的 6.9 m/s²。
+  - 按道路环境分：
+    - 乡村和高速：10% 分位 3.6 m/s²，平均 6.2 m/s²；
+    - 城市和低速：10% 分位 4.6 m/s²，平均 6.9 m/s²。
+  - 报告建议停车视距用的减速度：高速和乡村 3.6 m/s²，城市低速（≤ 45 mph）4.6 m/s²。原来的 AASHTO 值是 3.4 m/s²。
+  - 其他来源：NCHRP Report 400（Fambro 1997）平均 8.9 m/s²；车辆最大可用减速度平均 8.45 m/s²（Cunto & Saccomanno 2008）。
 - 各 SSM 的参数取值汇总见 Singh et al. 2023（arXiv 2306.14657）。
 
 ## 已知问题 / 待决定
