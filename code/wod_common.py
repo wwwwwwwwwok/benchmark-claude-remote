@@ -24,6 +24,10 @@ LEAD_MAX_DHEADING = np.deg2rad(30)   # lead must travel roughly in the ego direc
 LOOKAHEAD = 150.0                    # how far ahead (m) a lead vehicle is searched
 LEAD_TYPES = ('vehicle', 'cyclist')
 SPEED_FRAME = 'global'               # frame of the labels' speed/accel (checked by check_v143_extract.py)
+# ego speed and acceleration: Savitzky-Golay 1st/2nd derivative of the ego position in the world frame, the
+# same filter that reproduces Waymo's labelled object speeds and accelerations from the box centres
+# (19 frames = 1.9 s, quadratic; demo: speed RMSE 0.003 m/s, acceleration RMSE 0.006 m/s2)
+KIN_WINDOW, KIN_ORDER = 19, 2
 
 
 def wrap(a):
@@ -75,11 +79,16 @@ class Segment:
         off = fr[['map_pose_offset_x', 'map_pose_offset_y', 'map_pose_offset_z']].to_numpy(float)
         self.offset = np.nan_to_num(off)
         self.ego_map = self.pose[:, :3, 3] + self.offset            # ego origin in the map frame
-        v = fr[['ego_vx', 'ego_vy', 'ego_vz']].to_numpy(float)       # global frame
-        self.ego_v = v
+        self.ego_v_reported = fr[['ego_vx', 'ego_vy', 'ego_vz']].to_numpy(float)   # as reported (global frame)
+        p = self.pose[:, :3, 3]          # world frame; the map offset is left out because it drifts within a segment
         dt = np.median(np.diff(self.t))
-        win = min(11, len(v) - (1 - len(v) % 2))
-        self.ego_a = savgol_filter(v, win, 2, deriv=1, delta=dt, axis=0) if win >= 5 else np.gradient(v, self.t, axis=0)
+        win = min(KIN_WINDOW, len(p) - (1 - len(p) % 2))
+        if win > KIN_ORDER + 1:
+            self.ego_v = savgol_filter(p, win, KIN_ORDER, deriv=1, delta=dt, axis=0)
+            self.ego_a = savgol_filter(p, win, KIN_ORDER, deriv=2, delta=dt, axis=0)
+        else:                            # very short segment: fall back to the reported velocity
+            self.ego_v = self.ego_v_reported
+            self.ego_a = np.gradient(self.ego_v, self.t, axis=0)
         self.objects = pd.read_parquet(os.path.join(self.dir, 'objects.parquet'))
         self.map = pd.read_parquet(os.path.join(self.dir, 'map.parquet'))
         pb = pd.read_parquet(os.path.join(self.dir, 'projected_boxes.parquet'), columns=['frame_idx', 'camera', 'id'])

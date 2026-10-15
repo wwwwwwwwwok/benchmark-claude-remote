@@ -51,7 +51,7 @@ for seg_name in SEGS:
     # 3. ego velocity: reported vs pose differences (global frame)
     pos = seg.pose[:, :3, 3]
     v_pose = np.gradient(pos, seg.t, axis=0)
-    dv = np.linalg.norm(seg.ego_v[:, :2] - v_pose[:, :2], axis=1)
+    dv = np.linalg.norm(seg.ego_v_reported[:, :2] - v_pose[:, :2], axis=1)
 
     # 4. speed frame
     o = seg.objects[(seg.objects['type'] == 'vehicle')]
@@ -76,7 +76,7 @@ for seg_name in SEGS:
         crosswalks=kinds.get('crosswalk', 0), stop_signs=kinds.get('stop_sign', 0),
         frames_with_map=str(map_frames[:3]) + ('...' if len(map_frames) > 3 else ''),
         offset_max_m=off_norm.max(), offset_median_m=np.median(off_norm),
-        ego_v_vs_pose_median_mps=np.median(dv), ego_speed_mean_mps=np.hypot(*seg.ego_v[:, :2].T).mean(),
+        ego_v_vs_pose_median_mps=np.median(dv), ego_speed_mean_mps=np.hypot(*seg.ego_v_reported[:, :2].T).mean(),
         moving_vehicle_labels=len(o),
         speed_vs_heading_if_global_deg=np.degrees(np.median(d_global)) if len(o) else np.nan,
         speed_vs_heading_if_vehicle_deg=np.degrees(np.median(d_vehicle)) if len(o) else np.nan,
