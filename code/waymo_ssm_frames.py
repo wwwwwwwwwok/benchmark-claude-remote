@@ -46,6 +46,7 @@ PARAMS = dict(
     rss_b_min=6.0,     # RSS: braking the rear vehicle applies after responding (m/s^2)
     rss_b_max=7.0,     # RSS: max braking of the front vehicle (m/s^2)
     ttc_cap=10.0,      # horizon of the 2D-TTC search (s)
+    thw_v_min=0.1,     # THW = inf when the ego is slower than this (m/s): stopped, d / v would only be noise
 )
 G = 9.81
 METHODS = ('straight', 'path', 'map')
@@ -167,7 +168,7 @@ def lead_ssms(g, vf, vl, af, al):
     out = dict(gap=g, v_ego=vf, v_lead=vl, a_ego=af, a_lead=al, closing=closing,
                TTC=g / closing if closing > 0 else np.inf,
                RTTC=closing / g if closing > 0 else 0.0,
-               THW=g / vf if vf > 0.5 else np.inf,
+               THW=g / vf if vf > p['thw_v_min'] else np.inf,
                DRAC=closing ** 2 / (2 * g) if closing > 0 else 0.0)
     out['MTTC'] = m = mttc(g, closing, af - al)
     out['CI'] = (((vf + af * m) ** 2 - (vl + al * m) ** 2) / 2 / m) if np.isfinite(m) and m > 0 else 0.0
