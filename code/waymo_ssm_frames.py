@@ -109,12 +109,45 @@ def poly_dist(A, B):
                for i in range(4) for j in range(4))
 
 
-def act(obj, rel_v, h=0.1):
+V_MOVING = 0.5   # m/s: a road user slower than this is not "approaching" (no heading line drawn from it)
+
+
+def ray_hits(p, u, poly):
+    """Does the ray p + s*u (s >= 0) cross an edge of the polygon?"""
+    for a, b in zip(poly, np.roll(poly, -1, axis=0)):
+        e, w = b - a, a - p
+        den = e[0] * u[1] - e[1] * u[0]
+        if abs(den) < 1e-12:
+            continue
+        s = (e[0] * w[1] - e[1] * w[0]) / den
+        r = (u[0] * w[1] - u[1] * w[0]) / den
+        if s >= 0 and 0 <= r <= 1:
+            return True
+    return False
+
+
+def on_collision_course(obj, obj_heading, obj_moving, ego_moving):
+    """ACT paper's sufficient condition (Venthuruthiyil & Chunchu 2022, Sec. 3.1.3, Eq. 15): a line from the
+    approaching road user's closest corner, along its heading, must pass through the other one's body.
+    Checked from both sides (the ego heading is +x in the vehicle frame)."""
+    d = np.linalg.norm(EGO_BOX[:, None, :] - obj[None, :, :], axis=-1)
+    ie, io = np.unravel_index(d.argmin(), d.shape)           # closest corner pair (paper Eq. 7)
+    if ego_moving and ray_hits(EGO_BOX[ie], np.array([1.0, 0.0]), obj):
+        return True
+    return bool(obj_moving and ray_hits(obj[io], np.array([np.cos(obj_heading), np.sin(obj_heading)]), EGO_BOX))
+
+
+def act(obj, rel_v, obj_heading, obj_moving, ego_moving, dt=0.1):
+    """Anticipated Collision Time (Venthuruthiyil & Chunchu 2022): shortest distance / closing-in rate; inf when
+    the two are not closing in or not on a collision course. The closing-in rate keeps only the velocity term
+    (the paper's Eq. 4 adds acceleration x t, with t undefined, and yaw rate x distance; left out by decision)."""
     d0 = poly_dist(EGO_BOX, obj)
     if d0 == 0:
         return 0.0, 0.0
-    closing = (d0 - poly_dist(EGO_BOX, obj + h * rel_v[None])) / h
-    return (d0 / closing if closing > 1e-6 else np.inf), d0
+    closing = (d0 - poly_dist(EGO_BOX, obj + dt * rel_v[None])) / dt
+    if closing <= 1e-6 or not on_collision_course(obj, obj_heading, obj_moving, ego_moving):
+        return np.inf, d0
+    return d0 / closing, d0
 
 
 def mttc(gap, closing, dacc):
@@ -191,12 +224,14 @@ def process(seg, cameras):
         row.update(TTC2D=np.inf, TTC2D_obj=None, ACT=np.inf, ACT_obj=None, min_dist=np.inf, min_dist_obj=None)
         if len(o_all):
             _, _, v_g, _ = seg.to_map(k, o_all)
+            ego_moving = np.hypot(*ego_v_veh) >= V_MOVING
             for (oid, cx, cy, L, W, h), vg in zip(o_all[['id', 'cx', 'cy', 'length', 'width', 'heading']].itertuples(index=False), v_g):
                 if np.hypot(cx, cy) > 80:
                     continue
                 q = rect(cx, cy, L, W, h)
-                rel = R[:2, :2].T @ vg - ego_v_veh
-                a_val, d0 = act(q, rel)
+                v_obj = R[:2, :2].T @ vg
+                rel = v_obj - ego_v_veh
+                a_val, d0 = act(q, rel, h, np.hypot(*v_obj) >= V_MOVING, ego_moving)
                 if d0 < row['min_dist']:
                     row['min_dist'], row['min_dist_obj'] = d0, oid
                 if a_val < row['ACT']:
