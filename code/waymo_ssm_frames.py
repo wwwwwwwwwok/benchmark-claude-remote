@@ -11,6 +11,10 @@ Pairing methods (wod_common.py)
     path     : corridor along the path the ego actually drives next
     map      : lane route from the HD map (falls back to `path` when the ego is not on a mapped lane)
 Lead-vehicle SSMs are computed with the `map` pairing; 2D metrics use all objects.
+
+Lead-vehicle SSMs follow the traffic-safety convention (textbook TTC): speeds are the magnitudes of the
+two velocities and the closing speed is ego speed - lead speed; accelerations are the rates of change of
+those speeds (wod_common.speed_and_accel). 2D metrics use the full relative velocity vector.
 """
 import argparse
 import os
@@ -127,7 +131,7 @@ def mttc(gap, closing, dacc):
 def lead_ssms(g, vf, vl, af, al):
     p = PARAMS
     closing = vf - vl
-    out = dict(gap=g, v_ego_long=vf, v_lead_long=vl, closing=closing,
+    out = dict(gap=g, v_ego=vf, v_lead=vl, a_ego=af, a_lead=al, closing=closing,
                TTC=g / closing if closing > 0 else np.inf,
                RTTC=closing / g if closing > 0 else 0.0,
                THW=g / vf if vf > 0.5 else np.inf,
@@ -148,7 +152,7 @@ def lead_ssms(g, vf, vl, af, al):
     return out
 
 
-LEAD_COLS = ['gap', 'v_ego_long', 'v_lead_long', 'closing', 'TTC', 'RTTC', 'THW', 'DRAC', 'MTTC', 'CI',
+LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'RTTC', 'THW', 'DRAC', 'MTTC', 'CI',
              'PICUD', 'RCRI', 'DSS', 'DST', 'TTB', 'RSS_dmin', 'RSS_margin']
 
 

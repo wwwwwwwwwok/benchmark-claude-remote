@@ -133,12 +133,6 @@ def project(xy, s_cum, P):
     return s, np.sign(cross) * dist[r, j], np.arctan2(AB[j, 1], AB[j, 0])
 
 
-def heading_at(xy, s_cum, s):
-    j = np.clip(np.searchsorted(s_cum, s) - 1, 0, len(xy) - 2)
-    d = xy[j + 1] - xy[j]
-    return np.arctan2(d[..., 1], d[..., 0])
-
-
 def extend_straight(xy, length, baseline=10.0):
     """Append a straight piece along the end direction, measured over the last `baseline` metres
     (a single short segment gives a noisy direction that drifts sideways far ahead)."""
@@ -244,6 +238,23 @@ class LaneMap:
 
 
 # ------------------------------------------------------------------ lead-vehicle pairing
+def speed_and_accel(v, a, heading, v_min=0.5):
+    """Traffic-safety convention (textbook TTC, NGSIM v_Vel / v_Acc): speed = magnitude of the horizontal
+    velocity; acceleration = rate of change of that speed, i.e. the acceleration component along the
+    direction of travel. Below v_min the velocity direction is noise, so the heading is used instead."""
+    v, a = np.asarray(v, float)[:2], np.asarray(a, float)[:2]
+    speed = float(np.hypot(*v))
+    u = v / speed if speed >= v_min else np.array([np.cos(heading), np.sin(heading)])
+    return speed, float(a @ u)
+
+
+def _kinematics(seg, k, v_lead, a_lead, hdg_lead):
+    """Speeds and accelerations of the ego and the lead (global-frame vectors in, scalars out)."""
+    vl, al = speed_and_accel(v_lead, a_lead, hdg_lead)
+    ve, ae = speed_and_accel(seg.ego_v[k], seg.ego_a[k], seg.yaw[k])
+    return dict(v_lead=vl, a_lead=al, v_ego=ve, a_ego=ae)
+
+
 def _pick_lead(s_rel, d, dh, o, gap_ok_min=0.0):
     L = o['length'].to_numpy(float)
     gap = s_rel - L / 2 - EGO_X_FRONT
@@ -263,10 +274,8 @@ def lead_straight(seg, k, o):
     if res is None:
         return None
     i, gap = res
-    R = seg.R[k]
-    _, _, v, a = seg.to_map(k, o.iloc[[i]])
-    return dict(i=i, gap=gap, v_lead=(R[:2, :2].T @ v[0])[0], a_lead=(R[:2, :2].T @ a[0])[0],
-                v_ego=(R.T @ seg.ego_v[k])[0], a_ego=(R.T @ seg.ego_a[k])[0])
+    _, hdg, v, a = seg.to_map(k, o.iloc[[i]])
+    return dict(i=i, gap=gap, **_kinematics(seg, k, v[0], a[0], hdg[0]))
 
 
 def _lead_on_polyline(seg, k, o, xy, s_ego):
@@ -279,11 +288,7 @@ def _lead_on_polyline(seg, k, o, xy, s_ego):
     if res is None:
         return None
     i, gap = res
-    te = heading_at(xy, s_cum, s_ego)
-    tl = ph[i]
-    ue, ul = np.array([np.cos(te), np.sin(te)]), np.array([np.cos(tl), np.sin(tl)])
-    return dict(i=i, gap=gap, v_lead=v[i] @ ul, a_lead=a[i] @ ul,
-                v_ego=seg.ego_v[k, :2] @ ue, a_ego=seg.ego_a[k, :2] @ ue)
+    return dict(i=i, gap=gap, **_kinematics(seg, k, v[i], a[i], hdg[i]))
 
 
 def ego_future_path(seg, k, min_step=0.5):
