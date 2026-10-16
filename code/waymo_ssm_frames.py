@@ -35,16 +35,15 @@ from wod_common import (Segment, LaneMap, lead_straight, lead_path, lead_map, wr
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-# ---- parameters the user has to choose (demo values; see the workbook's hyperparameter discussion) ----
+# ---- parameters the user has to choose (tau, a_emerg and thw_v_min decided 2026-10-15; the rest are demo values) ----
 PARAMS = dict(
-    tau=1.0,           # reaction time (s): DSS, PICUD, RCRI, RSS (rho)
-    a_emerg=6.0,       # emergency braking deceleration (m/s^2): PICUD, RCRI, TTB
+    tau=1.26,          # reaction time (s): DSS, PICUD, RCRI. SHRP2 crash/near-crash brake reaction time,
+                       # mean 1.255 s (NCHRP Research Report 1081, 2024)
+    a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD, RCRI, TTB. SHRP2 per-event maximum
+                       # deceleration, mean 22.0 ft/s^2 = 6.7 m/s^2 (NCHRP Research Report 1081, 2024)
     mu=0.7,            # road friction coefficient: DSS
     t_safe=1.4,        # safety time gap (s): DST
     ttc_star=3.0,      # TTC threshold (s): TET, TIT
-    rss_a_accel=3.8,   # RSS: max acceleration of the rear vehicle during the response time (m/s^2)
-    rss_b_min=6.0,     # RSS: braking the rear vehicle applies after responding (m/s^2)
-    rss_b_max=7.0,     # RSS: max braking of the front vehicle (m/s^2)
     ttc_cap=10.0,      # horizon of the 2D-TTC search (s)
     thw_v_min=0.1,     # THW = inf when the ego is slower than this (m/s): stopped, d / v would only be noise
 )
@@ -179,15 +178,11 @@ def lead_ssms(g, vf, vl, af, al):
     denom = g - vl * p['t_safe']
     out['DST'] = 0.0 if closing <= 0 else (closing ** 2 / (2 * denom) if denom > 0 else np.inf)
     out['TTB'] = out['TTC'] - closing / (2 * p['a_emerg']) if np.isfinite(out['TTC']) else np.inf
-    rho, aa = p['tau'], p['rss_a_accel']
-    dmin = vf * rho + 0.5 * aa * rho ** 2 + (vf + rho * aa) ** 2 / (2 * p['rss_b_min']) - vl ** 2 / (2 * p['rss_b_max'])
-    out['RSS_dmin'] = max(dmin, 0.0)
-    out['RSS_margin'] = g - out['RSS_dmin']
     return out
 
 
 LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'RTTC', 'THW', 'DRAC', 'MTTC', 'CI',
-             'PICUD', 'RCRI', 'DSS', 'DST', 'TTB', 'RSS_dmin', 'RSS_margin']
+             'PICUD', 'RCRI', 'DSS', 'DST', 'TTB']
 
 
 # ------------------------------------------------------------------ per segment
@@ -256,7 +251,7 @@ def summarize(g):
         **{f'frames_with_lead_{m}': int(g[f'lead_{m}'].notna().sum()) for m in METHODS},
         'same_lead_map_vs_path': both('map', 'path'), 'same_lead_map_vs_straight': both('map', 'straight'),
         'min_TTC': g['TTC'].min(), 'min_THW': g['THW'].min(), 'max_DRAC': g['DRAC'].max(),
-        'min_PICUD': g['PICUD'].min(), 'min_DSS': g['DSS'].min(), 'min_RSS_margin': g['RSS_margin'].min(),
+        'min_PICUD': g['PICUD'].min(), 'min_DSS': g['DSS'].min(),
         'TET_s': below.sum() * dt, 'TIT_s2': ((PARAMS['ttc_star'] - ttc[below]) * dt).sum(),
         'min_TTC2D': g['TTC2D'].min(), 'min_ACT': g['ACT'].min(), 'min_dist': g['min_dist'].min(),
     })
