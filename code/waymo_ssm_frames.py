@@ -37,17 +37,14 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 # ---- parameters the user has to choose (tau, a_emerg and thw_v_min decided 2026-10-15; the rest are demo values) ----
 PARAMS = dict(
-    tau=1.26,          # reaction time (s): DSS, PICUD, RCRI. SHRP2 crash/near-crash brake reaction time,
+    tau=1.26,          # reaction time (s): PICUD, RCRI. SHRP2 crash/near-crash brake reaction time,
                        # mean 1.255 s (NCHRP Research Report 1081, 2024)
     a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD, RCRI, TTB. SHRP2 per-event maximum
                        # deceleration, mean 22.0 ft/s^2 = 6.7 m/s^2 (NCHRP Research Report 1081, 2024)
-    mu=0.7,            # road friction coefficient: DSS
     t_safe=1.4,        # safety time gap (s): DST
-    ttc_star=3.0,      # TTC threshold (s): TET, TIT
     ttc_cap=10.0,      # horizon of the 2D-TTC search (s)
     thw_v_min=0.1,     # THW = inf when the ego is slower than this (m/s): stopped, d / v would only be noise
 )
-G = 9.81
 METHODS = ('straight', 'path', 'map')
 BLUE, ORANGE, AQUA = '#2a78d6', '#eb6834', '#1baf7a'
 METHOD_COLOR = {'map': BLUE, 'path': AQUA, 'straight': ORANGE}
@@ -174,7 +171,6 @@ def lead_ssms(g, vf, vl, af, al):
     stop_f = vf * p['tau'] + vf ** 2 / (2 * p['a_emerg'])
     out['PICUD'] = vl ** 2 / (2 * p['a_emerg']) + g - stop_f
     out['RCRI'] = int(out['PICUD'] <= 0)
-    out['DSS'] = vl ** 2 / (2 * p['mu'] * G) + g - (vf * p['tau'] + vf ** 2 / (2 * p['mu'] * G))
     denom = g - vl * p['t_safe']
     out['DST'] = 0.0 if closing <= 0 else (closing ** 2 / (2 * denom) if denom > 0 else np.inf)
     out['TTB'] = out['TTC'] - closing / (2 * p['a_emerg']) if np.isfinite(out['TTC']) else np.inf
@@ -182,7 +178,7 @@ def lead_ssms(g, vf, vl, af, al):
 
 
 LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'RTTC', 'THW', 'DRAC', 'MTTC', 'CI',
-             'PICUD', 'RCRI', 'DSS', 'DST', 'TTB']
+             'PICUD', 'RCRI', 'DST', 'TTB']
 
 
 # ------------------------------------------------------------------ per segment
@@ -241,9 +237,6 @@ def process(seg, cameras):
 
 
 def summarize(g):
-    dt = np.median(np.diff(g['t_s']))
-    ttc = g['TTC'].fillna(np.inf)
-    below = ttc < PARAMS['ttc_star']
     both = lambda a, b: (g[f'lead_{a}'].fillna('-') == g[f'lead_{b}'].fillna('-')).mean()
     return pd.Series({
         'frames': len(g), 'ego_speed_mean': g['ego_speed'].mean(),
@@ -251,8 +244,7 @@ def summarize(g):
         **{f'frames_with_lead_{m}': int(g[f'lead_{m}'].notna().sum()) for m in METHODS},
         'same_lead_map_vs_path': both('map', 'path'), 'same_lead_map_vs_straight': both('map', 'straight'),
         'min_TTC': g['TTC'].min(), 'min_THW': g['THW'].min(), 'max_DRAC': g['DRAC'].max(),
-        'min_PICUD': g['PICUD'].min(), 'min_DSS': g['DSS'].min(),
-        'TET_s': below.sum() * dt, 'TIT_s2': ((PARAMS['ttc_star'] - ttc[below]) * dt).sum(),
+        'min_PICUD': g['PICUD'].min(),
         'min_TTC2D': g['TTC2D'].min(), 'min_ACT': g['ACT'].min(), 'min_dist': g['min_dist'].min(),
     })
 
