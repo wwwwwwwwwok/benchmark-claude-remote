@@ -133,14 +133,31 @@ def on_collision_course(obj, obj_heading, obj_moving, ego_moving):
     return bool(obj_moving and ray_hits(obj[io], np.array([np.cos(obj_heading), np.sin(obj_heading)]), EGO_BOX))
 
 
-def act(obj, rel_v, obj_heading, obj_moving, ego_moving, dt=0.1):
+def closest_points(A, B):
+    """Shortest distance between two disjoint convex polygons and its end points (on A, on B):
+    the minimum over all corner-to-edge pairs."""
+    best = (np.inf, None, None)
+    for P, Q, p_on_a in ((A, B, True), (B, A, False)):
+        for p in P:
+            for a, b in zip(Q, np.roll(Q, -1, axis=0)):
+                ab = b - a
+                q = a + np.clip(np.dot(p - a, ab) / np.dot(ab, ab), 0, 1) * ab
+                d = np.linalg.norm(p - q)
+                if d < best[0]:
+                    best = (d, p, q) if p_on_a else (d, q, p)
+    return best
+
+
+def act(obj, rel_v, obj_heading, obj_moving, ego_moving):
     """Anticipated Collision Time (Venthuruthiyil & Chunchu 2022): shortest distance / closing-in rate; inf when
-    the two are not closing in or not on a collision course. The closing-in rate keeps only the velocity term
-    (the paper's Eq. 4 adds acceleration x t, with t undefined, and yaw rate x distance; left out by decision)."""
+    the two are not closing in or not on a collision course. The closing-in rate is the relative velocity
+    projected on the shortest-distance direction: the paper's Eq. 4 with the velocity term only (acceleration and
+    yaw rate taken as 0, as in Jiao's SSMsOnPlane implementation), evaluated analytically (decided 2026-10-16)."""
     d0 = poly_dist(EGO_BOX, obj)
     if d0 == 0:
         return 0.0, 0.0
-    closing = (d0 - poly_dist(EGO_BOX, obj + dt * rel_v[None])) / dt
+    d, pe, po = closest_points(EGO_BOX, obj)
+    closing = -float(np.dot(rel_v, (po - pe) / d))      # > 0 when the object moves towards the ego
     if closing <= 1e-6 or not on_collision_course(obj, obj_heading, obj_moving, ego_moving):
         return np.inf, d0
     return d0 / closing, d0
@@ -185,7 +202,8 @@ def process(seg, cameras):
     rows, picks = [], []
     for k in range(n):
         o_all = seg.objects_at(k, cameras=cameras, types=['vehicle', 'pedestrian', 'cyclist'])
-        o_lead = o_all[o_all['type'].isin(LEAD_TYPES)].reset_index(drop=True)
+        in_range = np.hypot(o_all['cx'], o_all['cy']) <= wc.LABEL_RANGE
+        o_lead = o_all[o_all['type'].isin(LEAD_TYPES) & in_range].reset_index(drop=True)
         R = seg.R[k]
         ego_v_veh = (R.T @ seg.ego_v[k])[:2]
         row = dict(segment=seg.name, frame_idx=k, timestamp_micros=int(seg.ts[k]), t_s=round(float(seg.t[k]), 2),
@@ -211,7 +229,7 @@ def process(seg, cameras):
             _, _, v_g, _ = seg.to_map(k, o_all)
             ego_moving = np.hypot(*ego_v_veh) >= V_MOVING
             for (oid, cx, cy, L, W, h), vg in zip(o_all[['id', 'cx', 'cy', 'length', 'width', 'heading']].itertuples(index=False), v_g):
-                if np.hypot(cx, cy) > 80:
+                if np.hypot(cx, cy) > wc.LABEL_RANGE:
                     continue
                 q = rect(cx, cy, L, W, h)
                 v_obj = R[:2, :2].T @ vg

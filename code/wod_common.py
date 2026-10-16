@@ -21,7 +21,11 @@ from scipy.signal import savgol_filter
 EGO_X_FRONT = EGO_X_REAR = EGO_HALF_W = None
 LANE_HALF = 1.75                     # same-lane test: |lateral offset| < half of a 3.5 m lane
 LEAD_MAX_DHEADING = np.deg2rad(30)   # lead must travel roughly in the ego direction
-LOOKAHEAD = 150.0                    # how far ahead (m) a lead vehicle is searched
+# Waymo: the lidar 3D labels capture all objects within a 75 m radius (Sun et al. 2020); boxes further out exist
+# (up to 85.5 m on the demo) but are not complete, so every SSM only uses objects whose centre is within 75 m
+LABEL_RANGE = 75.0
+LOOKAHEAD = 150.0                    # length (m) of the lane route / ego path searched for a lead; longer than
+                                     # LABEL_RANGE so that on curves the route still reaches every labelled object
 LEAD_TYPES = ('vehicle', 'cyclist')
 SPEED_FRAME = 'global'               # frame of the labels' speed/accel (checked by check_v143_extract.py)
 # ego speed and acceleration: Savitzky-Golay 1st/2nd derivative of the ego position in the world frame, the
