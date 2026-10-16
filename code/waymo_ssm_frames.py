@@ -37,9 +37,9 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 # ---- parameters the user has to choose (tau, a_emerg and thw_v_min decided 2026-10-15; the rest are demo values) ----
 PARAMS = dict(
-    tau=1.26,          # reaction time (s): PICUD, RCRI. SHRP2 crash/near-crash brake reaction time,
+    tau=1.26,          # reaction time (s): PICUD. SHRP2 crash/near-crash brake reaction time,
                        # mean 1.255 s (NCHRP Research Report 1081, 2024)
-    a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD, RCRI, TTB. SHRP2 per-event maximum
+    a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD, TTB. SHRP2 per-event maximum
                        # deceleration, mean 22.0 ft/s^2 = 6.7 m/s^2 (NCHRP Research Report 1081, 2024)
     t_safe=1.4,        # safety time gap (s): DST
     ttc_cap=10.0,      # horizon of the 2D-TTC search (s)
@@ -170,7 +170,6 @@ def lead_ssms(g, vf, vl, af, al):
     out['CI'] = (((vf + af * m) ** 2 - (vl + al * m) ** 2) / 2 / m) if np.isfinite(m) and m > 0 else 0.0
     stop_f = vf * p['tau'] + vf ** 2 / (2 * p['a_emerg'])
     out['PICUD'] = vl ** 2 / (2 * p['a_emerg']) + g - stop_f
-    out['RCRI'] = int(out['PICUD'] <= 0)
     denom = g - vl * p['t_safe']
     out['DST'] = 0.0 if closing <= 0 else (closing ** 2 / (2 * denom) if denom > 0 else np.inf)
     out['TTB'] = out['TTC'] - closing / (2 * p['a_emerg']) if np.isfinite(out['TTC']) else np.inf
@@ -178,7 +177,7 @@ def lead_ssms(g, vf, vl, af, al):
 
 
 LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'RTTC', 'THW', 'DRAC', 'MTTC', 'CI',
-             'PICUD', 'RCRI', 'DST', 'TTB']
+             'PICUD', 'DST', 'TTB']
 
 
 # ------------------------------------------------------------------ per segment
