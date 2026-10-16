@@ -39,9 +39,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 PARAMS = dict(
     tau=1.26,          # reaction time (s): PICUD. SHRP2 crash/near-crash brake reaction time,
                        # mean 1.255 s (NCHRP Research Report 1081, 2024)
-    a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD, TTB. SHRP2 per-event maximum
+    a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD. SHRP2 per-event maximum
                        # deceleration, mean 22.0 ft/s^2 = 6.7 m/s^2 (NCHRP Research Report 1081, 2024)
-    t_safe=1.4,        # safety time gap (s): DST
     ttc_cap=10.0,      # horizon of the 2D-TTC search (s)
     thw_v_min=0.1,     # THW = inf when the ego is slower than this (m/s): stopped, d / v would only be noise
 )
@@ -163,21 +162,16 @@ def lead_ssms(g, vf, vl, af, al):
     closing = vf - vl
     out = dict(gap=g, v_ego=vf, v_lead=vl, a_ego=af, a_lead=al, closing=closing,
                TTC=g / closing if closing > 0 else np.inf,
-               RTTC=closing / g if closing > 0 else 0.0,
                THW=g / vf if vf > p['thw_v_min'] else np.inf,
                DRAC=closing ** 2 / (2 * g) if closing > 0 else 0.0)
     out['MTTC'] = m = mttc(g, closing, af - al)
     out['CI'] = (((vf + af * m) ** 2 - (vl + al * m) ** 2) / 2 / m) if np.isfinite(m) and m > 0 else 0.0
     stop_f = vf * p['tau'] + vf ** 2 / (2 * p['a_emerg'])
     out['PICUD'] = vl ** 2 / (2 * p['a_emerg']) + g - stop_f
-    denom = g - vl * p['t_safe']
-    out['DST'] = 0.0 if closing <= 0 else (closing ** 2 / (2 * denom) if denom > 0 else np.inf)
-    out['TTB'] = out['TTC'] - closing / (2 * p['a_emerg']) if np.isfinite(out['TTC']) else np.inf
     return out
 
 
-LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'RTTC', 'THW', 'DRAC', 'MTTC', 'CI',
-             'PICUD', 'DST', 'TTB']
+LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD']
 
 
 # ------------------------------------------------------------------ per segment
