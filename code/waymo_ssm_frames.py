@@ -39,7 +39,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 PARAMS = dict(
     tau=1.26,          # reaction time (s): PICUD. SHRP2 crash/near-crash brake reaction time,
                        # mean 1.255 s (NCHRP Research Report 1081, 2024)
-    a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD. SHRP2 per-event maximum
+    a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD, PSD. SHRP2 per-event maximum
                        # deceleration, mean 22.0 ft/s^2 = 6.7 m/s^2 (NCHRP Research Report 1081, 2024)
     thw_v_min=0.1,     # THW = inf when the ego is slower than this (m/s): stopped, d / v would only be noise
 )
@@ -197,10 +197,14 @@ def lead_ssms(g, vf, vl, af, al):
     out['CI'] = (((vf + af * m) ** 2 - (vl + al * m) ** 2) / 2 / m) if np.isfinite(m) and m > 0 else 0.0
     stop_f = vf * p['tau'] + vf ** 2 / (2 * p['a_emerg'])
     out['PICUD'] = vl ** 2 / (2 * p['a_emerg']) + g - stop_f
+    # PSD (Allen et al. 1978), car-following form: remaining distance to the lead's rear / stopping distance
+    # v^2 / (2 a); < 1 means the ego cannot stop in time. a only scales PSD, so it does not change rankings
+    out['PSD'] = g / (vf ** 2 / (2 * p['a_emerg'])) if vf > p['thw_v_min'] else np.inf
     return out
 
 
-LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD']
+LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD',
+             'PSD']
 
 
 # ------------------------------------------------------------------ per segment
@@ -278,7 +282,7 @@ def summarize(g):
         **{f'frames_with_lead_{m}': int(g[f'lead_{m}'].notna().sum()) for m in METHODS},
         'same_lead_map_vs_path': both('map', 'path'), 'same_lead_map_vs_straight': both('map', 'straight'),
         'min_TTC': ok['TTC'].min(), 'min_THW': ok['THW'].min(), 'max_DRAC': ok['DRAC'].max(),
-        'min_PICUD': ok['PICUD'].min(),
+        'min_PICUD': ok['PICUD'].min(), 'min_PSD': ok['PSD'].min(),
         'min_TTC2D': ok['TTC2D'].min(), 'min_ACT': ok['ACT'].min(), 'min_dist': ok['min_dist'].min(),
     })
 
