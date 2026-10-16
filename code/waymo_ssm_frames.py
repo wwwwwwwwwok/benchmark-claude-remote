@@ -35,15 +35,15 @@ from wod_common import (Segment, LaneMap, lead_straight, lead_path, lead_map, wr
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-# ---- parameters the user has to choose (tau, a_emerg and thw_v_min decided 2026-10-15; the rest are demo values) ----
+# ---- parameters the user has to choose (all decided 2026-10-15) ----
 PARAMS = dict(
     tau=1.26,          # reaction time (s): PICUD. SHRP2 crash/near-crash brake reaction time,
                        # mean 1.255 s (NCHRP Research Report 1081, 2024)
     a_emerg=6.7,       # emergency braking deceleration (m/s^2): PICUD. SHRP2 per-event maximum
                        # deceleration, mean 22.0 ft/s^2 = 6.7 m/s^2 (NCHRP Research Report 1081, 2024)
-    ttc_cap=10.0,      # horizon of the 2D-TTC search (s)
     thw_v_min=0.1,     # THW = inf when the ego is slower than this (m/s): stopped, d / v would only be noise
 )
+TTC_PLOT_MAX = 10.0    # figures only: TTC above this (or inf) is drawn at this value
 METHODS = ('straight', 'path', 'map')
 BLUE, ORANGE, AQUA = '#2a78d6', '#eb6834', '#1baf7a'
 METHOD_COLOR = {'map': BLUE, 'path': AQUA, 'straight': ORANGE}
@@ -76,16 +76,32 @@ def axes_of(q):
     return [e1 / np.linalg.norm(e1), e2 / np.linalg.norm(e2)]
 
 
-def ttc_2d(obj, rel_v, cap, dt=0.05):
-    """First time the object box, moving at rel_v relative to the ego, overlaps the ego box."""
-    t = np.arange(0.0, cap + 1e-9, dt)
-    objs = obj[None] + t[:, None, None] * rel_v[None, None, :]
-    hit = np.ones(len(t), bool)
-    for ax in axes_of(EGO_BOX) + axes_of(obj):
-        pe, po = EGO_BOX @ ax, objs @ ax
-        hit &= (po.max(1) >= pe.min()) & (po.min(1) <= pe.max())
-    i = np.flatnonzero(hit)
-    return float(t[i[0]]) if len(i) else np.inf
+def ray_time(p, u, poly):
+    """Smallest s >= 0 for which p + s*u lies on an edge of the polygon; inf if the ray misses it."""
+    best = np.inf
+    for a, b in zip(poly, np.roll(poly, -1, axis=0)):
+        e, w = b - a, a - p
+        den = e[0] * u[1] - e[1] * u[0]
+        if abs(den) < 1e-12:
+            continue
+        s = (e[0] * w[1] - e[1] * w[0]) / den
+        r = (u[0] * w[1] - u[1] * w[0]) / den
+        if s >= 0 and 0 <= r <= 1:
+            best = min(best, s)
+    return best
+
+
+def ttc_2d(obj, rel_v):
+    """2D-TTC: first time the object box, moving at rel_v relative to the ego, touches the ego box. Exact, with no
+    time horizon or step (decided 2026-10-16): with constant velocities the first contact is a corner of one box
+    reaching an edge of the other, so the answer is the smallest corner-ray time over both boxes (the definition of
+    Jiao's Two-Dimensional-Time-To-Collision). 0 if the boxes overlap now, inf if they never touch."""
+    if poly_dist(EGO_BOX, obj) == 0:
+        return 0.0
+    if np.hypot(*rel_v) < 1e-12:
+        return np.inf
+    return min(min(ray_time(p, rel_v, EGO_BOX) for p in obj),      # object corners moving into the ego
+               min(ray_time(q, -rel_v, obj) for q in EGO_BOX))     # ego corners, seen from the object
 
 
 def _pt_seg(p, a, b):
@@ -105,21 +121,17 @@ def poly_dist(A, B):
                for i in range(4) for j in range(4))
 
 
-V_MOVING = 0.5   # m/s: a road user slower than this is not "approaching" (no heading line drawn from it)
+# m/s: a road user slower than this is not "moving" (no heading line is drawn from it in the ACT collision-course
+# check). Set above the speed noise of static boxes in the labels (demo maxima: vehicles 0.324, pedestrians
+# 0.206 m/s): pedestrians 0.3 m/s, since slow walkers move at 0.3-0.5 m/s; vehicles, cyclists and the ego 0.5 m/s
+# (decided 2026-10-16)
+V_MOVING = {'vehicle': 0.5, 'cyclist': 0.5, 'pedestrian': 0.3}
+V_MOVING_EGO = 0.5
 
 
 def ray_hits(p, u, poly):
     """Does the ray p + s*u (s >= 0) cross an edge of the polygon?"""
-    for a, b in zip(poly, np.roll(poly, -1, axis=0)):
-        e, w = b - a, a - p
-        den = e[0] * u[1] - e[1] * u[0]
-        if abs(den) < 1e-12:
-            continue
-        s = (e[0] * w[1] - e[1] * w[0]) / den
-        r = (u[0] * w[1] - u[1] * w[0]) / den
-        if s >= 0 and 0 <= r <= 1:
-            return True
-    return False
+    return bool(np.isfinite(ray_time(p, u, poly)))
 
 
 def on_collision_course(obj, obj_heading, obj_moving, ego_moving):
@@ -202,8 +214,9 @@ def process(seg, cameras):
     rows, picks = [], []
     for k in range(n):
         o_all = seg.objects_at(k, cameras=cameras, types=['vehicle', 'pedestrian', 'cyclist'])
-        in_range = np.hypot(o_all['cx'], o_all['cy']) <= wc.LABEL_RANGE
-        o_lead = o_all[o_all['type'].isin(LEAD_TYPES) & in_range].reset_index(drop=True)
+        o_rng = o_all[wc.box_nearest_dist(o_all['cx'], o_all['cy'], o_all['length'], o_all['width'],
+                                          o_all['heading']) <= wc.LABEL_RANGE]
+        o_lead = o_rng[o_rng['type'].isin(LEAD_TYPES)].reset_index(drop=True)
         R = seg.R[k]
         ego_v_veh = (R.T @ seg.ego_v[k])[:2]
         row = dict(segment=seg.name, frame_idx=k, timestamp_micros=int(seg.ts[k]), t_s=round(float(seg.t[k]), 2),
@@ -225,21 +238,20 @@ def process(seg, cameras):
 
         # 2D metrics over all objects (vehicle frame, relative velocity)
         row.update(TTC2D=np.inf, TTC2D_obj=None, ACT=np.inf, ACT_obj=None, min_dist=np.inf, min_dist_obj=None)
-        if len(o_all):
-            _, _, v_g, _ = seg.to_map(k, o_all)
-            ego_moving = np.hypot(*ego_v_veh) >= V_MOVING
-            for (oid, cx, cy, L, W, h), vg in zip(o_all[['id', 'cx', 'cy', 'length', 'width', 'heading']].itertuples(index=False), v_g):
-                if np.hypot(cx, cy) > wc.LABEL_RANGE:
-                    continue
+        if len(o_rng):
+            _, _, v_g, _ = seg.to_map(k, o_rng)
+            ego_moving = np.hypot(*ego_v_veh) >= V_MOVING_EGO
+            cols = ['id', 'type', 'cx', 'cy', 'length', 'width', 'heading']
+            for (oid, typ, cx, cy, L, W, h), vg in zip(o_rng[cols].itertuples(index=False), v_g):
                 q = rect(cx, cy, L, W, h)
                 v_obj = R[:2, :2].T @ vg
                 rel = v_obj - ego_v_veh
-                a_val, d0 = act(q, rel, h, np.hypot(*v_obj) >= V_MOVING, ego_moving)
+                a_val, d0 = act(q, rel, h, np.hypot(*v_obj) >= V_MOVING[typ], ego_moving)
                 if d0 < row['min_dist']:
                     row['min_dist'], row['min_dist_obj'] = d0, oid
                 if a_val < row['ACT']:
                     row['ACT'], row['ACT_obj'] = a_val, oid
-                t2 = ttc_2d(q, rel, PARAMS['ttc_cap'])
+                t2 = ttc_2d(q, rel)
                 if t2 < row['TTC2D']:
                     row['TTC2D'], row['TTC2D_obj'] = t2, oid
         rows.append(row)
@@ -269,7 +281,7 @@ def style(ax):
 
 
 def plot_ttc_methods(df, seg_name, out):
-    cap = PARAMS['ttc_cap']
+    cap = TTC_PLOT_MAX
     fig, ax = plt.subplots(figsize=(10, 3.6), facecolor=SURF)
     style(ax)
     for m in ('map', 'path', 'straight'):
@@ -364,7 +376,7 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     cameras = None if a.cameras == 'none' else a.cameras.split(',')
     segs = a.segments or sorted(d for d in os.listdir(a.root) if os.path.isdir(os.path.join(a.root, d)))
-    frames, ego_lines = [], []
+    frames, ego_lines, label_lines = [], [], []
     for name in segs:
         seg = Segment(a.root, name)
         if a.ego == 'camera':
@@ -374,6 +386,14 @@ def main():
             use_ego(*wc.footprint_from_lidars(seg.context))   # bumper and side lidar positions
         ego_lines.append(f'ego {name} = front {wc.EGO_X_FRONT:.3f} m, rear {wc.EGO_X_REAR:.3f} m, '
                          f'half width {wc.EGO_HALF_W:.3f} m')
+        # check that the labels still end at LABEL_RANGE (nearest point of the box) in this segment
+        o = seg.objects[seg.objects['type'].isin(['vehicle', 'pedestrian', 'cyclist'])]
+        edge = float(wc.box_nearest_dist(o['cx'], o['cy'], o['length'], o['width'], o['heading']).max()) \
+            if len(o) else float('nan')
+        label_lines.append(f'labels {name} = farthest box nearest point {edge:.3f} m')
+        if edge > wc.LABEL_RANGE:
+            print(f'WARNING {name}: labelled boxes reach {edge:.3f} m, beyond LABEL_RANGE = {wc.LABEL_RANGE} m; '
+                  f'those boxes are left out')
         df, lmap, ego_lanes, ego_s = process(seg, cameras)
         frames.append(df)
         plot_ttc_methods(df, name, a.out)
@@ -394,7 +414,9 @@ def main():
     print(summ.round(3).T.to_string())
     with open(os.path.join(a.out, 'params.txt'), 'w', encoding='utf-8') as f:
         f.write('\n'.join(f'{k} = {v}' for k, v in PARAMS.items()) + f'\ncameras = {a.cameras}\n'
-                f'ego = {a.ego}\n' + '\n'.join(ego_lines) + '\n')
+                f'label_range = {wc.LABEL_RANGE} m (nearest point of the box)\n'
+                f'v_moving = {V_MOVING}, ego {V_MOVING_EGO} m/s\n'
+                f'ego = {a.ego}\n' + '\n'.join(ego_lines) + '\n' + '\n'.join(label_lines) + '\n')
 
 
 if __name__ == '__main__':

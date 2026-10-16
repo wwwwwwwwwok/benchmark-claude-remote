@@ -21,10 +21,11 @@ from scipy.signal import savgol_filter
 EGO_X_FRONT = EGO_X_REAR = EGO_HALF_W = None
 LANE_HALF = 1.75                     # same-lane test: |lateral offset| < half of a 3.5 m lane
 LEAD_MAX_DHEADING = np.deg2rad(30)   # lead must travel roughly in the ego direction
-# objects used by every SSM: box centre within this distance of the ego (decided 2026-10-16). Waymo guarantees that
-# all objects within a 75 m radius are labelled (Sun et al. 2020); boxes beyond that still carry full labels
-# (speed and acceleration included) and practically end at 80 m (demo: <= 0.13 % of boxes beyond, max 85.5 m)
-LABEL_RANGE = 80.0
+# objects used by every SSM: the NEAREST point of the box within this distance of the vehicle origin (rear axle),
+# decided 2026-10-16. This is where Waymo's 3D labels actually end: on the demo no labelled box has its nearest point
+# beyond 77.0 m (max 76.999 / 77.000 / 76.996 m), and far tracks start or stop exactly when they cross it; the paper
+# (Sun et al. 2020) only promises 75 m. Box centres go further (long vehicles, up to 85.5 m on the demo)
+LABEL_RANGE = 77.0
 LOOKAHEAD = 150.0                    # length (m) of the lane route / ego path searched for a lead; longer than
                                      # LABEL_RANGE so that on curves the route still reaches every labelled object
 LEAD_TYPES = ('vehicle', 'cyclist')
@@ -33,6 +34,21 @@ SPEED_FRAME = 'global'               # frame of the labels' speed/accel (checked
 # same filter that reproduces Waymo's labelled object speeds and accelerations from the box centres
 # (19 frames = 1.9 s, quadratic; demo: speed RMSE 0.003 m/s, acceleration RMSE 0.006 m/s2)
 KIN_WINDOW, KIN_ORDER = 19, 2
+
+
+def box_nearest_dist(cx, cy, length, width, heading):
+    """Distance from the vehicle origin to the nearest point of each box (vehicle frame; array inputs)."""
+    cx, cy, L, W, h = (np.asarray(x, float) for x in (cx, cy, length, width, heading))
+    c, s = np.cos(h)[:, None], np.sin(h)[:, None]
+    dx = np.array([1, 1, -1, -1]) * L[:, None] / 2
+    dy = np.array([1, -1, -1, 1]) * W[:, None] / 2
+    X, Y = cx[:, None] + dx * c - dy * s, cy[:, None] + dx * s + dy * c
+    best = np.full(len(cx), np.inf)
+    for i in range(4):
+        px, py, ax, ay = X[:, i], Y[:, i], X[:, (i + 1) % 4] - X[:, i], Y[:, (i + 1) % 4] - Y[:, i]
+        u = np.clip(-(px * ax + py * ay) / (ax * ax + ay * ay), 0, 1)
+        best = np.minimum(best, np.hypot(px + u * ax, py + u * ay))
+    return best
 
 
 def wrap(a):
