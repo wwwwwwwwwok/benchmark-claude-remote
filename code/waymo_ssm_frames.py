@@ -212,6 +212,12 @@ def process(seg, cameras):
     else:
         ego_lanes, ego_s = [None] * n, np.full(n, np.nan)
     rows, picks = [], []
+    # speeds and accelerations are Savitzky-Golay estimates (Waymo labels and our ego alike); within half a window
+    # (9 frames = 0.9 s) of the start or end of a track they come from one edge fit and are inaccurate, so such frames
+    # are flagged (edge_ego: ego near the segment start/end; edge_lead: lead near its track start/end) and left out
+    # of the main analysis (decided 2026-10-16)
+    half = wc.KIN_WINDOW // 2
+    span = seg.objects.groupby('id')['frame_idx'].agg(['min', 'max'])
     for k in range(n):
         o_all = seg.objects_at(k, cameras=cameras, types=['vehicle', 'pedestrian', 'cyclist'])
         o_rng = o_all[wc.box_nearest_dist(o_all['cx'], o_all['cy'], o_all['length'], o_all['width'],
@@ -232,6 +238,10 @@ def process(seg, cameras):
             else:
                 row[f'TTC_{m}'] = np.nan
         r = res['map']
+        row['edge_ego'] = bool(k < half or k > n - 1 - half)
+        lo, hi = span.loc[row['lead_map']] if r else (k, k)
+        row['edge_lead'] = bool(r) and bool(k - lo < half or hi - k < half)
+        row['edge_frame'] = row['edge_ego'] or row['edge_lead']
         row['map_fallback'] = bool(r.get('fallback')) if r else (ego_lanes[k] is None)
         row.update(lead_ssms(r['gap'], r['v_ego'], r['v_lead'], r['a_ego'], r['a_lead']) if r
                    else {c: np.nan for c in LEAD_COLS})
@@ -261,14 +271,15 @@ def process(seg, cameras):
 
 def summarize(g):
     both = lambda a, b: (g[f'lead_{a}'].fillna('-') == g[f'lead_{b}'].fillna('-')).mean()
+    ok = g[~g['edge_frame']]          # metric extremes over the frames used in the analysis
     return pd.Series({
-        'frames': len(g), 'ego_speed_mean': g['ego_speed'].mean(),
+        'frames': len(g), 'edge_frames': int(g['edge_frame'].sum()), 'ego_speed_mean': g['ego_speed'].mean(),
         'ego_on_mapped_lane_share': g['ego_lane'].notna().mean(),
         **{f'frames_with_lead_{m}': int(g[f'lead_{m}'].notna().sum()) for m in METHODS},
         'same_lead_map_vs_path': both('map', 'path'), 'same_lead_map_vs_straight': both('map', 'straight'),
-        'min_TTC': g['TTC'].min(), 'min_THW': g['THW'].min(), 'max_DRAC': g['DRAC'].max(),
-        'min_PICUD': g['PICUD'].min(),
-        'min_TTC2D': g['TTC2D'].min(), 'min_ACT': g['ACT'].min(), 'min_dist': g['min_dist'].min(),
+        'min_TTC': ok['TTC'].min(), 'min_THW': ok['THW'].min(), 'max_DRAC': ok['DRAC'].max(),
+        'min_PICUD': ok['PICUD'].min(),
+        'min_TTC2D': ok['TTC2D'].min(), 'min_ACT': ok['ACT'].min(), 'min_dist': ok['min_dist'].min(),
     })
 
 
