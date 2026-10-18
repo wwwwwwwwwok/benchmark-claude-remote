@@ -19,8 +19,8 @@ Usage:
     python -I make_vlm_inputs.py <extracted_root> <frame_ssm.csv> <out_dir> [--layout grid|separate] [segment ...]
 
 Output: the images under <out_dir>/<segment>/ (step_<frame>.jpg or <CAMERA>_<frame>.jpg), and <out_dir>/targets.csv
-with one row per target: segment, frame_idx, t_s, ego_speed_kmh (Waymo's reported ego speed at t, i.e. what the
-driver's speedometer shows, not the smoothed speed that also uses later frames), images (oldest first, ';'-separated)."""
+with one row per target: segment, frame_idx, t_s, ego_speed_kmh (Waymo's reported ego speed at t; metadata for the
+analysis only, NOT given to the VLM), images (oldest first, ';'-separated)."""
 import argparse
 import os
 import sys

@@ -1,8 +1,7 @@
 # VLM prompt templates (DRAFT, 2026-10-17; not final)
 # One request per target frame (targets.csv from make_vlm_inputs.py). Images are sent in the order listed in
 # targets.csv, each preceded by its caption (interleaved text and images). The question comes after the images.
-# {SPEED_LINE} is either empty (images only) or "Your speed right now is {ego_speed_kmh} km/h." (Waymo's reported ego
-# speed at the target frame, i.e. what the driver's speedometer shows).
+# No numbers are given, not even the ego speed (decided 2026-10-17): the model judges from the images alone.
 # Risk is deliberately NOT defined beyond the two ends of the scale: the study asks which SSM the model's own notion of
 # risk resembles, so the prompt must not hint at time-to-collision or distance.
 
@@ -14,7 +13,6 @@ You are an experienced driver. You are driving the car whose cameras took the fo
 
 [USER]
 Below are pictures from your car's five cameras at 5 moments, taken 0.5 seconds apart and shown in time order. Moment 5 is now.
-{SPEED_LINE}
 
 Moment 1 (2.0 s ago)
 Front-left camera: <image>
@@ -63,7 +61,6 @@ LAYOUT "grid" (make_vlm_inputs.py --layout grid): 5 images, the five cameras com
 [USER]
 Below are 5 pictures from your car, taken 0.5 seconds apart and shown in time order. Picture 5 is now.
 Each picture combines your five cameras: the top row shows the front-left, front and front-right cameras; the bottom row shows the left-side and right-side cameras. Each panel is labelled with its camera.
-{SPEED_LINE}
 
 Picture 1 (2.0 s ago): <image>
 Picture 2 (1.5 s ago): <image>
@@ -77,7 +74,7 @@ How risky is the driving situation right now, in picture 5?
 =================================================================================================================
 CONTROL: current moment only (does the 2 s of motion help?)
 =================================================================================================================
-separate: "Below are pictures from your car's five cameras, taken now." + {SPEED_LINE} + the five captioned images of
+separate: "Below are pictures from your car's five cameras, taken now." + the five captioned images of
           moment 5 + "How risky is the driving situation right now?" + same scale and JSON.
-grid:     "Below is a picture from your car, taken now. It combines your five cameras: ..." + {SPEED_LINE} +
+grid:     "Below is a picture from your car, taken now. It combines your five cameras: ..." +
           "Picture (now): <image>" + same question, scale and JSON.
