@@ -10,12 +10,17 @@ no time label; the prompt states the order and spacing of the 5 images.
 Target frames: every 0.5 s (frame index divisible by 5), at least 2 s into the segment, and not flagged edge_frame
 in frame_ssm.csv (speeds and accelerations there are unreliable, so the analysis drops them).
 
-Usage:
-    python -I make_vlm_inputs.py <extracted_root> <frame_ssm.csv> <out_dir> [--tile 640] [segment ...]
+Two layouts (to be compared in the pilot):
+    --layout grid      (default) one 2 x 3 image per time step -> 5 images per target
+    --layout separate  each camera as its own image (--cam_width px wide), captioned in the prompt -> 25 images per
+                       target, ordered time step by time step, cameras front-left, front, front-right, left, right
 
-Output: <out_dir>/<segment>/step_<frame>.jpg for every frame used, and <out_dir>/targets.csv with one row per target:
-segment, frame_idx, t_s, ego_speed_kmh (Waymo's reported ego speed at t, i.e. what the driver's speedometer shows,
-not the smoothed speed that also uses later frames), images (the 5 step images, oldest first, ';'-separated)."""
+Usage:
+    python -I make_vlm_inputs.py <extracted_root> <frame_ssm.csv> <out_dir> [--layout grid|separate] [segment ...]
+
+Output: the images under <out_dir>/<segment>/ (step_<frame>.jpg or <CAMERA>_<frame>.jpg), and <out_dir>/targets.csv
+with one row per target: segment, frame_idx, t_s, ego_speed_kmh (Waymo's reported ego speed at t, i.e. what the
+driver's speedometer shows, not the smoothed speed that also uses later frames), images (oldest first, ';'-separated)."""
 import argparse
 import os
 import sys
@@ -33,6 +38,7 @@ STEP = 5            # frames between time steps (0.5 s at 10 Hz)
 N_STEPS = 5         # t-2.0 ... t
 TOP = ['FRONT_LEFT', 'FRONT', 'FRONT_RIGHT']
 BOTTOM = ['SIDE_LEFT', None, 'SIDE_RIGHT']
+CAMERA_ORDER = ['FRONT_LEFT', 'FRONT', 'FRONT_RIGHT', 'SIDE_LEFT', 'SIDE_RIGHT']   # 'separate' layout, left to right
 FONT_FILES = ['C:/Windows/Fonts/arialbd.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf']
 
 
@@ -82,7 +88,11 @@ def main():
     ap.add_argument('frame_ssm')
     ap.add_argument('out')
     ap.add_argument('segments', nargs='*')
-    ap.add_argument('--tile', type=int, default=640, help='width (px) of each camera panel; image is 3 x tile wide')
+    ap.add_argument('--layout', choices=['grid', 'separate'], default='grid',
+                    help='grid: one labelled 2 x 3 image per time step (5 images per target); '
+                         'separate: every camera as its own image (25 images per target, captioned in the prompt)')
+    ap.add_argument('--tile', type=int, default=640, help='grid: width (px) of each camera panel')
+    ap.add_argument('--cam_width', type=int, default=960, help='separate: width (px) of each camera image')
     a = ap.parse_args()
     fr = pd.read_csv(a.frame_ssm)
     segs = a.segments or sorted(fr['segment'].unique())
@@ -96,16 +106,27 @@ def main():
         out_dir = os.path.join(a.out, name)
         os.makedirs(out_dir, exist_ok=True)
         for k in need:
-            path = os.path.join(out_dir, f'step_{k:03d}.jpg')
-            if not os.path.exists(path):
-                step_image(files, k, a.tile).save(path, quality=90)
+            if a.layout == 'grid':
+                path = os.path.join(out_dir, f'step_{k:03d}.jpg')
+                if not os.path.exists(path):
+                    step_image(files, k, a.tile).save(path, quality=90)
+            else:
+                for cam in CAMERA_ORDER:
+                    path = os.path.join(out_dir, f'{cam}_{k:03d}.jpg')
+                    if not os.path.exists(path):
+                        im = Image.open(files[cam][k]).convert('RGB')
+                        im.resize((a.cam_width, round(im.height * a.cam_width / im.width)), Image.LANCZOS).save(
+                            path, quality=90)
         speed = np.hypot(seg.ego_v_reported[:, 0], seg.ego_v_reported[:, 1]) * 3.6
         for k in targets:
             steps = [k - STEP * j for j in range(N_STEPS - 1, -1, -1)]          # oldest first
+            if a.layout == 'grid':
+                images = [f'{name}/step_{s:03d}.jpg' for s in steps]
+            else:                                                            # time step by time step, cameras in order
+                images = [f'{name}/{cam}_{s:03d}.jpg' for s in steps for cam in CAMERA_ORDER]
             rows.append(dict(segment=name, frame_idx=k, t_s=round(float(seg.t[k]), 2),
-                             ego_speed_kmh=round(float(speed[k]), 1),
-                             images=';'.join(f'{name}/step_{s:03d}.jpg' for s in steps)))
-        print(f'{name}: {len(targets)} targets, {len(need)} step images')
+                             ego_speed_kmh=round(float(speed[k]), 1), images=';'.join(images)))
+        print(f'{name}: {len(targets)} targets, {len(need)} time steps')
     pd.DataFrame(rows).to_csv(os.path.join(a.out, 'targets.csv'), index=False)
     print(f'targets.csv: {len(rows)} rows')
 

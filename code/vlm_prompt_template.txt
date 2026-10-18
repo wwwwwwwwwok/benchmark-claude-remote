@@ -1,39 +1,83 @@
-# VLM prompt template (DRAFT, 2026-10-17; not final)
-# One request per target frame (results/vlm_inputs/targets.csv). The five step images are sent in time order,
-# each preceded by its caption. {SPEED_LINE} is either empty (images only) or
-# "Your speed right now is {ego_speed_kmh} km/h." (the speed the driver's speedometer shows: Waymo's reported ego
-# speed at the target frame). Risk is deliberately NOT defined beyond the two ends of the scale: the study asks which
-# SSM the model's own notion of risk resembles, so the prompt must not hint at time-to-collision or distance.
+# VLM prompt templates (DRAFT, 2026-10-17; not final)
+# One request per target frame (targets.csv from make_vlm_inputs.py). Images are sent in the order listed in
+# targets.csv, each preceded by its caption (interleaved text and images). The question comes after the images.
+# {SPEED_LINE} is either empty (images only) or "Your speed right now is {ego_speed_kmh} km/h." (Waymo's reported ego
+# speed at the target frame, i.e. what the driver's speedometer shows).
+# Risk is deliberately NOT defined beyond the two ends of the scale: the study asks which SSM the model's own notion of
+# risk resembles, so the prompt must not hint at time-to-collision or distance.
 
+=================================================================================================================
+LAYOUT "separate" (make_vlm_inputs.py --layout separate): 25 images, every camera captioned
+=================================================================================================================
 [SYSTEM]
 You are an experienced driver. You are driving the car whose cameras took the following pictures.
 
 [USER]
-Below are 5 pictures from your car, taken 0.5 seconds apart and shown in time order: picture 1 was taken 2.0 seconds ago and picture 5 is now.
-Each picture combines your five cameras: the top row shows front-left, front and front-right; the bottom row shows the left side and the right side. Each panel is labelled with its camera.
+Below are pictures from your car's five cameras at 5 moments, taken 0.5 seconds apart and shown in time order. Moment 5 is now.
 {SPEED_LINE}
 
-How risky is the driving situation right now, in picture 5?
+Moment 1 (2.0 s ago)
+Front-left camera: <image>
+Front camera: <image>
+Front-right camera: <image>
+Left-side camera: <image>
+Right-side camera: <image>
+
+Moment 2 (1.5 s ago)
+Front-left camera: <image>
+Front camera: <image>
+Front-right camera: <image>
+Left-side camera: <image>
+Right-side camera: <image>
+
+Moment 3 (1.0 s ago)
+(the same five cameras)
+
+Moment 4 (0.5 s ago)
+(the same five cameras)
+
+Moment 5 (now)
+Front-left camera: <image>
+Front camera: <image>
+Front-right camera: <image>
+Left-side camera: <image>
+Right-side camera: <image>
+
+How risky is the driving situation right now, at moment 5?
 Give a risk score from 0 to 100, where 0 means no risk at all and 100 means a collision is about to happen.
 
 Reply with JSON only, in this format:
 {
   "risk": <integer from 0 to 100>,
-  "main_hazard_camera": "front left" | "front" | "front right" | "side left" | "side right" | "none",
+  "main_hazard_camera": "front-left" | "front" | "front-right" | "left-side" | "right-side" | "none",
   "main_hazard": "<the road user or situation that matters most, in a few words>",
   "hazard_type": "rear-end" | "lane change or side" | "crossing or intersection" | "pedestrian or cyclist" | "oncoming" | "other" | "none",
   "reason": "<one sentence>"
 }
 
-Picture 1 (2.0 s ago): <image step 1>
-Picture 2 (1.5 s ago): <image step 2>
-Picture 3 (1.0 s ago): <image step 3>
-Picture 4 (0.5 s ago): <image step 4>
-Picture 5 (now): <image step 5>
+=================================================================================================================
+LAYOUT "grid" (make_vlm_inputs.py --layout grid): 5 images, the five cameras combined in each
+=================================================================================================================
+[SYSTEM]  (same as above)
 
-# ---------------------------------------------------------------------------------------------------------------
-# Control: single frame (does the 2 s of motion help?). Same SYSTEM text; USER text:
-#   Below is a picture from your car, taken now. It combines your five cameras: ... (same two sentences)
-#   {SPEED_LINE}
-#   How risky is the driving situation right now? ... (same scale and JSON)
-#   Picture (now): <image step 5>
+[USER]
+Below are 5 pictures from your car, taken 0.5 seconds apart and shown in time order. Picture 5 is now.
+Each picture combines your five cameras: the top row shows the front-left, front and front-right cameras; the bottom row shows the left-side and right-side cameras. Each panel is labelled with its camera.
+{SPEED_LINE}
+
+Picture 1 (2.0 s ago): <image>
+Picture 2 (1.5 s ago): <image>
+Picture 3 (1.0 s ago): <image>
+Picture 4 (0.5 s ago): <image>
+Picture 5 (now): <image>
+
+How risky is the driving situation right now, in picture 5?
+(same scale and JSON as above)
+
+=================================================================================================================
+CONTROL: current moment only (does the 2 s of motion help?)
+=================================================================================================================
+separate: "Below are pictures from your car's five cameras, taken now." + {SPEED_LINE} + the five captioned images of
+          moment 5 + "How risky is the driving situation right now?" + same scale and JSON.
+grid:     "Below is a picture from your car, taken now. It combines your five cameras: ..." + {SPEED_LINE} +
+          "Picture (now): <image>" + same question, scale and JSON.
