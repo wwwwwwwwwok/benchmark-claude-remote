@@ -13,14 +13,17 @@ in frame_ssm.csv (speeds and accelerations there are unreliable, so the analysis
 Two layouts (to be compared in the pilot):
     --layout grid      (default) one 2 x 3 image per time step -> 5 images per target
     --layout separate  each camera as its own image (--cam_width px wide), captioned in the prompt -> 25 images per
-                       target, ordered time step by time step, cameras front-left, front, front-right, left, right
+                       target, listed in two orders that are also compared in the pilot (decided 2026-10-17):
+                       images_by_time   moment by moment, each moment's cameras front-left, front, front-right, left, right
+                       images_by_camera camera by camera (same camera order), each camera's 5 moments oldest first
 
 Usage:
     python -I make_vlm_inputs.py <extracted_root> <frame_ssm.csv> <out_dir> [--layout grid|separate] [segment ...]
 
 Output: the images under <out_dir>/<segment>/ (step_<frame>.jpg or <CAMERA>_<frame>.jpg), and <out_dir>/targets.csv
 with one row per target: segment, frame_idx, t_s, ego_speed_kmh (Waymo's reported ego speed at t; metadata for the
-analysis only, NOT given to the VLM), images (oldest first, ';'-separated)."""
+analysis only, NOT given to the VLM), and the ';'-separated image lists (grid: images, oldest first; separate:
+images_by_time and images_by_camera)."""
 import argparse
 import os
 import sys
@@ -120,12 +123,14 @@ def main():
         speed = np.hypot(seg.ego_v_reported[:, 0], seg.ego_v_reported[:, 1]) * 3.6
         for k in targets:
             steps = [k - STEP * j for j in range(N_STEPS - 1, -1, -1)]          # oldest first
+            row = dict(segment=name, frame_idx=k, t_s=round(float(seg.t[k]), 2),
+                       ego_speed_kmh=round(float(speed[k]), 1))
             if a.layout == 'grid':
-                images = [f'{name}/step_{s:03d}.jpg' for s in steps]
-            else:                                                            # time step by time step, cameras in order
-                images = [f'{name}/{cam}_{s:03d}.jpg' for s in steps for cam in CAMERA_ORDER]
-            rows.append(dict(segment=name, frame_idx=k, t_s=round(float(seg.t[k]), 2),
-                             ego_speed_kmh=round(float(speed[k]), 1), images=';'.join(images)))
+                row['images'] = ';'.join(f'{name}/step_{s:03d}.jpg' for s in steps)
+            else:   # the same 25 images in the two orders compared in the pilot
+                row['images_by_time'] = ';'.join(f'{name}/{cam}_{s:03d}.jpg' for s in steps for cam in CAMERA_ORDER)
+                row['images_by_camera'] = ';'.join(f'{name}/{cam}_{s:03d}.jpg' for cam in CAMERA_ORDER for s in steps)
+            rows.append(row)
         print(f'{name}: {len(targets)} targets, {len(need)} time steps')
     pd.DataFrame(rows).to_csv(os.path.join(a.out, 'targets.csv'), index=False)
     print(f'targets.csv: {len(rows)} rows')

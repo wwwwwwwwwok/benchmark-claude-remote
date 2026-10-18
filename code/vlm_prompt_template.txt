@@ -6,7 +6,7 @@
 # risk resembles, so the prompt must not hint at time-to-collision or distance.
 
 =================================================================================================================
-LAYOUT "separate" (make_vlm_inputs.py --layout separate): 25 images, every camera captioned
+LAYOUT "separate", ORDER "by time" (targets.csv column images_by_time): 25 images, moment by moment
 =================================================================================================================
 [SYSTEM]
 You are an experienced driver. You are driving the car whose cameras took the following pictures.
@@ -52,6 +52,36 @@ Reply with JSON only, in this format:
   "hazard_type": "rear-end" | "lane change or side" | "crossing or intersection" | "pedestrian or cyclist" | "oncoming" | "other" | "none",
   "reason": "<one sentence>"
 }
+
+=================================================================================================================
+LAYOUT "separate", ORDER "by camera" (targets.csv column images_by_camera): the same 25 images, camera by camera
+=================================================================================================================
+[SYSTEM]  (same as above)
+
+[USER]
+Below are pictures from your car's five cameras. For each camera there are 5 pictures taken 0.5 seconds apart, in time order: the first was taken 2.0 seconds ago and the last one is now.
+
+Front-left camera
+2.0 s ago: <image>
+1.5 s ago: <image>
+1.0 s ago: <image>
+0.5 s ago: <image>
+Now: <image>
+
+Front camera
+(the same five moments)
+
+Front-right camera
+(the same five moments)
+
+Left-side camera
+(the same five moments)
+
+Right-side camera
+(the same five moments)
+
+How risky is the driving situation right now?
+(same scale and JSON as above)
 
 =================================================================================================================
 LAYOUT "grid" (make_vlm_inputs.py --layout grid): 5 images, the five cameras combined in each
