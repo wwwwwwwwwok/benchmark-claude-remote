@@ -13,3 +13,6 @@ __pycache__/
 
 # 每台电脑自己的路径和私人说明
 CLAUDE.local.md
+
+# Slurm 日志（Kamiak）
+logs/

@@ -3,7 +3,10 @@
 # with code/run_vlm.py. See kamiak/README.md for the one-time setup. Lines marked CHECK depend on Kamiak's current
 # configuration (verify with `sinfo -p camas`, `scontrol show partition camas`, `scontrol show node <gpu node>`).
 #
-# Submit from the repository root:   sbatch kamiak/qwen_vlm.sbatch
+# Submit from the repository root (Slurm does not create the log folder, so make it first):
+#   mkdir -p logs && sbatch kamiak/qwen_vlm.sbatch
+# Arguments after the script name are passed on to run_vlm.py and override the ones below, e.g. a small test run:
+#   sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/smoke.jsonl
 #SBATCH --job-name=qwen-vlm
 #SBATCH --partition=camas              # 4x H100 80GB per node, GPU jobs not preemptable (CHECK)
 #SBATCH --gres=gpu:2                   # 2 GPUs -> tensor parallel 2 for a 32B model (CHECK the gres syntax)
@@ -41,11 +44,12 @@ until curl -sf "http://localhost:$PORT/v1/models" > /dev/null; do
 done
 echo "server ready"
 
-# all five pilot conditions, 3 repeats each; already finished requests are skipped, so a rerun resumes
+# all five pilot conditions, 3 repeats each; already finished requests are skipped, so a rerun resumes.
+# "$@" = extra arguments given to sbatch after the script name; argparse keeps the last value, so they override.
 python -I code/run_vlm.py \
     --grid_targets results/vlm_inputs/targets.csv \
     --sep_targets results/vlm_inputs_separate/targets.csv \
     --out "results/vlm_scores/$RUN.jsonl" \
     --conditions grid,sep_time,sep_camera,ctrl_grid,ctrl_sep --repeats 3 \
     --base_url "http://localhost:$PORT/v1" --model "$SERVED_NAME" \
-    --temperature 1.0 --top_logprobs 5 --workers 16 --send
+    --temperature 1.0 --top_logprobs 5 --workers 16 --send "$@"
