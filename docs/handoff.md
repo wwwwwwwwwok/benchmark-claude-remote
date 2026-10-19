@@ -65,10 +65,10 @@
   - `sep_time`、`sep_camera` 各 13,250；
   - `ctrl_grid` 1,382；
   - `ctrl_sep` 2,650。
-- 试跑规模：102 帧 × 5 组 × 每帧问 3 次 = 1,530 次请求，图片共约 11,457,252 token。
+- 试跑规模：102 帧 × 5 组 × 每帧问 5 次 = 2,550 次请求，图片共约 19,095,420 token。每帧问几次是用户 2026-10-19 定的（原来是 3 次、1,530 次请求）。
 - 试跑的设置（还不是最终的）：
-  - 采样用 Qwen3.6 推荐的值：温度 1.0、top_p 0.95、top_k 20；每帧问 3 次。top_p、top_k 以前没写进请求，vLLM 会按模型的 `generation_config.json` 自动加上；2026-10-19 起改成明确发送，并记进每行输出；
-  - 最多生成多少 token（`--max_tokens`）：thinking 的 token 也算在里面，原来的 300 不够。小试先用 16384，按量到的思考长度再定；
+  - 采样用 Qwen3.6 推荐的值：温度 1.0、top_p 0.95、top_k 20；每帧问 5 次。top_p、top_k 以前没写进请求，vLLM 会按模型的 `generation_config.json` 自动加上；2026-10-19 起改成明确发送，并记进每行输出；
+  - 最多生成多少 token（`--max_tokens`）：thinking 的 token 也算在里面，原来的 300 不够。小试里思考最长 10,896 token（拼图组），完整试跑用 24576（`--max-model-len` 相应提到 40960）；
   - 同时要每个生成 token 的前 5 个候选和它们的概率（包括思考部分）。
 - 程序和文件：
   - `code/make_vlm_inputs.py`：生成输入图片和 `targets.csv`。demo 已经在办公室电脑上生成好了，在 `results/vlm_inputs` 和 `results/vlm_inputs_separate`。
@@ -86,21 +86,25 @@
 - vLLM 环境：`/data/lab/cejli/sy/conda_envs/vllm_cu129`（vLLM 0.32.0，torch 2.13.0+cu129）。
 - 模型：Qwen3.6-27B，在 `/data/lab/cejli/sy/models/Qwen3.6-27B`。
 - 输入图片已经传上来，放在 `results/vlm_inputs`、`results/vlm_inputs_separate`，字节数和办公室电脑上的一致。
-- 只检查、不发送：规模是 1,530 次请求，和计划一致。
+- 只检查、不发送：按每帧 3 次算是 1,530 次请求，和计划一致；改成每帧 5 次后是 2,550 次。
 - `kamiak/qwen_vlm.sbatch` 的路径和参数已经改好。
 - GPU 环境自检（作业 31305949，sn17，1 块 H100 PCIe，作业用时 4 分 05 秒）：
   - nvidia-smi：驱动 535.274.02，CUDA 12.2；torch 2.13.0+cu129 的矩阵乘法正常；
   - vLLM 单卡起服务（`--max-model-len 4096 --enforce-eager --reasoning-parser qwen3`），约 2.5 分钟就绪；日志确认 GDN 用的是 Triton，采样没用 FlashInfer，没有报错；
   - 发了 1 个 `ctrl_grid` 请求：`parsed` 正常（risk 40），`finish_reason` 是 stop；提示 1,656 token，生成 1,715 token（思考 1,634 + 回答 81），用时 102.98 s。
 
+- 小试（作业 31306357，sn18，2 块 H100，作业用时 8 分 19 秒；结果在 `results/vlm_scores/smoke.jsonl`）：
+  - 10 次请求全部有回答，`parsed` 都不为空，`finish_reason` 都是 stop；
+  - 思考长度（token）：拼图组 10,246、10,896；sep_time 3,692、5,788；sep_camera 3,380、5,438；ctrl_grid 2,445、3,930；ctrl_sep 2,276、5,164。拼图组的思考比别的组长很多，原因还不知道；
+  - 提示长度（token）：grid 7,250；sep_time 13,648；sep_camera 13,660；ctrl_grid 1,656；ctrl_sep 2,901；
+  - 10 个请求同时发，每个用时 74.0–269.1 s；服务从作业开始到就绪约 3.6 分钟；
+  - vLLM 日志里有一条 `Failed to initialize FlashInfer Allreduce norm fusion workspace`：这是两卡通信的一个提速功能，要 NVSwitch，H100 PCIe 没有，vLLM 跳过了它，不影响结果。
+- 按小试结果定的完整试跑设置：`--max_tokens 24576`（`--max-model-len` 相应提到 40960）；同时发 32 个请求（KV 缓存 1,116,842 token，一个请求平均约 1.3 万）；时限 2 天。
+
 **接下来**：
-1. 小试：`mkdir -p logs`，然后 `sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/smoke.jsonl`。一共 10 次请求，要看：
-   - 服务起来没有：看 `logs/vllm_<任务号>.log`；
-   - 10 次请求是不是都有回答，`parsed` 是不是都不为空，`finish_reason` 有没有 `length`（被截断）；
-   - 思考有多长（`usage` 里的 `completion_tokens`），据此定完整试跑的 `--max_tokens`；
-   - 每次请求要多久（`latency_s`），据此推算 1,530 次要多久，sbatch 的时限够不够。自检那次的 102.98 s 是单卡、`--enforce-eager`、一次只发 1 个请求，正式脚本用 2 块卡、同时发 16 个，会快不少，以小试量到的为准。
-2. 没问题就跑完整的试跑：`sbatch kamiak/qwen_vlm.sbatch`。
-3. 把结果传回办公室电脑，和 SSM 的结果放在一起分析。
+1. 完整试跑：作业 31307048（2026-10-19 提交），每帧 5 次、2,550 次请求，结果写到 `results/vlm_scores/pilot_qwen3.6-27b.jsonl`。估计要 7–15 小时。超时的话再 `sbatch kamiak/qwen_vlm.sbatch` 一次，会接着跑；报错的请求不写进结果，重新提交时会重发。
+2. 跑完检查：行数是不是 2,550，`parsed` 为空的、`finish_reason` 是 `length` 的各有多少。
+3. 把结果传回办公室电脑，和 SSM 的结果放在一起分析（分析做法先和用户确认，见第 4 节）。
 
 **2026-10-19 踩过的坑**（细节和解决办法见 `kamiak/README.md`）：
 - Kamiak 规定登录节点上不能装包、不能长时间传文件（hpc.wsu.edu："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。要用 `srun` 放到计算节点上。Claude 在登录节点上跑过两次 `conda create`，严格说也算违规。
@@ -124,7 +128,7 @@
 
 试跑要回答的问题（建议）：
 1. 每组有多少回答解析不出来。
-2. 同一帧问 3 次，分数稳不稳。比如看 3 次的标准差，或者 3 次之间两两的排名一致程度。
+2. 同一帧问 5 次，分数稳不稳。比如看 5 次的标准差，或者 5 次之间两两的排名一致程度。
 3. 每组的分数和 9 个 SSM 的排名一致程度。方向要统一：
    - TTC、THW、MTTC、PICUD、PSD、2D-TTC、ACT 越小越危险；
    - DRAC、CI 越大越危险。
@@ -153,7 +157,7 @@
 ## 5. 还没定的事（要问用户）
 - demo 用哪个模型已经定了（2026-10-19）：Qwen3.6-27B，保留 thinking。以后要不要再加一个闭源模型对比，还没定。
 - 问题措辞的细节：模板还标着 DRAFT。
-- 采样和每帧问几次：试跑用 Qwen3.6 推荐的温度 1.0、top_p 0.95、top_k 20，每帧问 3 次。`--max_tokens` 等小试量完思考长度再定。
+- 采样：试跑用 Qwen3.6 推荐的温度 1.0、top_p 0.95、top_k 20，还没最终定。每帧问几次已经定了：5 次（2026-10-19）。`--max_tokens` 按小试结果定为 24576。
 - 敏感性分析做哪些。已经列了备选值：反应时间 0.7、1.5、2.2 s；减速度 3.4、8.5 m/s²。
 - 分析时要不要对时间类指标统一截断（比如 10 s）。如果截断，所有时间类指标要一起截。
 - 77 m 以外的前车按"没有前车"处理，但 VLM 可能看得到它。论文里要说明。
@@ -172,7 +176,7 @@
 | 10-17 | VLM 设计：过去 2 s、每秒 2 帧、5 个相机；不给数字；5 个比较组；写调用程序；Kamiak 方案 |
 | 10-19 | 写本交接文件；把检查脚本存进 `code/experiments/`；Kamiak 脚本补上"先建日志文件夹"；传文件改用 scp（办公室电脑没有 rsync） |
 | 10-19（续，Kamiak 会话） | 模型从 Qwen3-VL-32B-Instruct 改成 Qwen3.6-27B，保留 thinking；查到 Kamiak 官方规定装包和大文件传输也不能在登录节点上直接跑，改用 `srun --partition=kamiak`／`--partition=dtn`；建了 conda 环境装 vLLM 0.32.0；`kamiak/qwen_vlm.sbatch` 改成实际路径，vLLM 启动加 `--reasoning-parser qwen3` |
-| 10-19（续 2） | 查出全集群 GPU 驱动只支持到 CUDA 12.2，vLLM 改装 cu129 版（torchcodec 也要配套）；模型下好；输入图片传上来；GPU 环境自检；sbatch 加上两个 FlashInfer 开关、明确发送采样参数；`run_vlm.py` 记下思考内容和 `finish_reason` |
+| 10-19（续 2） | 查出全集群 GPU 驱动只支持到 CUDA 12.2，vLLM 改装 cu129 版（torchcodec 也要配套）；模型下好；输入图片传上来；GPU 环境自检；sbatch 加上两个 FlashInfer 开关、明确发送采样参数；`run_vlm.py` 记下思考内容和 `finish_reason`；用户定每帧问 5 次（2,550 次请求）；小试 10 次全部成功；提交完整试跑（作业 31307048） |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 

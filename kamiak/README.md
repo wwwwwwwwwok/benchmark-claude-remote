@@ -68,18 +68,19 @@
 ## 运行（在仓库根目录 `~/benchmark-claude-remote` 下）
 ```bash
 /data/lab/cejli/sy/conda_envs/vllm_cu129/bin/python -I code/run_vlm.py --grid_targets results/vlm_inputs/targets.csv \
-    --sep_targets results/vlm_inputs_separate/targets.csv --out results/vlm_scores/check.jsonl --show 1
-# ↑ 只检查、不发送：打印一个组装好的请求和总规模（demo：1,530 次请求）。这一步很轻，可以在登录节点上跑
+    --sep_targets results/vlm_inputs_separate/targets.csv --out results/vlm_scores/check.jsonl --repeats 5 --show 1
+# ↑ 只检查、不发送：打印一个组装好的请求和总规模（demo 每帧问 5 次：2,550 次请求）。这一步很轻，可以在登录节点上跑
 mkdir -p logs                   # Slurm 不会自己建日志文件夹；没有它，任务会直接失败而且没有日志
 sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/smoke.jsonl
 # ↑ 先小试：2 个目标帧 × 5 组 × 1 次 = 10 次请求
-sbatch kamiak/qwen_vlm.sbatch   # 小试没问题、定好 --max_tokens 以后，再跑完整试跑（1,530 次请求）
+sbatch kamiak/qwen_vlm.sbatch   # 小试没问题、定好 --max_tokens 以后，再跑完整试跑（2,550 次请求）
 squeue -u $USER                 # 看任务状态；日志在 logs/
 ```
 - 写在脚本名后面的参数会原样传给 `run_vlm.py`，并覆盖脚本里的同名参数。
 - 脚本里的设置：
   - 采样用模型推荐的值：温度 1.0、top_p 0.95、top_k 20（模型自带的 `generation_config.json`）。这三个值明确发给服务，也记进每行输出。
-  - `--max_tokens 16384` 是小试用的值。thinking 的 token 也算在里面。完整试跑前，按小试量到的思考长度改。
+  - `--max_tokens 24576`，thinking 的 token 也算在里面。小试（2026-10-19）里思考最长 10,896 token（拼图组），所以留足余量。为此 vLLM 的 `--max-model-len` 也提到 40960：最长的 sep 提示约 13,660 token，加上 24576 要装得下。
+  - 同时发 32 个请求（`--workers 32`），时限 2 天。
   - vLLM 加了 `--reasoning-parser qwen3`、`--gdn-prefill-backend triton` 和 `VLLM_USE_FLASHINFER_SAMPLER=0`，原因见下面"出问题时先看这里"。
 - 结果在 `results/vlm_scores/<RUN>.jsonl`，每行一个请求，内容有：
   - 回答原文 `text` 和解析出的 JSON `parsed`；
@@ -90,7 +91,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
   - 服务起来没有：看 `logs/vllm_<任务号>.log`；
   - 10 次请求是不是都有回答，`parsed` 是不是都不为空；
   - `usage` 里的 `completion_tokens`，也就是思考加回答有多长，据此定 `--max_tokens`；
-  - 每次要多久（`latency_s`），据此推算 1,530 次要多久、sbatch 的时限够不够。
+  - 每次要多久（`latency_s`），据此推算 2,550 次要多久、sbatch 的时限够不够。
 - 任务中断（时限到了、被抢占）后，再提交一次就会从没做完的地方接着跑。报错的请求不写进结果，下次会重发；回答解析不出来的会写进去（`parsed` 为空），不重发。
 - 跑完把结果传回办公室电脑（在办公室电脑的仓库根目录下）：`scp -r <netid>@kamiak.wsu.edu:~/benchmark-claude-remote/results/vlm_scores ./results/`。
 

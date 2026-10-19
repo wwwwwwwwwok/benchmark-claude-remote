@@ -16,7 +16,7 @@
 #SBATCH --gres=gpu:2                   # 2 GPUs -> tensor parallel 2; confirmed syntax, see note above
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=200G
-#SBATCH --time=1-00:00:00              # within camas MaxTime=7-00:00:00
+#SBATCH --time=2-00:00:00              # within camas MaxTime=7-00:00:00; a timed-out run resumes when resubmitted
 #SBATCH --output=logs/%x_%j.out
 
 set -euo pipefail
@@ -46,7 +46,7 @@ PORT=$((8000 + SLURM_JOB_ID % 1000))
 # message.content (it lands in message.reasoning) so code/run_vlm.py's JSON parser only sees the answer.
 # Decided 2026-10-19: keep thinking ON for this pilot, see docs/handoff.md.
 vllm serve "$MODEL_DIR" --served-model-name "$SERVED_NAME" --port "$PORT" \
-    --tensor-parallel-size "$N_GPUS" --max-model-len 32768 --limit-mm-per-prompt '{"image": 25}' \
+    --tensor-parallel-size "$N_GPUS" --max-model-len 40960 --limit-mm-per-prompt '{"image": 25}' \
     --gpu-memory-utilization 0.90 --reasoning-parser qwen3 --gdn-prefill-backend triton \
     > "logs/vllm_${SLURM_JOB_ID}.log" 2>&1 &
 SERVER=$!
@@ -59,16 +59,17 @@ until curl -sf "http://localhost:$PORT/v1/models" > /dev/null; do
 done
 echo "server ready"
 
-# all five pilot conditions, 3 repeats each; already finished requests are skipped, so a rerun resumes.
+# all five pilot conditions, 5 repeats each (2,550 requests); already finished requests are skipped, so a rerun resumes.
 # "$@" = extra arguments given to sbatch after the script name; argparse keeps the last value, so they override.
 # Sampling = the model's own recommended values (generation_config.json), sent explicitly so each output line records
-# them. --max_tokens counts thinking tokens too; 16384 is the smoke-test value (longest prompt ~14k tokens + 16384
-# fits in 32768) - set the pilot value from the thinking lengths measured in the smoke test.
+# them. --max_tokens counts thinking tokens too: the smoke test (2026-10-19) thought up to 10,896 tokens (grid), so
+# 24576 leaves room; the longest prompt (sep, ~13,660 tokens) + 24576 fits in --max-model-len 40960.
+# 32 workers: KV cache holds 1,116,842 tokens and a request uses ~13k on average (smoke test).
 python -I code/run_vlm.py \
     --grid_targets results/vlm_inputs/targets.csv \
     --sep_targets results/vlm_inputs_separate/targets.csv \
     --out "results/vlm_scores/$RUN.jsonl" \
-    --conditions grid,sep_time,sep_camera,ctrl_grid,ctrl_sep --repeats 3 \
+    --conditions grid,sep_time,sep_camera,ctrl_grid,ctrl_sep --repeats 5 \
     --base_url "http://localhost:$PORT/v1" --model "$SERVED_NAME" \
-    --temperature 1.0 --top_p 0.95 --top_k 20 --max_tokens 16384 \
-    --top_logprobs 5 --workers 16 --send "$@"
+    --temperature 1.0 --top_p 0.95 --top_k 20 --max_tokens 24576 \
+    --top_logprobs 5 --workers 32 --send "$@"
