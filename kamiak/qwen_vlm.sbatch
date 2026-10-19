@@ -10,8 +10,7 @@
 # Submit from the repository root (Slurm does not create the log folder, so make it first):
 #   mkdir -p logs && sbatch kamiak/qwen_vlm.sbatch
 # Arguments after the script name are passed on to run_vlm.py and override the ones below, e.g. a small test run:
-#   sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/smoke.jsonl --max_tokens 2000
-#   (--max_tokens raised from the 300 default: Qwen3.6 thinking tokens count against the same budget, see below)
+#   sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/smoke.jsonl
 #SBATCH --job-name=qwen-vlm
 #SBATCH --partition=camas              # 4x H100 80GB per node, GPU jobs not preemptable
 #SBATCH --gres=gpu:2                   # 2 GPUs -> tensor parallel 2; confirmed syntax, see note above
@@ -23,9 +22,9 @@
 set -euo pipefail
 
 # ---- edit these ----------------------------------------------------------------------------------------------
-CONDA_ENV=/data/lab/cejli/sy/conda_envs/vllm                 # conda env with vllm (2026-10-19: created via `conda
-                                                              # create -p ... python=3.11` + srun pip install, not
-                                                              # a plain venv — see docs/handoff.md 2026-10-19 entry)
+CONDA_ENV=/data/lab/cejli/sy/conda_envs/vllm_cu129           # vLLM 0.32.0 built for CUDA 12.9: Kamiak's driver
+                                                              # (535, CUDA 12.2) cannot run the default cu130 build.
+                                                              # Install steps in kamiak/README.md
 MODEL_DIR=/data/lab/cejli/sy/models/Qwen3.6-27B              # downloaded weights (2026-10-19: switched from
                                                               # Qwen3-VL-32B-Instruct to Qwen3.6-27B, user's decision)
 SERVED_NAME=qwen3.6-27b                                      # name recorded in every output line
@@ -35,17 +34,21 @@ N_GPUS=2
 
 source /opt/apps/miniconda3/3.12/etc/profile.d/conda.sh
 conda activate "$CONDA_ENV"
+# FlashInfer kernels would be JIT-compiled at first use, but nvcc is not where FlashInfer looks for it on Kamiak;
+# this flag and --gdn-prefill-backend triton below select the non-JIT kernels (same math, possibly a little slower)
+export VLLM_USE_FLASHINFER_SAMPLER=0
 mkdir -p logs results/vlm_scores
 PORT=$((8000 + SLURM_JOB_ID % 1000))
 
 # vLLM OpenAI-compatible server; up to 25 images per request, prompts of ~14k tokens
 # (older vLLM versions take --limit-mm-per-prompt image=25 instead of the JSON form)
-# --reasoning-parser qwen3: Qwen3.6 is a hybrid thinking model; this keeps <think>...</think> out of
-# message.content (it lands in message.reasoning_content instead) so code/run_vlm.py's JSON parser isn't
-# fed the reasoning text. Decided 2026-10-19: keep thinking ON for this pilot, see docs/handoff.md.
+# --reasoning-parser qwen3: Qwen3.6 thinks before answering (on by default); this keeps the thinking out of
+# message.content (it lands in message.reasoning) so code/run_vlm.py's JSON parser only sees the answer.
+# Decided 2026-10-19: keep thinking ON for this pilot, see docs/handoff.md.
 vllm serve "$MODEL_DIR" --served-model-name "$SERVED_NAME" --port "$PORT" \
     --tensor-parallel-size "$N_GPUS" --max-model-len 32768 --limit-mm-per-prompt '{"image": 25}' \
-    --gpu-memory-utilization 0.90 --reasoning-parser qwen3 > "logs/vllm_${SLURM_JOB_ID}.log" 2>&1 &
+    --gpu-memory-utilization 0.90 --reasoning-parser qwen3 --gdn-prefill-backend triton \
+    > "logs/vllm_${SLURM_JOB_ID}.log" 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true' EXIT
 
@@ -58,10 +61,14 @@ echo "server ready"
 
 # all five pilot conditions, 3 repeats each; already finished requests are skipped, so a rerun resumes.
 # "$@" = extra arguments given to sbatch after the script name; argparse keeps the last value, so they override.
+# Sampling = the model's own recommended values (generation_config.json), sent explicitly so each output line records
+# them. --max_tokens counts thinking tokens too; 16384 is the smoke-test value (longest prompt ~14k tokens + 16384
+# fits in 32768) - set the pilot value from the thinking lengths measured in the smoke test.
 python -I code/run_vlm.py \
     --grid_targets results/vlm_inputs/targets.csv \
     --sep_targets results/vlm_inputs_separate/targets.csv \
     --out "results/vlm_scores/$RUN.jsonl" \
     --conditions grid,sep_time,sep_camera,ctrl_grid,ctrl_sep --repeats 3 \
     --base_url "http://localhost:$PORT/v1" --model "$SERVED_NAME" \
-    --temperature 1.0 --top_logprobs 5 --workers 16 --send "$@"
+    --temperature 1.0 --top_p 0.95 --top_k 20 --max_tokens 16384 \
+    --top_logprobs 5 --workers 16 --send "$@"

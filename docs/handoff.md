@@ -67,53 +67,51 @@
   - `ctrl_sep` 2,650。
 - 试跑规模：102 帧 × 5 组 × 每帧问 3 次 = 1,530 次请求，图片共约 11,457,252 token。
 - 试跑的设置（还不是最终的）：
-  - 温度 1.0，每帧问 3 次；
-  - 回答最多 300 token；
-  - 同时要回答里每个 token 的前 5 个候选和它们的概率。
+  - 采样用 Qwen3.6 推荐的值：温度 1.0、top_p 0.95、top_k 20；每帧问 3 次。top_p、top_k 以前没写进请求，vLLM 会按模型的 `generation_config.json` 自动加上；2026-10-19 起改成明确发送，并记进每行输出；
+  - 最多生成多少 token（`--max_tokens`）：thinking 的 token 也算在里面，原来的 300 不够。小试先用 16384，按量到的思考长度再定；
+  - 同时要每个生成 token 的前 5 个候选和它们的概率（包括思考部分）。
 - 程序和文件：
   - `code/make_vlm_inputs.py`：生成输入图片和 `targets.csv`。demo 已经在办公室电脑上生成好了，在 `results/vlm_inputs` 和 `results/vlm_inputs_separate`。
   - `code/vlm_prompt_template.txt`：问题模板（英文）。`code/run_vlm.py` 里的文字和它一致，改措辞要两处一起改。
   - `code/run_vlm.py`：发请求的程序。默认只检查、不发送，加 `--send` 才真的发。
   - `kamiak/qwen_vlm.sbatch`、`kamiak/README.md`：Kamiak 上的任务脚本和操作步骤。
-- 目前一次请求都还没发过，模型也还没装。
+- 目前（2026-10-19）：模型和环境都装好了；GPU 环境自检发了 1 个请求，正常（见第 3 节）。小试和完整试跑还没跑。
 
 ## 3. 下一步：在 Kamiak 上试跑
 
-**要用户自己做的**（账号、密码、key 都不经过 Claude）：
-- 登录 Kamiak，在 Kamiak 上配好 GitHub 的 SSH key，然后 clone 仓库。
-- 决定放在哪个课题组目录（`/data/lab/<组名>`）。
+具体命令都在 `kamiak/README.md`，这里只记进度和要注意的事。
 
-**Claude 可以帮忙做的**（如果会话就开在 Kamiak 上，下面的查询命令可以直接运行）：
-1. 核对 `kamiak/qwen_vlm.sbatch` 里标了 `CHECK` 的几行：
-   ```bash
-   sinfo -p camas
-   scontrol show partition camas         # 看时限 MaxTime
-   scontrol show node <camas 的一个节点名> # 看 Gres 那一行：GPU 的写法
-   module avail python
-   ```
-2. 建 Python 环境、装 vLLM：`kamiak/README.md` 第 3 步，但不要直接在登录节点上 `pip install`（见下面"注意"新加的一条），用 `srun --partition=kamiak ...` 包一层。
-3. 下载模型权重：下载前先跟用户确认文件名、来源和大小；下载本身也不要直接在登录节点上跑，用 `srun --partition=dtn ...`（dtn 是专门的数据传输节点，见下面"注意"）。
-4. 用户在办公室电脑上用 `scp` 把图片传上去：`kamiak/README.md` 第 5 步。
-5. 把 sbatch 开头标了 `CHANGE_ME` 的路径改好。
-6. 先检查、不发送：`python -I code/run_vlm.py ... --show 1`。看请求组装得对不对，规模是不是 1,530。
-7. `mkdir -p logs` 以后先小试：
-   ```bash
-   sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/smoke.jsonl
-   ```
-   小试一共 10 次请求，要看三件事：
+**已经做完的（2026-10-19）**：
+- 仓库 clone 到 Kamiak 的 `~/benchmark-claude-remote`；用户在 Kamiak 上配好了 GitHub token，能 push。
+- vLLM 环境：`/data/lab/cejli/sy/conda_envs/vllm_cu129`（vLLM 0.32.0，torch 2.13.0+cu129）。
+- 模型：Qwen3.6-27B，在 `/data/lab/cejli/sy/models/Qwen3.6-27B`。
+- 输入图片已经传上来，放在 `results/vlm_inputs`、`results/vlm_inputs_separate`，字节数和办公室电脑上的一致。
+- 只检查、不发送：规模是 1,530 次请求，和计划一致。
+- `kamiak/qwen_vlm.sbatch` 的路径和参数已经改好。
+- GPU 环境自检（作业 31305949，sn17，1 块 H100 PCIe，作业用时 4 分 05 秒）：
+  - nvidia-smi：驱动 535.274.02，CUDA 12.2；torch 2.13.0+cu129 的矩阵乘法正常；
+  - vLLM 单卡起服务（`--max-model-len 4096 --enforce-eager --reasoning-parser qwen3`），约 2.5 分钟就绪；日志确认 GDN 用的是 Triton，采样没用 FlashInfer，没有报错；
+  - 发了 1 个 `ctrl_grid` 请求：`parsed` 正常（risk 40），`finish_reason` 是 stop；提示 1,656 token，生成 1,715 token（思考 1,634 + 回答 81），用时 102.98 s。
+
+**接下来**：
+1. 小试：`mkdir -p logs`，然后 `sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/smoke.jsonl`。一共 10 次请求，要看：
    - 服务起来没有：看 `logs/vllm_<任务号>.log`；
-   - 10 次请求是不是都有回答，`parsed` 是不是都不为空；
-   - 每次请求要多久（`latency_s`）。据此推算 1,530 次要多久，sbatch 的时限够不够。
-8. 没问题就跑完整的试跑：`sbatch kamiak/qwen_vlm.sbatch`。
-9. 把结果传回办公室电脑，和 SSM 的结果放在一起分析。
+   - 10 次请求是不是都有回答，`parsed` 是不是都不为空，`finish_reason` 有没有 `length`（被截断）；
+   - 思考有多长（`usage` 里的 `completion_tokens`），据此定完整试跑的 `--max_tokens`；
+   - 每次请求要多久（`latency_s`），据此推算 1,530 次要多久，sbatch 的时限够不够。自检那次的 102.98 s 是单卡、`--enforce-eager`、一次只发 1 个请求，正式脚本用 2 块卡、同时发 16 个，会快不少，以小试量到的为准。
+2. 没问题就跑完整的试跑：`sbatch kamiak/qwen_vlm.sbatch`。
+3. 把结果传回办公室电脑，和 SSM 的结果放在一起分析。
+
+**2026-10-19 踩过的坑**（细节和解决办法见 `kamiak/README.md`）：
+- Kamiak 规定登录节点上不能装包、不能长时间传文件（hpc.wsu.edu："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。要用 `srun` 放到计算节点上。Claude 在登录节点上跑过两次 `conda create`，严格说也算违规。
+- 全集群的 GPU 驱动都只支持到 CUDA 12.2。`pip install vllm` 默认装的是 CUDA 13.0 版，启动时报 "driver too old"。改装 cu129 版，torchcodec 也要从 cu129 索引重装。
+- dtn 节点能分的内存很少：申请 8G 时作业预计要等一周，改成 900M 马上就排上了。dtn 上不能 `conda activate`，系统 Python 太旧，要用 conda 环境里 `hf` 的完整路径。
+- 用挂在 Claude 会话上的 `srun` 跑 GPU 测试，会话一结束作业就被取消了。GPU 任务都用 `sbatch`。
+- FlashInfer 的内核要现场编译，Kamiak 上它找不到 nvcc。sbatch 里用 `--gdn-prefill-backend triton` 和 `VLLM_USE_FLASHINFER_SAMPLER=0` 避开。
+- 留着没删、等用户决定的：`/data/lab/cejli/sy/conda_envs/vllm`（cu130 版，不能用）；`/data/lab/cejli/sy/tmp_checks/`（GPU 自检的脚本和日志）；hf_cache 里的 Qwen3-VL-30B-A3B（见 7.4）。
 
 注意：
 - 不要在登录节点上跑模型，都用 sbatch。
-- 2026-10-19 查了 Kamiak 官方文档（hpc.wsu.edu）才发现规矩比这条更严：装包、长时间的文件传输也不能直接在登录节点上跑（"Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。之前我在登录节点上直接跑了一下 `conda create`（只建空环境，很快，但严格说也算违规），发现以后改正：
-  - 装 Python 包：`srun --partition=kamiak --account=cejli --time=00:45:00 --cpus-per-task=4 --mem=16G ...`（`kamiak` 是默认共享分区，139 个节点，不是 GPU）。
-  - 下模型权重：`srun --partition=dtn --account=cejli --time=03:00:00 --cpus-per-task=2 --mem=8G ...`（`dtn` 是专门的数据传输节点，只有 1 个节点 8 核，可能要排队等别人用完）。
-  - 两个都不占 `camas` 的 GPU，不会跟真正跑模型的 sbatch 任务抢资源。
-  - 2026-10-19 建的 vLLM 环境：conda（不是 README 里写的 `python -m venv`，跟这台账号上已有的 `conda_envs` 习惯一致）：`/data/lab/cejli/sy/conda_envs/vllm`，`conda create -p ... python=3.11` 建的，`vllm==0.32.0`（配 torch 2.13.0、transformers 5.19.0）。sbatch 里激活方式也从 `source $VENV/bin/activate` 改成了 `conda activate`。
 - Kamiak 上自己启动的模型不按量收费。如果改用付费接口（比如阿里云），`--send` 之前要先和用户确认规模和费用。
 - 以前出过一次错：测试时参数写错，程序真的去连了一个并不存在的本机服务，没有发出任何东西。所以现在默认不发送，不要把 `--send` 当成默认。
 
@@ -139,6 +137,8 @@
 关于"回答的概率"：
 - Qwen 的分词规则是每个数字单独算一个 token，所以 0–100 的分数会被拆成一位一位的数字。这一点要在跑出来的概率数据里确认。
 - 这样用概率算加权平均分要按位处理，只能近似，所以主要还是靠多问几次取平均。
+- 用了 thinking 以后，`logprobs` 里包括思考部分的每个 token，前面可能有几千个。算分数的概率时，要取思考结束后最终回答里 `risk` 那几位数字：思考里可能先写一份草稿 JSON，分数还不一样（GPU 自检那次草稿是 35，最终回答是 40）。`run_vlm.py` 的 `parsed` 只解析最终回答，不受影响。
+- vLLM 默认返回原始概率（`raw_logprobs`），也就是温度、top_p、top_k 处理之前的；实际抽样用的是 top_p、top_k 截掉尾部以后的分布。两者在分数那几位数字上应该差别很小，但论文里要说明。
 - 怎么用，等试跑结果出来再定。
 
 试跑分析完、选定最终的输入方式以后，扩到 202 段：
@@ -153,7 +153,7 @@
 ## 5. 还没定的事（要问用户）
 - demo 用哪个模型已经定了（2026-10-19）：Qwen3.6-27B，保留 thinking。以后要不要再加一个闭源模型对比，还没定。
 - 问题措辞的细节：模板还标着 DRAFT。
-- 温度和每帧问几次：试跑用 1.0 和 3 次。
+- 采样和每帧问几次：试跑用 Qwen3.6 推荐的温度 1.0、top_p 0.95、top_k 20，每帧问 3 次。`--max_tokens` 等小试量完思考长度再定。
 - 敏感性分析做哪些。已经列了备选值：反应时间 0.7、1.5、2.2 s；减速度 3.4、8.5 m/s²。
 - 分析时要不要对时间类指标统一截断（比如 10 s）。如果截断，所有时间类指标要一起截。
 - 77 m 以外的前车按"没有前车"处理，但 VLM 可能看得到它。论文里要说明。
@@ -172,6 +172,7 @@
 | 10-17 | VLM 设计：过去 2 s、每秒 2 帧、5 个相机；不给数字；5 个比较组；写调用程序；Kamiak 方案 |
 | 10-19 | 写本交接文件；把检查脚本存进 `code/experiments/`；Kamiak 脚本补上"先建日志文件夹"；传文件改用 scp（办公室电脑没有 rsync） |
 | 10-19（续，Kamiak 会话） | 模型从 Qwen3-VL-32B-Instruct 改成 Qwen3.6-27B，保留 thinking；查到 Kamiak 官方规定装包和大文件传输也不能在登录节点上直接跑，改用 `srun --partition=kamiak`／`--partition=dtn`；建了 conda 环境装 vLLM 0.32.0；`kamiak/qwen_vlm.sbatch` 改成实际路径，vLLM 启动加 `--reasoning-parser qwen3` |
+| 10-19（续 2） | 查出全集群 GPU 驱动只支持到 CUDA 12.2，vLLM 改装 cu129 版（torchcodec 也要配套）；模型下好；输入图片传上来；GPU 环境自检；sbatch 加上两个 FlashInfer 开关、明确发送采样参数；`run_vlm.py` 记下思考内容和 `finish_reason` |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 
@@ -252,8 +253,10 @@
 - 办公室电脑的显卡是 RTX 4060（8 GB 显存），内存 32 GB，只能跑小模型做调试。
 - 先用 Qwen3-VL-32B-Instruct 的理由：开源，版本能固定，在 H100 上用 2 块就够。
 - 2026-10-19 改成 Qwen3.6-27B（用户决定）：也是开源、原生多模态、2 块 H100 够用，比 Qwen3-VL-32B 新，vLLM 官方确认 day-0 支持（查证见下）。混合推理模型，默认会 thinking（`<think>...</think>`）；用户决定保留 thinking 看效果，没有关掉（可以用 `enable_thinking: False` 关，但没用这个选项）。
-  - 大小核对（HuggingFace，2026-10-19 查）：`Qwen/Qwen3.6-27B` 稠密模型、BF16、15 个分片、约 55.6 GB。另一个候选 `Qwen/Qwen3.6-35B-A3B-FP8`（MoE、FP8、约 37.5 GB）没有选。
-  - vLLM 支持：vLLM 官方账号发推确认 Qwen3.6-27B "day-0 支持"；serve 命令要加 `--reasoning-parser qwen3`，把 `<think>` 内容从 `message.content` 分出去，避免污染 `code/run_vlm.py` 的 JSON 解析；同时 `--max_tokens` 要比默认的 300 调大（思考会占掉 token 预算），提交 sbatch 时用命令行参数覆盖即可。
+  - 大小核对（HuggingFace，2026-10-19 查）：`Qwen/Qwen3.6-27B` 稠密模型、BF16、15 个分片、约 55.6 GB（vLLM 读到的是 51.75 GiB，同一个数）。另一个候选 `Qwen/Qwen3.6-35B-A3B-FP8`（MoE、FP8、约 37.5 GB）没有选。
+  - vLLM 支持：vLLM 官方账号发推确认 Qwen3.6-27B "day-0 支持"。serve 命令要加 `--reasoning-parser qwen3`，把思考内容从 `message.content` 分到 `message.reasoning`（0.32.0 里的字段名，旧名 `reasoning_content` 已弃用），避免干扰 `code/run_vlm.py` 的 JSON 解析。`--max_tokens` 要比默认的 300 大很多（思考会占掉 token 预算），已经写进 sbatch。
+  - 模型的 chat template 默认开 thinking（生成提示里直接放了 `<think>`，所以输出里只有结尾的 `</think>`）；vLLM 0.32.0 的 qwen3 解析器默认从"思考"状态开始，能正确处理（2026-10-19 读源码确认）。
+  - 模型自带 `generation_config.json`：温度 1.0、top_p 0.95、top_k 20。
   - `/data/lab/cejli/sy/hf_cache` 下还留着之前下的 Qwen3-VL-30B-A3B-Instruct（58 GB，MoE，不是当初脚本写的稠密 Qwen3-VL-32B，是另一个型号）。换成 Qwen3.6-27B 以后暂时用不上，但按 CLAUDE.md 的规矩我没有删，要不要删、谁来删还要问用户。
 
 ### 7.5 没核实过的说法（引用前先查原文）

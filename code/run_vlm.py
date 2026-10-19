@@ -20,9 +20,11 @@ Usage:
 Without --send nothing is sent: the script prints --show assembled requests and the size of the run (requests,
 images, estimated image tokens). Add --send only when the endpoint and the size are right.
 
-Output: one JSON line per (segment, frame_idx, condition, repeat) with the raw reply, the parsed JSON, token usage,
-latency and (when the server returns them) the log-probabilities of the reply tokens. Requests already in the output
-file are skipped, so an interrupted run (e.g. a preempted Slurm job) can simply be restarted."""
+Output: one JSON line per (segment, frame_idx, condition, repeat) with the raw reply, the parsed JSON, the sampling
+settings sent, finish_reason, the model's thinking text (`reasoning`, when the server's reasoning parser splits it off),
+token usage, latency and (when the server returns them) the log-probabilities of all generated tokens, thinking
+included. Requests already in the output file are skipped, so an interrupted run (e.g. a preempted Slurm job) can
+simply be restarted."""
 import argparse
 import base64
 import concurrent.futures as cf
@@ -142,6 +144,8 @@ def main():
     ap.add_argument('--model', default='qwen')
     ap.add_argument('--api_key_env', default='VLM_API_KEY', help='environment variable holding the key (if any)')
     ap.add_argument('--temperature', type=float, default=1.0)
+    ap.add_argument('--top_p', type=float, default=None, help='sent only when given')
+    ap.add_argument('--top_k', type=int, default=None, help='sent only when given (vLLM extension, via extra_body)')
     ap.add_argument('--max_tokens', type=int, default=300)
     ap.add_argument('--top_logprobs', type=int, default=5, help='0 = do not ask for log-probabilities')
     ap.add_argument('--workers', type=int, default=8)
@@ -202,15 +206,22 @@ def main():
 
     def ask(job):
         seg, k, cond, rep, parts = job
-        rec = dict(segment=seg, frame_idx=k, condition=cond, repeat=rep, model=a.model, temperature=a.temperature)
+        rec = dict(segment=seg, frame_idx=k, condition=cond, repeat=rep, model=a.model, temperature=a.temperature,
+                   top_p=a.top_p, top_k=a.top_k, max_tokens=a.max_tokens)
         t0 = time.time()
         try:
             kw = dict(model=a.model, messages=to_messages(parts), temperature=a.temperature, max_tokens=a.max_tokens)
+            if a.top_p is not None:
+                kw['top_p'] = a.top_p
+            if a.top_k is not None:
+                kw['extra_body'] = {'top_k': a.top_k}
             if a.top_logprobs:
                 kw.update(logprobs=True, top_logprobs=a.top_logprobs)
             resp = client.chat.completions.create(**kw)
             ch = resp.choices[0]
+            # vLLM's --reasoning-parser puts the thinking text in `reasoning` (formerly `reasoning_content`)
             rec.update(text=ch.message.content, parsed=parse(ch.message.content),
+                       reasoning=getattr(ch.message, 'reasoning', None), finish_reason=ch.finish_reason,
                        usage=resp.usage.model_dump() if resp.usage else None)
             if ch.logprobs and ch.logprobs.content:
                 rec['logprobs'] = [dict(token=c.token, logprob=c.logprob,
