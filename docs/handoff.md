@@ -91,8 +91,8 @@
    scontrol show node <camas 的一个节点名> # 看 Gres 那一行：GPU 的写法
    module avail python
    ```
-2. 建 Python 环境、装 vLLM：`kamiak/README.md` 第 3 步。
-3. 下载模型权重，约 66 GB：下载前先跟用户确认文件名、来源和大小。
+2. 建 Python 环境、装 vLLM：`kamiak/README.md` 第 3 步，但不要直接在登录节点上 `pip install`（见下面"注意"新加的一条），用 `srun --partition=kamiak ...` 包一层。
+3. 下载模型权重：下载前先跟用户确认文件名、来源和大小；下载本身也不要直接在登录节点上跑，用 `srun --partition=dtn ...`（dtn 是专门的数据传输节点，见下面"注意"）。
 4. 用户在办公室电脑上用 `scp` 把图片传上去：`kamiak/README.md` 第 5 步。
 5. 把 sbatch 开头标了 `CHANGE_ME` 的路径改好。
 6. 先检查、不发送：`python -I code/run_vlm.py ... --show 1`。看请求组装得对不对，规模是不是 1,530。
@@ -109,6 +109,11 @@
 
 注意：
 - 不要在登录节点上跑模型，都用 sbatch。
+- 2026-10-19 查了 Kamiak 官方文档（hpc.wsu.edu）才发现规矩比这条更严：装包、长时间的文件传输也不能直接在登录节点上跑（"Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。之前我在登录节点上直接跑了一下 `conda create`（只建空环境，很快，但严格说也算违规），发现以后改正：
+  - 装 Python 包：`srun --partition=kamiak --account=cejli --time=00:45:00 --cpus-per-task=4 --mem=16G ...`（`kamiak` 是默认共享分区，139 个节点，不是 GPU）。
+  - 下模型权重：`srun --partition=dtn --account=cejli --time=03:00:00 --cpus-per-task=2 --mem=8G ...`（`dtn` 是专门的数据传输节点，只有 1 个节点 8 核，可能要排队等别人用完）。
+  - 两个都不占 `camas` 的 GPU，不会跟真正跑模型的 sbatch 任务抢资源。
+  - 2026-10-19 建的 vLLM 环境：conda（不是 README 里写的 `python -m venv`，跟这台账号上已有的 `conda_envs` 习惯一致）：`/data/lab/cejli/sy/conda_envs/vllm`，`conda create -p ... python=3.11` 建的，`vllm==0.32.0`（配 torch 2.13.0、transformers 5.19.0）。sbatch 里激活方式也从 `source $VENV/bin/activate` 改成了 `conda activate`。
 - Kamiak 上自己启动的模型不按量收费。如果改用付费接口（比如阿里云），`--send` 之前要先和用户确认规模和费用。
 - 以前出过一次错：测试时参数写错，程序真的去连了一个并不存在的本机服务，没有发出任何东西。所以现在默认不发送，不要把 `--send` 当成默认。
 
@@ -146,7 +151,7 @@
 - VLM 的规模：约 6,900 个目标帧 × 选定的组 × 每帧问几次。
 
 ## 5. 还没定的事（要问用户）
-- 最终用哪些模型：先用开源的 Qwen3-VL-32B 跑 demo，以后可能加一个闭源模型对比。
+- demo 用哪个模型已经定了（2026-10-19）：Qwen3.6-27B，保留 thinking。以后要不要再加一个闭源模型对比，还没定。
 - 问题措辞的细节：模板还标着 DRAFT。
 - 温度和每帧问几次：试跑用 1.0 和 3 次。
 - 敏感性分析做哪些。已经列了备选值：反应时间 0.7、1.5、2.2 s；减速度 3.4、8.5 m/s²。
@@ -166,6 +171,7 @@
 | 10-16 | ACT 改成直接投影；标注范围用框近端 77 m；2D-TTC 精确计算；"在动"的门槛行人 0.3 m/s、其他 0.5 m/s；车道匹配参数保持原值；头尾帧在主分析里去掉；实现 PSD；删 PET、GT、MPrISM |
 | 10-17 | VLM 设计：过去 2 s、每秒 2 帧、5 个相机；不给数字；5 个比较组；写调用程序；Kamiak 方案 |
 | 10-19 | 写本交接文件；把检查脚本存进 `code/experiments/`；Kamiak 脚本补上"先建日志文件夹"；传文件改用 scp（办公室电脑没有 rsync） |
+| 10-19（续，Kamiak 会话） | 模型从 Qwen3-VL-32B-Instruct 改成 Qwen3.6-27B，保留 thinking；查到 Kamiak 官方规定装包和大文件传输也不能在登录节点上直接跑，改用 `srun --partition=kamiak`／`--partition=dtn`；建了 conda 环境装 vLLM 0.32.0；`kamiak/qwen_vlm.sbatch` 改成实际路径，vLLM 启动加 `--reasoning-parser qwen3` |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 
@@ -245,6 +251,10 @@
   - 价格只在第三方汇总网站上看到过（qwen3-vl-plus 输入约 0.2 美元 / 百万 token），没核实。
 - 办公室电脑的显卡是 RTX 4060（8 GB 显存），内存 32 GB，只能跑小模型做调试。
 - 先用 Qwen3-VL-32B-Instruct 的理由：开源，版本能固定，在 H100 上用 2 块就够。
+- 2026-10-19 改成 Qwen3.6-27B（用户决定）：也是开源、原生多模态、2 块 H100 够用，比 Qwen3-VL-32B 新，vLLM 官方确认 day-0 支持（查证见下）。混合推理模型，默认会 thinking（`<think>...</think>`）；用户决定保留 thinking 看效果，没有关掉（可以用 `enable_thinking: False` 关，但没用这个选项）。
+  - 大小核对（HuggingFace，2026-10-19 查）：`Qwen/Qwen3.6-27B` 稠密模型、BF16、15 个分片、约 55.6 GB。另一个候选 `Qwen/Qwen3.6-35B-A3B-FP8`（MoE、FP8、约 37.5 GB）没有选。
+  - vLLM 支持：vLLM 官方账号发推确认 Qwen3.6-27B "day-0 支持"；serve 命令要加 `--reasoning-parser qwen3`，把 `<think>` 内容从 `message.content` 分出去，避免污染 `code/run_vlm.py` 的 JSON 解析；同时 `--max_tokens` 要比默认的 300 调大（思考会占掉 token 预算），提交 sbatch 时用命令行参数覆盖即可。
+  - `/data/lab/cejli/sy/hf_cache` 下还留着之前下的 Qwen3-VL-30B-A3B-Instruct（58 GB，MoE，不是当初脚本写的稠密 Qwen3-VL-32B，是另一个型号）。换成 Qwen3.6-27B 以后暂时用不上，但按 CLAUDE.md 的规矩我没有删，要不要删、谁来删还要问用户。
 
 ### 7.5 没核实过的说法（引用前先查原文）
 - DRAC 的固定阈值，比如 3.35 m/s²。
