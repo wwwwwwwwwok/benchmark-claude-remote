@@ -2,7 +2,7 @@
 
 思路：在 GPU 节点上用 vLLM 把开源的 Qwen 模型启动成一个本地服务，再用 `code/run_vlm.py` 把每个目标帧的图和问题发过去。不按量收费，模型版本固定，可以复现，还能拿到每个回答的概率。
 
-现在用的模型是 Qwen3.6-27B，保留 thinking（2026-10-19 定）。下面的路径都是这个账号的（课题组 `cejli`，个人目录 `sy`）。
+跑过两个模型（都是 2026-10-19，用户定的）：Qwen3.6-27B（保留 thinking）和 Qwen3-VL-32B-Instruct（稠密，不思考）。用哪个由 sbatch 里的 `MODEL` 决定，默认是 `qwen3-vl-32b`。下面的路径都是这个账号的（课题组 `cejli`，个人目录 `sy`）。
 
 ## Kamiak 上的规矩和资源（2026-10-19 在集群上查过）
 - 登录节点上不能跑程序、装包，也不能长时间传文件。官方原话："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node."
@@ -25,7 +25,11 @@
   - 课题组目录 `/data/lab/cejli`，个人的东西放 `/data/lab/cejli/sy`。
   - 临时目录 `/scratch/user/<netid>/`（用 `mkworkspace` 建，每个最多 10 TB，2 周后自动删除）。
   - `/tmp` 是每台机器自己的，别的节点看不到，脚本和日志不要放在 `/tmp`。
-- 模型：Qwen3.6-27B，15 个分片，51.75 GiB，在 `/data/lab/cejli/sy/models/Qwen3.6-27B`。一块 H100 就装得下（权重占显存 51.01 GiB），脚本默认用 2 块。
+- 模型（都放在 `/data/lab/cejli/sy/models/`，下载后都按官方校验值逐个核对过）：
+  - `Qwen3.6-27B`：15 个分片，51.75 GiB。一块 H100 就装得下（权重占显存 51.01 GiB）。
+  - `Qwen3-VL-32B-Instruct`：版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，14 个分片，66,726,519,322 字节（62.14 GiB）。要 2 块 H100。
+  - 原来 `hf_cache` 里的 Qwen3-VL-30B-A3B-Instruct（MoE）2026-10-19 按用户要求删掉了；删之前核对过和官方一致，要用可以重新下。
+  - 脚本默认用 2 块卡。
 
 ## 一次性准备（2026-10-19 在这个账号上已经做完，下面记的是实际能用的做法）
 账号、密码、GitHub token 都由你自己设置，不经过 Claude。
@@ -47,12 +51,13 @@
    - 最后一行应该打印 `2.13.0+cu129 12.9 0.32.0`。
    - vLLM 0.32.0 在 GitHub releases 上只有 cu129 这一个 CUDA 版本的 wheel，没有 cu128。
    - `torchcodec` 那一行不能省：pip 默认装的 0.17.0 和 cu129 的 torch 不配套，vLLM 启动时会报 `OSError: Could not load this library: .../libtorchcodec_image.so`。cu129 索引上最新的是 0.16.0+cu129。
-3. 下载模型权重（51.75 GiB），在 dtn 上下：
+3. 下载模型权重，在 dtn 上下（下面是 Qwen3.6-27B；Qwen3-VL-32B 把仓库名、`--revision 0cfaf48183f594c314753d30a4c4974bc75f3ccb` 和文件夹名换掉，2026-10-19 用了 9 分 24 秒）：
    ```bash
    srun --partition=dtn --account=cejli --time=03:00:00 --cpus-per-task=2 --mem=900M bash -c '
    export HF_HOME=/data/lab/cejli/sy/hf_cache
    /data/lab/cejli/sy/conda_envs/vllm_cu129/bin/hf download Qwen/Qwen3.6-27B --local-dir /data/lab/cejli/sy/models/Qwen3.6-27B'
    ```
+   - 下完核对：用 HuggingFace API（`https://huggingface.co/api/models/<仓库名>/tree/<版本>`）拿到每个文件的官方 SHA256 / git 校验值，和本地重新算的比。2026-10-19 两个模型都逐个核对过，全部一致。
    - 命令是 `hf`：新版 huggingface_hub 把 `huggingface-cli` 改名了。
    - 要用 conda 环境里 `hf` 的完整路径（环境里是 huggingface_hub 2.2.0）。dtn1 上不能 `conda activate`；系统 Python 3.9 最多只能装到 huggingface_hub 1.8.0，用它下 Qwen3.6 会误报 "Model 'Qwen/Qwen3.6-27B' not found"。
    - `--mem` 不要超过 900M（见上面 dtn 的说明）。2026-10-19 实际下载用了 16 分 48 秒。
@@ -63,7 +68,7 @@
    scp -r results/vlm_inputs results/vlm_inputs_separate <netid>@kamiak.wsu.edu:~/benchmark-claude-remote/results/
    ```
    - demo 的大小：`vlm_inputs` 114 张图、31,516,386 字节；`vlm_inputs_separate` 570 张图、64,908,457 字节；各有一个 102 行的 `targets.csv`。传完用 `du -sb` 核对字节数（2026-10-19 核对过，一致）。
-5. `kamiak/qwen_vlm.sbatch` 开头的路径已经改成这个账号的。换账号或换模型时改那几行。
+5. `kamiak/qwen_vlm.sbatch` 里的路径已经改成这个账号的。每个模型的设置写在脚本里 `case "$MODEL"` 那一段；加新模型就在那里加一段。
 
 ## 运行（在仓库根目录 `~/benchmark-claude-remote` 下）
 ```bash
@@ -71,18 +76,26 @@
     --sep_targets results/vlm_inputs_separate/targets.csv --out results/vlm_scores/check.jsonl --repeats 5 --show 1
 # ↑ 只检查、不发送：打印一个组装好的请求和总规模（demo 每帧问 5 次：2,550 次请求）。这一步很轻，可以在登录节点上跑
 mkdir -p logs                   # Slurm 不会自己建日志文件夹；没有它，任务会直接失败而且没有日志
-sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/smoke.jsonl
+sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/qwen3-vl-32b/smoke_qwen3-vl-32b.jsonl
 # ↑ 先小试：2 个目标帧 × 5 组 × 1 次 = 10 次请求
-sbatch kamiak/qwen_vlm.sbatch   # 小试没问题、定好 --max_tokens 以后，再跑完整试跑（2,550 次请求）
+sbatch kamiak/qwen_vlm.sbatch   # 小试没问题再跑完整试跑（2,550 次请求），默认 MODEL=qwen3-vl-32b
+sbatch --export=ALL,MODEL=qwen3.6-27b kamiak/qwen_vlm.sbatch   # 换成另一个模型
 squeue -u $USER                 # 看任务状态；日志在 logs/
 ```
 - 写在脚本名后面的参数会原样传给 `run_vlm.py`，并覆盖脚本里的同名参数。
-- 脚本里的设置：
-  - 采样用模型推荐的值：温度 1.0、top_p 0.95、top_k 20（模型自带的 `generation_config.json`）。这三个值明确发给服务，也记进每行输出。
-  - `--max_tokens 24576`，thinking 的 token 也算在里面。小试（2026-10-19）里思考最长 10,896 token（拼图组），所以留足余量。为此 vLLM 的 `--max-model-len` 也提到 40960：最长的 sep 提示约 13,660 token，加上 24576 要装得下。
-  - 同时发 32 个请求（`--workers 32`），时限 2 天。
-  - vLLM 加了 `--reasoning-parser qwen3`、`--gdn-prefill-backend triton` 和 `VLLM_USE_FLASHINFER_SAMPLER=0`，原因见下面"出问题时先看这里"。
-- 结果在 `results/vlm_scores/<RUN>.jsonl`，每行一个请求，内容有：
+- 两个模型共同的设置：同样的问题、5 个比较组、每帧问 5 次；同时发 32 个请求（`--workers 32`），时限 2 天；`VLLM_USE_FLASHINFER_SAMPLER=0`（原因见下面"出问题时先看这里"）。
+- 每个模型自己的设置（采样都用模型自带 `generation_config.json` 里的推荐值，明确发给服务，也记进每行输出）：
+
+  | | Qwen3-VL-32B-Instruct | Qwen3.6-27B |
+  |---|---|---|
+  | 采样 | 温度 0.7、top_p 0.8、top_k 20 | 温度 1.0、top_p 0.95、top_k 20 |
+  | 思考 | 没有 | 有，`--reasoning-parser qwen3` 把它分到 `reasoning` |
+  | `--max_tokens` | 1024（回答约 80 token） | 24576（思考也算在里面；小试里最长 10,896） |
+  | `--max-model-len` | 32768 | 40960（最长的 sep 提示约 13,660 token，加上 24576 要装得下） |
+  | 其他 | | `--gdn-prefill-backend triton` |
+
+- 不思考的模型千万不要加 `--reasoning-parser qwen3`：vLLM 0.32.0 的这个解析器默认把输出先当成思考内容，等不到 `</think>` 就会把整段回答放进 `reasoning`，`text` 是空的，全部解析失败。
+- 结果在 `results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl`（小试是同一文件夹里的 `smoke_<MODEL>.jsonl`），每行一个请求，内容有：
   - 回答原文 `text` 和解析出的 JSON `parsed`；
   - 思考内容 `reasoning`，以及 `finish_reason`（是 `length` 就说明被 `--max_tokens` 截断了）；
   - 采样参数、token 用量（`usage`）、耗时（`latency_s`）；
@@ -109,8 +122,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - `APITimeoutError: Request timed out.`：客户端等得太久。
   - openai 客户端默认每个请求等 600 s，超时后自动重试 2 次；每次重试都是重新抽一个回答，等于把思考长的回答换掉了。2026-10-19 的完整试跑因此有 98 条是重试后才答完的，另有 3 条失败。
   - 所以 `run_vlm.py` 现在每个请求最多等 1 小时（`--timeout 3600`），不自动重试。报错的请求不写进结果，重新提交时会补发。
-  - `latency_s` 超过 600 s 的旧记录就是重试过的，已经移到 `results/vlm_scores/pilot_qwen3.6-27b_timeout_retried.jsonl`，并重新问过。
-- 日志 `logs/qwen-vlm_<任务号>.out` 里，`run_vlm.py` 的进度行要等作业结束才一起出现（Python 写文件时有缓冲）。跑的过程中看进度，就数结果文件的行数：`wc -l results/vlm_scores/<RUN>.jsonl`。
+  - `latency_s` 超过 600 s 的旧记录就是重试过的，已经移到 `results/vlm_scores/qwen3.6-27b/pilot_qwen3.6-27b_timeout_retried.jsonl`，并重新问过。
+- 日志 `logs/qwen-vlm_<任务号>.out` 里，`run_vlm.py` 的进度行要等作业结束才一起出现（Python 写文件时有缓冲）。跑的过程中看进度，就数结果文件的行数：`wc -l results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl`。
 - 作业显示 `CANCELLED by <你的 uid>`，内存也没超：多半是用终端里的 `srun` 跑的，终端（或 Claude 会话）断了。长任务用 `sbatch`。
 - 报 `$'\r': command not found`：脚本带着 Windows 的换行符（比如是从办公室电脑直接拷过去的，不是 git clone 的）。用 `sed -i 's/\r$//' kamiak/qwen_vlm.sbatch` 修。
 - 日志里说连不上 huggingface：模型已经在本地，在 sbatch 里 `conda activate` 那行后面加 `export HF_HUB_OFFLINE=1`。

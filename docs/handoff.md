@@ -93,6 +93,7 @@
   - vLLM 单卡起服务（`--max-model-len 4096 --enforce-eager --reasoning-parser qwen3`），约 2.5 分钟就绪；日志确认 GDN 用的是 Triton，采样没用 FlashInfer，没有报错；
   - 发了 1 个 `ctrl_grid` 请求：`parsed` 正常（risk 40），`finish_reason` 是 stop；提示 1,656 token，生成 1,715 token（思考 1,634 + 回答 81），用时 102.98 s。
 
+（Qwen3.6-27B 的结果 2026-10-19 晚都挪进了 `results/vlm_scores/qwen3.6-27b/`：`pilot_qwen3.6-27b.jsonl`、`pilot_qwen3.6-27b_timeout_retried.jsonl`、`smoke_qwen3.6-27b.jsonl`，作业日志在 `logs/` 子文件夹里。下面写的是当时的文件名。）
 - 小试（作业 31306357，sn18，2 块 H100，作业用时 8 分 19 秒；结果在 `results/vlm_scores/smoke.jsonl`）：
   - 10 次请求全部有回答，`parsed` 都不为空，`finish_reason` 都是 stop；
   - 思考长度（token）：拼图组 10,246、10,896；sep_time 3,692、5,788；sep_camera 3,380、5,438；ctrl_grid 2,445、3,930；ctrl_sep 2,276、5,164。拼图组的思考比别的组长很多，原因还不知道；
@@ -110,7 +111,13 @@
   - 没完全按格式回答的：`main_hazard_camera` 有 68 条写成 `side left`、`side right`、`side-left`、`side-right`、`front left`、`front right`；`hazard_type` 有 1 条写成 `lane change`。分析前要统一写法。
 
 **接下来**：
-1. 把结果传回办公室电脑（`kamiak/README.md` 里有 scp 命令），和 SSM 的结果放在一起分析。分析做法先和用户确认，见第 4 节。
+1. 第二个模型 Qwen3-VL-32B-Instruct（2026-10-19 晚用户决定）：
+   - 下载版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，66,726,519,322 字节，26 个文件逐个按官方校验值核对，全部一致。
+   - 采样用它自己的推荐值：温度 0.7、top_p 0.8、top_k 20（用户定）。不思考，所以不加 `--reasoning-parser`；`--max_tokens 1024`；问题、比较组、每帧 5 次都和 Qwen3.6 一样。
+   - 小试（作业 31318384，sn17，3 分 54 秒）：10 次全部解析成功，回答约 80 token，每个约 17 s。
+   - 完整试跑：作业 31318509，结果写到 `results/vlm_scores/qwen3-vl-32b/pilot_qwen3-vl-32b.jsonl`。
+   - 原来 hf_cache 里的 Qwen3-VL-30B-A3B-Instruct（MoE，58 GB）按用户要求删掉了；删之前核对过和官方一致。
+2. 把两个模型的结果传回办公室电脑（`kamiak/README.md` 里有 scp 命令），和 SSM 的结果放在一起分析。分析做法先和用户确认，见第 4 节。
 
 **2026-10-19 踩过的坑**（细节和解决办法见 `kamiak/README.md`）：
 - Kamiak 规定登录节点上不能装包、不能长时间传文件（hpc.wsu.edu："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。要用 `srun` 放到计算节点上。Claude 在登录节点上跑过两次 `conda create`，严格说也算违规。
@@ -118,7 +125,7 @@
 - dtn 节点能分的内存很少：申请 8G 时作业预计要等一周，改成 900M 马上就排上了。dtn 上不能 `conda activate`，系统 Python 太旧，要用 conda 环境里 `hf` 的完整路径。
 - 用挂在 Claude 会话上的 `srun` 跑 GPU 测试，会话一结束作业就被取消了。GPU 任务都用 `sbatch`。
 - FlashInfer 的内核要现场编译，Kamiak 上它找不到 nvcc。sbatch 里用 `--gdn-prefill-backend triton` 和 `VLLM_USE_FLASHINFER_SAMPLER=0` 避开。
-- 留着没删、等用户决定的：`/data/lab/cejli/sy/conda_envs/vllm`（cu130 版，不能用）；`/data/lab/cejli/sy/tmp_checks/`（GPU 自检的脚本和日志）；hf_cache 里的 Qwen3-VL-30B-A3B（见 7.4）。
+- 留着没删、等用户决定的：`/data/lab/cejli/sy/conda_envs/vllm`（cu130 版，不能用）；`/data/lab/cejli/sy/tmp_checks/`（GPU 自检、结果统计、模型校验的脚本和日志）；`/data/lab/cejli/sy/vlm_scores_backup/`（Qwen3.6 重做前的完整结果，3.5 GB）。
 
 注意：
 - 不要在登录节点上跑模型，都用 sbatch。
@@ -161,7 +168,7 @@
 - VLM 的规模：约 6,900 个目标帧 × 选定的组 × 每帧问几次。
 
 ## 5. 还没定的事（要问用户）
-- demo 用哪个模型已经定了（2026-10-19）：Qwen3.6-27B，保留 thinking。以后要不要再加一个闭源模型对比，还没定。
+- demo 用的模型（2026-10-19 定）：Qwen3.6-27B（保留 thinking）和 Qwen3-VL-32B-Instruct（不思考）两个都跑。以后要不要再加一个闭源模型对比，还没定。
 - 问题措辞的细节：模板还标着 DRAFT。
 - 采样：试跑用 Qwen3.6 推荐的温度 1.0、top_p 0.95、top_k 20，还没最终定。每帧问几次已经定了：5 次（2026-10-19）。`--max_tokens` 按小试结果定为 24576。
 - 敏感性分析做哪些。已经列了备选值：反应时间 0.7、1.5、2.2 s；减速度 3.4、8.5 m/s²。
@@ -268,7 +275,8 @@
   - vLLM 支持：vLLM 官方账号发推确认 Qwen3.6-27B "day-0 支持"。serve 命令要加 `--reasoning-parser qwen3`，把思考内容从 `message.content` 分到 `message.reasoning`（0.32.0 里的字段名，旧名 `reasoning_content` 已弃用），避免干扰 `code/run_vlm.py` 的 JSON 解析。`--max_tokens` 要比默认的 300 大很多（思考会占掉 token 预算），已经写进 sbatch。
   - 模型的 chat template 默认开 thinking（生成提示里直接放了 `<think>`，所以输出里只有结尾的 `</think>`）；vLLM 0.32.0 的 qwen3 解析器默认从"思考"状态开始，能正确处理（2026-10-19 读源码确认）。
   - 模型自带 `generation_config.json`：温度 1.0、top_p 0.95、top_k 20。
-  - `/data/lab/cejli/sy/hf_cache` 下还留着之前下的 Qwen3-VL-30B-A3B-Instruct（58 GB，MoE，不是当初脚本写的稠密 Qwen3-VL-32B，是另一个型号）。换成 Qwen3.6-27B 以后暂时用不上，但按 CLAUDE.md 的规矩我没有删，要不要删、谁来删还要问用户。
+  - `/data/lab/cejli/sy/hf_cache` 里原来有一个 Qwen3-VL-30B-A3B-Instruct（58 GB，MoE，不是当初脚本写的稠密 Qwen3-VL-32B）。2026-10-19 核对过和官方完全一致（版本 `9c4b90e1e4ba969fd3b5378b57d966d725f1b86c`，就是官方当前版本），然后按用户要求删掉了。
+- 2026-10-19 晚加了第二个模型 Qwen3-VL-32B-Instruct（用户决定）：稠密，不思考（Instruct 版的 chat template 里没有 think）。官方推荐采样（`generation_config.json`）：温度 0.7、top_p 0.8、top_k 20、repetition_penalty 1.0；官方 README 里没有另写采样建议。图片预处理和 Qwen3.6 一样（patch 16、merge 2），所以图片 token 数一样。
 
 ### 7.5 没核实过的说法（引用前先查原文）
 - DRAC 的固定阈值，比如 3.35 m/s²。
