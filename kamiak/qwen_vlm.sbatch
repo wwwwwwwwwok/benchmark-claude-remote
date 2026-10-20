@@ -62,15 +62,19 @@ case "$MODEL" in
         SERVE_ARGS=(--max-model-len 40960 --trust-remote-code)
         SAMPLING=(--temperature 0.8 --top_p 0.8 --max_tokens 1024)
         ;;
-    internvl3.5-38b-thinking)   # the same weights with thinking on (2026-10-20, user's choice to run both). InternVL3.5
-                                # thinks only when its R1_SYSTEM_PROMPT (model card) is the system prompt; it goes in
-                                # front of ours (code/internvl_thinking_system_prompt.txt, checked identical to the
-                                # card). Temperature 0.6 as the card recommends for thinking (it gives no top_p/top_k).
-                                # The model writes <think>...</think> itself, the R1 format: deepseek_r1 parser.
-                                # vLLM caps --max_tokens at the context left: ~5,900 tokens for a sep prompt.
+    internvl3.5-38b-thinking)   # the same weights with thinking on (2026-10-20, user's choice to run both). Same
+                                # messages as every other model (user's choice): instead of the R1 system prompt the
+                                # model card uses to switch thinking on, kamiak/internvl_thinking_chat_template.jinja
+                                # starts the reply with <think>, as Qwen's thinking templates do. (The reference smoke
+                                # test with the R1 prompt, job 31327939, added --system_prefix_file
+                                # code/internvl_thinking_system_prompt.txt.) Temperature 0.6 as the card recommends
+                                # for thinking (it gives no top_p / top_k). The reply holds thinking + </think> +
+                                # answer: the deepseek_r1 parser splits it. vLLM caps --max_tokens at the context
+                                # left: ~5,900 tokens for a sep prompt.
         MODEL_DIR=/data/lab/cejli/sy/models/InternVL3_5-38B
-        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code --reasoning-parser deepseek_r1)
-        SAMPLING=(--temperature 0.6 --max_tokens 24576 --system_prefix_file code/internvl_thinking_system_prompt.txt)
+        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code --reasoning-parser deepseek_r1
+                    --chat-template kamiak/internvl_thinking_chat_template.jinja)
+        SAMPLING=(--temperature 0.6 --max_tokens 24576)
         ;;
     *) echo "unknown MODEL=$MODEL"; exit 1 ;;
 esac
@@ -85,6 +89,9 @@ export VLLM_USE_FLASHINFER_SAMPLER=0
 mkdir -p logs "results/vlm_scores/$MODEL"
 PORT=$((8000 + SLURM_JOB_ID % 1000))
 echo "MODEL=$MODEL MODEL_DIR=$MODEL_DIR OUT=$OUT"
+# every run so far: camas (sn16-18 are identical), 2x H100 PCIe 80GB, driver 535.274.02; keep it that way (user,
+# 2026-10-20) and record what this job got
+nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader
 
 # vLLM OpenAI-compatible server; up to 25 images per request, prompts of ~14k tokens
 vllm serve "$MODEL_DIR" --served-model-name "$SERVED_NAME" --port "$PORT" \

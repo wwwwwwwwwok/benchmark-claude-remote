@@ -1,0 +1,8 @@
+{#- InternVL3.5-38B's own chat_template.jinja (rev de99855b) with one change: the reply starts with <think> and a newline, the way the Qwen3-VL-32B-Thinking and Qwen3.6 templates start theirs, so the messages stay the same as for every other model (user's choice, 2026-10-20). InternVL3.5 itself writes exactly '<think>' + newline first when thinking is switched on with its R1 system prompt. -#}
+{% for message in messages %}{{'<|im_start|>' + message['role'] + '
+'}}{% if message['content'] is string %}{{ message['content'] }}{% else %}{% for content in message['content'] %}{% if content['type'] == 'image' %}{{ '<image>
+' }}{% elif content['type'] == 'video' %}{{ '<video>
+' }}{% elif content['type'] == 'text' %}{{ content['text'] }}{% endif %}{% endfor %}{% endif %}{{'<|im_end|>
+'}}{% endfor %}{% if add_generation_prompt %}{{'<|im_start|>assistant
+<think>
+' }}{% endif %}

@@ -44,6 +44,7 @@ export VLLM_USE_FLASHINFER_SAMPLER=0
 mkdir -p logs
 PORT=$((8000 + SLURM_JOB_ID % 1000))
 echo "MODEL=$MODEL MODEL_DIR=$MODEL_DIR PILOT=$PILOT OUT=$OUT"
+nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader   # same GPUs as the pilot runs
 
 vllm serve "$MODEL_DIR" --served-model-name "$SERVED_NAME" --port "$PORT" \
     --tensor-parallel-size "$N_GPUS" --limit-mm-per-prompt '{"image": 25}' \
