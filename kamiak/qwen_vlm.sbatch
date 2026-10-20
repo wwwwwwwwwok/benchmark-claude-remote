@@ -9,7 +9,8 @@
 #
 # Submit from the repository root (Slurm does not create the log folder, so make it first):
 #   mkdir -p logs && sbatch kamiak/qwen_vlm.sbatch                                  # MODEL=qwen3-vl-32b (default)
-#   sbatch --export=ALL,MODEL=qwen3.6-27b kamiak/qwen_vlm.sbatch                    # the other model
+#   sbatch --export=ALL,MODEL=qwen3-vl-32b-thinking kamiak/qwen_vlm.sbatch          # other models: qwen3-vl-32b-thinking,
+#                                                                                   # qwen3.6-27b
 # Arguments after the script name are passed on to run_vlm.py and override the ones below, e.g. a small test run:
 #   sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/qwen3-vl-32b/smoke_qwen3-vl-32b.jsonl
 #SBATCH --job-name=qwen-vlm
@@ -34,6 +35,13 @@ case "$MODEL" in
         MODEL_DIR=/data/lab/cejli/sy/models/Qwen3-VL-32B-Instruct
         SERVE_ARGS=(--max-model-len 32768)
         SAMPLING=(--temperature 0.7 --top_p 0.8 --top_k 20 --max_tokens 1024)
+        ;;
+    qwen3-vl-32b-thinking)   # Qwen/Qwen3-VL-32B-Thinking rev 7edd10ff (2026-10-19, user's choice): same base and size
+                             # as the Instruct model but thinks first, so the two isolate the effect of thinking.
+                             # --reasoning-parser / --max_tokens / --max-model-len as for qwen3.6-27b below.
+        MODEL_DIR=/data/lab/cejli/sy/models/Qwen3-VL-32B-Thinking
+        SERVE_ARGS=(--max-model-len 40960 --reasoning-parser qwen3)
+        SAMPLING=(--temperature 0.8 --top_p 0.95 --top_k 20 --max_tokens 24576)
         ;;
     qwen3.6-27b)    # Qwen/Qwen3.6-27B; thinks before answering (kept on, 2026-10-19). --reasoning-parser qwen3 keeps
                     # the thinking out of message.content (it lands in message.reasoning). Never use that parser for a

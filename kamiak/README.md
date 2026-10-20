@@ -2,7 +2,12 @@
 
 思路：在 GPU 节点上用 vLLM 把开源的 Qwen 模型启动成一个本地服务，再用 `code/run_vlm.py` 把每个目标帧的图和问题发过去。不按量收费，模型版本固定，可以复现，还能拿到每个回答的概率。
 
-跑过两个模型（都是 2026-10-19，用户定的）：Qwen3.6-27B（保留 thinking）和 Qwen3-VL-32B-Instruct（稠密，不思考）。用哪个由 sbatch 里的 `MODEL` 决定，默认是 `qwen3-vl-32b`。下面的路径都是这个账号的（课题组 `cejli`，个人目录 `sy`）。
+跑过三个模型（都是 2026-10-19，用户定的）：
+- Qwen3.6-27B（保留 thinking）；
+- Qwen3-VL-32B-Instruct（稠密，不思考）；
+- Qwen3-VL-32B-Thinking（和 Instruct 同一个底座、同样大小，先思考再回答；和 Instruct 一比，就能单独看出思考的作用）。
+
+用哪个由 sbatch 里的 `MODEL` 决定，默认是 `qwen3-vl-32b`。下面的路径都是这个账号的（课题组 `cejli`，个人目录 `sy`）。
 
 ## Kamiak 上的规矩和资源（2026-10-19 在集群上查过）
 - 登录节点上不能跑程序、装包，也不能长时间传文件。官方原话："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node."
@@ -28,6 +33,7 @@
 - 模型（都放在 `/data/lab/cejli/sy/models/`，下载后都按官方校验值逐个核对过）：
   - `Qwen3.6-27B`：15 个分片，51.75 GiB。一块 H100 就装得下（权重占显存 51.01 GiB）。
   - `Qwen3-VL-32B-Instruct`：版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，14 个分片，66,726,519,322 字节（62.14 GiB）。要 2 块 H100。
+  - `Qwen3-VL-32B-Thinking`：版本 `7edd10ffd1196091948fb245ff63e406ccb2d4d1`，14 个分片，66,726,519,215 字节（62.14 GiB）。要 2 块 H100。
   - 原来 `hf_cache` 里的 Qwen3-VL-30B-A3B-Instruct（MoE）2026-10-19 按用户要求删掉了；删之前核对过和官方一致，要用可以重新下。
   - 脚本默认用 2 块卡。
 
@@ -51,13 +57,16 @@
    - 最后一行应该打印 `2.13.0+cu129 12.9 0.32.0`。
    - vLLM 0.32.0 在 GitHub releases 上只有 cu129 这一个 CUDA 版本的 wheel，没有 cu128。
    - `torchcodec` 那一行不能省：pip 默认装的 0.17.0 和 cu129 的 torch 不配套，vLLM 启动时会报 `OSError: Could not load this library: .../libtorchcodec_image.so`。cu129 索引上最新的是 0.16.0+cu129。
-3. 下载模型权重，在 dtn 上下（下面是 Qwen3.6-27B；Qwen3-VL-32B 把仓库名、`--revision 0cfaf48183f594c314753d30a4c4974bc75f3ccb` 和文件夹名换掉，2026-10-19 用了 9 分 24 秒）：
+3. 下载模型权重，在 dtn 上下。下面是 Qwen3.6-27B；另两个把仓库名、文件夹名换掉，再加上 `--revision`：
+   - Qwen3-VL-32B-Instruct：`--revision 0cfaf48183f594c314753d30a4c4974bc75f3ccb`，2026-10-19 用了 9 分 25 秒；
+   - Qwen3-VL-32B-Thinking：`--revision 7edd10ffd1196091948fb245ff63e406ccb2d4d1`，2026-10-19 用了 14 分 41 秒。
+
    ```bash
    srun --partition=dtn --account=cejli --time=03:00:00 --cpus-per-task=2 --mem=900M bash -c '
    export HF_HOME=/data/lab/cejli/sy/hf_cache
    /data/lab/cejli/sy/conda_envs/vllm_cu129/bin/hf download Qwen/Qwen3.6-27B --local-dir /data/lab/cejli/sy/models/Qwen3.6-27B'
    ```
-   - 下完核对：用 HuggingFace API（`https://huggingface.co/api/models/<仓库名>/tree/<版本>`）拿到每个文件的官方 SHA256 / git 校验值，和本地重新算的比。2026-10-19 两个模型都逐个核对过，全部一致。
+   - 下完核对：用 HuggingFace API（`https://huggingface.co/api/models/<仓库名>/tree/<版本>`）拿到每个文件的官方 SHA256 / git 校验值，和本地重新算的比。2026-10-19 三个模型都逐个核对过，全部一致。
    - 命令是 `hf`：新版 huggingface_hub 把 `huggingface-cli` 改名了。
    - 要用 conda 环境里 `hf` 的完整路径（环境里是 huggingface_hub 2.2.0）。dtn1 上不能 `conda activate`；系统 Python 3.9 最多只能装到 huggingface_hub 1.8.0，用它下 Qwen3.6 会误报 "Model 'Qwen/Qwen3.6-27B' not found"。
    - `--mem` 不要超过 900M（见上面 dtn 的说明）。2026-10-19 实际下载用了 16 分 48 秒。
@@ -79,20 +88,22 @@ mkdir -p logs                   # Slurm 不会自己建日志文件夹；没有�
 sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/qwen3-vl-32b/smoke_qwen3-vl-32b.jsonl
 # ↑ 先小试：2 个目标帧 × 5 组 × 1 次 = 10 次请求
 sbatch kamiak/qwen_vlm.sbatch   # 小试没问题再跑完整试跑（2,550 次请求），默认 MODEL=qwen3-vl-32b
-sbatch --export=ALL,MODEL=qwen3.6-27b kamiak/qwen_vlm.sbatch   # 换成另一个模型
+sbatch --export=ALL,MODEL=qwen3-vl-32b-thinking kamiak/qwen_vlm.sbatch   # 换成别的模型（还有 qwen3.6-27b）
 squeue -u $USER                 # 看任务状态；日志在 logs/
 ```
 - 写在脚本名后面的参数会原样传给 `run_vlm.py`，并覆盖脚本里的同名参数。
-- 两个模型共同的设置：同样的问题、5 个比较组、每帧问 5 次；同时发 32 个请求（`--workers 32`），时限 2 天；`VLLM_USE_FLASHINFER_SAMPLER=0`（原因见下面"出问题时先看这里"）。
+- 三个模型共同的设置：同样的问题、5 个比较组、每帧问 5 次；同时发 32 个请求（`--workers 32`），时限 2 天；`VLLM_USE_FLASHINFER_SAMPLER=0`（原因见下面"出问题时先看这里"）。
 - 每个模型自己的设置（采样都用模型自带 `generation_config.json` 里的推荐值，明确发给服务，也记进每行输出）：
 
-  | | Qwen3-VL-32B-Instruct | Qwen3.6-27B |
-  |---|---|---|
-  | 采样 | 温度 0.7、top_p 0.8、top_k 20 | 温度 1.0、top_p 0.95、top_k 20 |
-  | 思考 | 没有 | 有，`--reasoning-parser qwen3` 把它分到 `reasoning` |
-  | `--max_tokens` | 1024（回答约 80 token） | 24576（思考也算在里面；小试里最长 10,896） |
-  | `--max-model-len` | 32768 | 40960（最长的 sep 提示约 13,660 token，加上 24576 要装得下） |
-  | 其他 | | `--gdn-prefill-backend triton` |
+  | | Qwen3-VL-32B-Instruct | Qwen3-VL-32B-Thinking | Qwen3.6-27B |
+  |---|---|---|---|
+  | `MODEL=` | `qwen3-vl-32b` | `qwen3-vl-32b-thinking` | `qwen3.6-27b` |
+  | 采样 | 温度 0.7、top_p 0.8、top_k 20 | 温度 0.8、top_p 0.95、top_k 20 | 温度 1.0、top_p 0.95、top_k 20 |
+  | 思考 | 没有 | 有，`--reasoning-parser qwen3` 把它分到 `reasoning` | 有，同左 |
+  | `--max_tokens` | 1024（回答约 80 token） | 24576（思考也算在里面） | 24576（思考也算在里面；小试里最长 10,896） |
+  | `--max-model-len` | 32768 | 40960 | 40960（最长的 sep 提示约 13,660 token，加上 24576 要装得下） |
+  | 其他 | | | `--gdn-prefill-backend triton` |
+  | 完整试跑用时（2,550 次） | 14 分 34 秒 | 1 小时 06 分 | 5 小时 52 分（另补跑 31 分 45 秒） |
 
 - 不思考的模型千万不要加 `--reasoning-parser qwen3`：vLLM 0.32.0 的这个解析器默认把输出先当成思考内容，等不到 `</think>` 就会把整段回答放进 `reasoning`，`text` 是空的，全部解析失败。
 - 结果在 `results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl`（小试是同一文件夹里的 `smoke_<MODEL>.jsonl`），每行一个请求，内容有：

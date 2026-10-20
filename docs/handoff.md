@@ -75,7 +75,7 @@
   - `code/vlm_prompt_template.txt`：问题模板（英文）。`code/run_vlm.py` 里的文字和它一致，改措辞要两处一起改。
   - `code/run_vlm.py`：发请求的程序。默认只检查、不发送，加 `--send` 才真的发。
   - `kamiak/qwen_vlm.sbatch`、`kamiak/README.md`：Kamiak 上的任务脚本和操作步骤。
-- 目前（2026-10-19）：小试和完整试跑都跑完了（见第 3 节）。结果还在 Kamiak 上，还没分析。
+- 目前（2026-10-20）：三个模型（Qwen3.6-27B、Qwen3-VL-32B-Instruct、Qwen3-VL-32B-Thinking）的小试和完整试跑都跑完了（见第 3 节）。结果还在 Kamiak 上，还没分析。
 
 ## 3. 下一步：在 Kamiak 上试跑
 
@@ -84,7 +84,7 @@
 **已经做完的（2026-10-19）**：
 - 仓库 clone 到 Kamiak 的 `~/benchmark-claude-remote`；用户在 Kamiak 上配好了 GitHub token，能 push。
 - vLLM 环境：`/data/lab/cejli/sy/conda_envs/vllm_cu129`（vLLM 0.32.0，torch 2.13.0+cu129）。
-- 模型：Qwen3.6-27B，在 `/data/lab/cejli/sy/models/Qwen3.6-27B`。
+- 模型都在 `/data/lab/cejli/sy/models/` 下：`Qwen3.6-27B`、`Qwen3-VL-32B-Instruct`、`Qwen3-VL-32B-Thinking`。
 - 输入图片已经传上来，放在 `results/vlm_inputs`、`results/vlm_inputs_separate`，字节数和办公室电脑上的一致。
 - 只检查、不发送：按每帧 3 次算是 1,530 次请求，和计划一致；改成每帧 5 次后是 2,550 次。
 - `kamiak/qwen_vlm.sbatch` 的路径和参数已经改好。
@@ -110,14 +110,30 @@
   - 同一帧问 5 次，分数的标准差平均（0–100 分）：grid 7.18，sep_time 7.71，sep_camera 9.54，ctrl_grid 5.89，ctrl_sep 7.06。
   - 没完全按格式回答的：`main_hazard_camera` 有 68 条写成 `side left`、`side right`、`side-left`、`side-right`、`front left`、`front right`；`hazard_type` 有 1 条写成 `lane change`。分析前要统一写法。
 
+- 第二个模型 Qwen3-VL-32B-Instruct（2026-10-19 晚用户决定）：
+  - 下载版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，66,726,519,322 字节，26 个文件逐个按官方校验值核对，全部一致。
+  - 采样用它自己的推荐值：温度 0.7、top_p 0.8、top_k 20（用户定）。不思考，所以不加 `--reasoning-parser`；`--max_tokens 1024`；问题、比较组、每帧 5 次都和 Qwen3.6 一样。
+  - 小试（作业 31318384，sn17，3 分 54 秒）：10 次全部解析成功，回答约 80 token，每个约 17 s。
+  - 完整试跑（作业 31318509，sn17，14 分 34 秒）：结果在 `results/vlm_scores/qwen3-vl-32b/pilot_qwen3-vl-32b.jsonl`，2,550 行，每个（片段, 帧, 组, 第几次）正好一条，全部解析成功，`finish_reason` 都是 stop，0 报错。每个请求用时中位 8.4–10.7 s，最长 19.5 s。
+  - 同一帧问 5 次，分数的标准差平均：grid 3.79，sep_time 4.25，sep_camera 3.54，ctrl_grid 3.45，ctrl_sep 4.24。
+  - 分数从来没低于 10（5 组的最低分都是 10）；`hazard_type` 写 `none` 的只有 6 条（2,550 条里）。
+  - 没完全按格式回答的：`main_hazard_camera` 有 4 条写成 `side left`。
+  - 原来 hf_cache 里的 Qwen3-VL-30B-A3B-Instruct（MoE，58 GB）按用户要求删掉了；删之前核对过和官方一致。
+- 第三个模型 Qwen3-VL-32B-Thinking（2026-10-19 晚用户决定）：和 Instruct 同一个底座、同样大小，只差在先思考再回答，两个一比就能单独看出思考的作用。
+  - 下载版本 `7edd10ffd1196091948fb245ff63e406ccb2d4d1`，66,726,519,215 字节，26 个文件逐个按官方校验值核对，全部一致。
+  - 采样用它自己的推荐值（`generation_config.json`）：温度 0.8、top_p 0.95、top_k 20。加 `--reasoning-parser qwen3`；`--max_tokens 24576`、`--max-model-len 40960`，和 Qwen3.6 一样。
+  - 小试（作业 31326442，sn17，4 分 53 秒）：10 次全部解析成功，思考 186–2,744 token，回答约 70 token，每个 24–90 s。
+  - 完整试跑（作业 31326781，sn17，1 小时 06 分 22 秒）：结果在 `results/vlm_scores/qwen3-vl-32b-thinking/pilot_qwen3-vl-32b-thinking.jsonl`，2,550 行，每个（片段, 帧, 组, 第几次）正好一条，0 报错，每条都有思考内容。文件约 586 MB。
+  - 2,549 条解析正常。1 条思考到 24,576 token 的上限还没结束（`finish_reason` 是 length，`text` 为空），算作没回答：旧金山那段（162295）第 100 帧 ctrl_grid 第 4 次。和 Qwen3.6 那 3 条一样处理，没有重问。
+  - 思考长度（token，中位 / 最长）：grid 603 / 4,356；sep_time 688 / 4,113；sep_camera 562 / 6,694；ctrl_grid 851 / 24,576；ctrl_sep 641 / 9,912。比 Qwen3.6 短得多（Qwen3.6 各组中位 4,953–6,782）。
+  - 每个请求用时中位 28.9–41.5 s，最长 939.4 s（就是思考到上限的那条）。
+  - 同一帧问 5 次，分数的标准差平均：grid 8.24，sep_time 6.78，sep_camera 7.09，ctrl_grid 7.71，ctrl_sep 7.65。
+  - 分数有 0 分；`hazard_type` 写 `none` 的有 902 条，和 Instruct（6 条）差别很大。
+  - 没完全按格式回答的：`main_hazard_camera` 有 36 条写成 `side left`、`side right`、`side-left`、`side-right`。
+- 三个模型的作业日志都复制到了各自结果文件夹的 `logs/` 子文件夹。
+
 **接下来**：
-1. 第二个模型 Qwen3-VL-32B-Instruct（2026-10-19 晚用户决定）：
-   - 下载版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，66,726,519,322 字节，26 个文件逐个按官方校验值核对，全部一致。
-   - 采样用它自己的推荐值：温度 0.7、top_p 0.8、top_k 20（用户定）。不思考，所以不加 `--reasoning-parser`；`--max_tokens 1024`；问题、比较组、每帧 5 次都和 Qwen3.6 一样。
-   - 小试（作业 31318384，sn17，3 分 54 秒）：10 次全部解析成功，回答约 80 token，每个约 17 s。
-   - 完整试跑：作业 31318509，结果写到 `results/vlm_scores/qwen3-vl-32b/pilot_qwen3-vl-32b.jsonl`。
-   - 原来 hf_cache 里的 Qwen3-VL-30B-A3B-Instruct（MoE，58 GB）按用户要求删掉了；删之前核对过和官方一致。
-2. 把两个模型的结果传回办公室电脑（`kamiak/README.md` 里有 scp 命令），和 SSM 的结果放在一起分析。分析做法先和用户确认，见第 4 节。
+1. 把三个模型的结果传回办公室电脑（`kamiak/README.md` 里有 scp 命令），和 SSM 的结果放在一起分析。分析做法先和用户确认，见第 4 节。
 
 **2026-10-19 踩过的坑**（细节和解决办法见 `kamiak/README.md`）：
 - Kamiak 规定登录节点上不能装包、不能长时间传文件（hpc.wsu.edu："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。要用 `srun` 放到计算节点上。Claude 在登录节点上跑过两次 `conda create`，严格说也算违规。
@@ -168,9 +184,9 @@
 - VLM 的规模：约 6,900 个目标帧 × 选定的组 × 每帧问几次。
 
 ## 5. 还没定的事（要问用户）
-- demo 用的模型（2026-10-19 定）：Qwen3.6-27B（保留 thinking）和 Qwen3-VL-32B-Instruct（不思考）两个都跑。以后要不要再加一个闭源模型对比，还没定。
+- demo 用的模型（2026-10-19 定）：Qwen3.6-27B（保留 thinking）、Qwen3-VL-32B-Instruct（不思考）、Qwen3-VL-32B-Thinking（思考）三个都跑。以后要不要再加一个闭源模型对比，还没定。
 - 问题措辞的细节：模板还标着 DRAFT。
-- 采样：试跑用 Qwen3.6 推荐的温度 1.0、top_p 0.95、top_k 20，还没最终定。每帧问几次已经定了：5 次（2026-10-19）。`--max_tokens` 按小试结果定为 24576。
+- 采样：试跑用各个模型自己推荐的值（Qwen3.6 温度 1.0、top_p 0.95、top_k 20；Qwen3-VL-32B-Instruct 温度 0.7、top_p 0.8、top_k 20；Qwen3-VL-32B-Thinking 温度 0.8、top_p 0.95、top_k 20），还没最终定。每帧问几次已经定了：5 次（2026-10-19）。思考的模型 `--max_tokens` 按小试结果定为 24576。
 - 敏感性分析做哪些。已经列了备选值：反应时间 0.7、1.5、2.2 s；减速度 3.4、8.5 m/s²。
 - 分析时要不要对时间类指标统一截断（比如 10 s）。如果截断，所有时间类指标要一起截。
 - 77 m 以外的前车按"没有前车"处理，但 VLM 可能看得到它。论文里要说明。
@@ -191,6 +207,7 @@
 | 10-19（续，Kamiak 会话） | 模型从 Qwen3-VL-32B-Instruct 改成 Qwen3.6-27B，保留 thinking；查到 Kamiak 官方规定装包和大文件传输也不能在登录节点上直接跑，改用 `srun --partition=kamiak`／`--partition=dtn`；建了 conda 环境装 vLLM 0.32.0；`kamiak/qwen_vlm.sbatch` 改成实际路径，vLLM 启动加 `--reasoning-parser qwen3` |
 | 10-19（续 2） | 查出全集群 GPU 驱动只支持到 CUDA 12.2，vLLM 改装 cu129 版（torchcodec 也要配套）；模型下好；输入图片传上来；GPU 环境自检；sbatch 加上两个 FlashInfer 开关、明确发送采样参数；`run_vlm.py` 记下思考内容和 `finish_reason`；用户定每帧问 5 次（2,550 次请求）；小试 10 次全部成功；提交完整试跑（作业 31307048） |
 | 10-19（续 3） | 完整试跑跑完（2,550 次）；发现客户端超时自动重试会换掉思考长的回答，改成等 1 小时、不自动重试，重做 101 次 |
+| 10-19（续 4）～10-20 | Qwen3.6 结果挪进 `results/vlm_scores/qwen3.6-27b/`；核对后删掉旧的 Qwen3-VL-30B-A3B；加 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking（用户定），sbatch 用 `MODEL` 选模型；两个模型的小试和完整试跑都跑完 |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 

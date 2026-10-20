@@ -213,7 +213,7 @@
   - 以前每 0.05 s 检查一次、只找到 10 s：10 s 以内最多差 0.0481 s；但 10 s 以上全记成 ∞，和一维 TTC 自相矛盾（159 帧 TTC 超过 10 s 的前车，2D-TTC 全是 ∞）。改了以后有值的帧从 38 变成 148，同一辆前车的 2D-TTC 和 TTC 几乎相等（0.9935–1.0003 倍）。
   - 分析时如果只看 10 s 以内，应该对所有时间类指标统一截断。
   - Guo et al. 2023 还有纵向、横向分开算再取最小的版本，没有采用。
-- VLM：5 个相机都给、0–100 打分已经定了（见下面"VLM 打分"）；demo 跑两个模型（2026-10-19 我定的）：Qwen3.6-27B（保留 thinking）和 Qwen3-VL-32B-Instruct（不思考）。每帧问 5 次（2026-10-19 我定的，原来是 3 次）。采样用各自模型推荐的值：Qwen3.6 温度 1.0、top_p 0.95、top_k 20；Qwen3-VL-32B 温度 0.7、top_p 0.8、top_k 20。
+- VLM：5 个相机都给、0–100 打分已经定了（见下面"VLM 打分"）；demo 跑三个模型（2026-10-19 我定的）：Qwen3.6-27B（保留 thinking）、Qwen3-VL-32B-Instruct（不思考）、Qwen3-VL-32B-Thinking（思考）。每帧问 5 次（2026-10-19 我定的，原来是 3 次）。采样用各自模型推荐的值：Qwen3.6 温度 1.0、top_p 0.95、top_k 20；Qwen3-VL-32B-Instruct 温度 0.7、top_p 0.8、top_k 20；Qwen3-VL-32B-Thinking 温度 0.8、top_p 0.95、top_k 20。
 - 计算设定全部已定（2026-10-16）。最后两项（找前车的同方向阈值 30°、判断自车在哪条车道的参数）保持原值：
   - 文献和开源代码（docs 第 8 节）：nuPlan、Apollo 都优先沿用上一帧的车道和它的下一段，nuPlan 最后还从后往前清理；Lanelet2 用距离（示例 4 m）或带朝向的马氏距离；学术上的标准是 HMM 地图匹配。我们的做法是同一思路的简化版。Waymo 官方代码判断"直行"也用 30°。
   - demo 上这些参数改大改小，前车一帧都没变；人工检查前车找对约 99.7%。
@@ -253,7 +253,9 @@
 - 打算在学校的 Kamiak 上跑开源 Qwen（2026-10-17）：`camas` 分区有 H100 80GB，GPU 任务不被抢占。步骤见 `kamiak/README.md`，提交脚本 `kamiak/qwen_vlm.sbatch`。
 - 模型改成 Qwen3.6-27B（2026-10-19 我决定，原计划是 Qwen3-VL-32B-Instruct）：稠密模型，BF16 约 55.6 GB，vLLM 有官方 day-0 支持。保留它的 thinking 模式（会输出 `<think>...</think>`），具体对打分有什么影响先跑小试看。vLLM 启动加了 `--reasoning-parser qwen3`，把思考内容和最终 JSON 答案分开；`--max_tokens` 要比 300 大很多（思考会占 token 预算），已经写进 sbatch：小试里思考最长 10,896 token（拼图组），完整试跑用 24576。详见 `docs/handoff.md` 2026-10-19 条目。
 - 当前状态（2026-10-19）：模型和 vLLM 环境都装好了。Kamiak 的 GPU 驱动只支持到 CUDA 12.2，所以装的是 cu129 版，见 `kamiak/README.md`。GPU 环境自检通过：单卡 H100 起了服务，发了 1 个 `ctrl_grid` 请求，回答解析正常（risk 40），思考 1,634 token，用时 102.98 s（`--enforce-eager`、单卡）。小试 10 次全部成功；完整试跑（每帧 5 次，2,550 次请求）已经跑完：2,547 条解析正常，3 条思考到 24,576 token 还没结束。结果在 Kamiak 的 `results/vlm_scores/qwen3.6-27b/pilot_qwen3.6-27b.jsonl`。
-- 第二个模型 Qwen3-VL-32B-Instruct（2026-10-19 晚我决定加的）：稠密、不思考，采样用它推荐的温度 0.7、top_p 0.8、top_k 20；不能加 `--reasoning-parser`（会把整段回答当成思考）。sbatch 里用 `MODEL` 切换两个模型，见 `kamiak/README.md`。小试 10 次全部成功，完整试跑正在跑（作业 31318509），结果写到 `results/vlm_scores/qwen3-vl-32b/`。两个模型的结果都还没传回办公室电脑，也还没分析。步骤见 `docs/handoff.md` 第 3 节，试跑后的分析见第 4 节。
+- 第二个模型 Qwen3-VL-32B-Instruct（2026-10-19 晚我决定加的）：稠密、不思考，采样用它推荐的温度 0.7、top_p 0.8、top_k 20；不能加 `--reasoning-parser`（会把整段回答当成思考）。sbatch 里用 `MODEL` 切换模型，见 `kamiak/README.md`。完整试跑跑完（14 分 34 秒）：2,550 条全部解析成功，同一帧 5 次的标准差平均 3.45–4.25。结果在 `results/vlm_scores/qwen3-vl-32b/`。
+- 第三个模型 Qwen3-VL-32B-Thinking（2026-10-19 晚我决定加的）：和 Instruct 同一个底座，先思考再回答，用来单独看思考的作用。采样用它推荐的温度 0.8、top_p 0.95、top_k 20；加 `--reasoning-parser qwen3`，`--max_tokens 24576`。完整试跑跑完（1 小时 06 分）：2,549 条解析正常，1 条思考到上限没答完；思考中位 562–851 token，比 Qwen3.6 短得多；同一帧 5 次的标准差平均 6.78–8.24。结果在 `results/vlm_scores/qwen3-vl-32b-thinking/`。
+- 三个模型的结果都还没传回办公室电脑，也还没分析。细节见 `docs/handoff.md` 第 3 节，试跑后的分析见第 4 节。
 - 还没定：问题措辞的细节；以后要不要再加一个闭源模型对比。
 
 ## 下一步
