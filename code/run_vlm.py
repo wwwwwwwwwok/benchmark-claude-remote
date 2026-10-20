@@ -30,7 +30,6 @@ import base64
 import concurrent.futures as cf
 import json
 import os
-import re
 import sys
 import threading
 import time
@@ -120,17 +119,25 @@ def qwen_image_tokens(path):
 
 
 def parse(text):
-    m = re.search(r'\{.*\}', text or '', re.S)
-    if not m:
-        return None
-    try:
-        d = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    r = d.get('risk')
-    if isinstance(r, str) and r.strip().isdigit():
-        d['risk'] = int(r)
-    return d if isinstance(d.get('risk'), (int, float)) and 0 <= d['risk'] <= 100 else None
+    """The first JSON object in the reply that has a valid risk. InternVL3.5 sometimes writes its answer again after a
+    stray </think>; the first copy is the answer (2026-10-20, user's choice). On every earlier reply this gives the same
+    result as the old "first { to last }" rule."""
+    text = text or ''
+    i = 0
+    while (i := text.find('{', i)) >= 0:
+        try:
+            d, _ = json.JSONDecoder().raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(d, dict):
+            r = d.get('risk')
+            if isinstance(r, str) and r.strip().isdigit():
+                d['risk'] = int(r)
+            if isinstance(d.get('risk'), (int, float)) and 0 <= d['risk'] <= 100:
+                return d
+        i += 1
+    return None
 
 
 def main():
