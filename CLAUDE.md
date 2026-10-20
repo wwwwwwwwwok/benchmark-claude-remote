@@ -255,6 +255,7 @@
 - 当前状态（2026-10-19）：模型和 vLLM 环境都装好了。Kamiak 的 GPU 驱动只支持到 CUDA 12.2，所以装的是 cu129 版，见 `kamiak/README.md`。GPU 环境自检通过：单卡 H100 起了服务，发了 1 个 `ctrl_grid` 请求，回答解析正常（risk 40），思考 1,634 token，用时 102.98 s（`--enforce-eager`、单卡）。小试 10 次全部成功；完整试跑（每帧 5 次，2,550 次请求）已经跑完：2,547 条解析正常，3 条思考到 24,576 token 还没结束。结果在 Kamiak 的 `results/vlm_scores/qwen3.6-27b/pilot_qwen3.6-27b.jsonl`。
 - 第二个模型 Qwen3-VL-32B-Instruct（2026-10-19 晚我决定加的）：稠密、不思考，采样用它推荐的温度 0.7、top_p 0.8、top_k 20；不能加 `--reasoning-parser`（会把整段回答当成思考）。sbatch 里用 `MODEL` 切换模型，见 `kamiak/README.md`。完整试跑跑完（14 分 34 秒）：2,550 条全部解析成功，同一帧 5 次的标准差平均 3.45–4.25。结果在 `results/vlm_scores/qwen3-vl-32b/`。
 - 第三个模型 Qwen3-VL-32B-Thinking（2026-10-19 晚我决定加的）：和 Instruct 同一个底座，先思考再回答，用来单独看思考的作用。采样用它推荐的温度 0.8、top_p 0.95、top_k 20；加 `--reasoning-parser qwen3`，`--max_tokens 24576`。完整试跑跑完（1 小时 06 分）：2,549 条解析正常，1 条思考到上限没答完；思考中位 562–851 token，比 Qwen3.6 短得多；同一帧 5 次的标准差平均 6.78–8.24。结果在 `results/vlm_scores/qwen3-vl-32b-thinking/`。
+- 思考到 `--max_tokens` 还没答完的回答（Qwen3.6 3 条、Qwen3-VL-32B-Thinking 1 条），用 Qwen 官方的"思考预算"做法补答（2026-10-20 我定的）：原来的思考原样接回去，加上收尾文字关上 `</think>`，让模型直接作答，不重新抽样。4 条全部答出，另存 `pilot_<MODEL>_forced_answers.jsonl`（`forced_answer: true`），原结果文件不动。见 `kamiak/README.md` 和 `docs/handoff.md` 第 3 节。
 - 三个模型的结果都还没传回办公室电脑，也还没分析。细节见 `docs/handoff.md` 第 3 节，试跑后的分析见第 4 节。
 - 还没定：问题措辞的细节；以后要不要再加一个闭源模型对比。
 

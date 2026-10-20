@@ -105,7 +105,7 @@
 - 完整试跑（作业 31307048，sn18，5 小时 52 分；补跑作业 31315513，31 分 45 秒）：结果在 `results/vlm_scores/pilot_qwen3.6-27b.jsonl`，2,550 行，每个（片段, 帧, 组, 第几次）正好一条。文件约 3.5 GB，大部分是概率数据。
   - 第一轮 2,547 条成功、3 条客户端超时。openai 客户端默认等 600 s、超时后自动重试 2 次，有 98 条是重试后才答完的，等于把思考长的回答换掉了。
   - 用户决定重做：98 条移到 `pilot_qwen3.6-27b_timeout_retried.jsonl` 保存；原文件完整备份在 `/data/lab/cejli/sy/vlm_scores_backup/`；`run_vlm.py` 改成每个请求等 1 小时、不自动重试；再补跑这 101 次。
-  - 2,550 条里 2,547 条解析正常。3 条思考到 24,576 token 的上限还没结束（`finish_reason` 是 length，`text` 为空），算作没回答：凤凰城那段（144865）第 100 帧 grid 第 3 次；旧金山那段（162295）第 120 帧 sep_camera 第 4 次、ctrl_grid 第 0 次。
+  - 2,550 条里 2,547 条解析正常。3 条思考到 24,576 token 的上限还没结束（`finish_reason` 是 length，`text` 为空），算作没回答：凤凰城那段（144865）第 100 帧 grid 第 3 次；旧金山那段（162295）第 120 帧 sep_camera 第 4 次、ctrl_grid 第 0 次。2026-10-20 补了答案，见下面"思考到上限的 4 条"。
   - 思考长度（token，中位 / 最长）：grid 5,286 / 24,576；sep_time 4,953 / 21,040；sep_camera 6,782 / 24,576；ctrl_grid 5,060 / 24,576；ctrl_sep 5,247 / 18,108。
   - 同一帧问 5 次，分数的标准差平均（0–100 分）：grid 7.18，sep_time 7.71，sep_camera 9.54，ctrl_grid 5.89，ctrl_sep 7.06。
   - 没完全按格式回答的：`main_hazard_camera` 有 68 条写成 `side left`、`side right`、`side-left`、`side-right`、`front left`、`front right`；`hazard_type` 有 1 条写成 `lane change`。分析前要统一写法。
@@ -124,12 +124,28 @@
   - 采样用它自己的推荐值（`generation_config.json`）：温度 0.8、top_p 0.95、top_k 20。加 `--reasoning-parser qwen3`；`--max_tokens 24576`、`--max-model-len 40960`，和 Qwen3.6 一样。
   - 小试（作业 31326442，sn17，4 分 53 秒）：10 次全部解析成功，思考 186–2,744 token，回答约 70 token，每个 24–90 s。
   - 完整试跑（作业 31326781，sn17，1 小时 06 分 22 秒）：结果在 `results/vlm_scores/qwen3-vl-32b-thinking/pilot_qwen3-vl-32b-thinking.jsonl`，2,550 行，每个（片段, 帧, 组, 第几次）正好一条，0 报错，每条都有思考内容。文件约 586 MB。
-  - 2,549 条解析正常。1 条思考到 24,576 token 的上限还没结束（`finish_reason` 是 length，`text` 为空），算作没回答：旧金山那段（162295）第 100 帧 ctrl_grid 第 4 次。和 Qwen3.6 那 3 条一样处理，没有重问。
+  - 2,549 条解析正常。1 条思考到 24,576 token 的上限还没结束（`finish_reason` 是 length，`text` 为空），算作没回答：旧金山那段（162295）第 100 帧 ctrl_grid 第 4 次。2026-10-20 补了答案，见下面"思考到上限的 4 条"。
   - 思考长度（token，中位 / 最长）：grid 603 / 4,356；sep_time 688 / 4,113；sep_camera 562 / 6,694；ctrl_grid 851 / 24,576；ctrl_sep 641 / 9,912。比 Qwen3.6 短得多（Qwen3.6 各组中位 4,953–6,782）。
   - 每个请求用时中位 28.9–41.5 s，最长 939.4 s（就是思考到上限的那条）。
   - 同一帧问 5 次，分数的标准差平均：grid 8.24，sep_time 6.78，sep_camera 7.09，ctrl_grid 7.71，ctrl_sep 7.65。
   - 分数有 0 分；`hazard_type` 写 `none` 的有 902 条，和 Instruct（6 条）差别很大。
   - 没完全按格式回答的：`main_hazard_camera` 有 36 条写成 `side left`、`side right`、`side-left`、`side-right`。
+- 思考到上限的 4 条（Qwen3.6 3 条、Qwen3-VL-32B-Thinking 1 条），2026-10-20 补了答案：
+  - 先看了卡住的原因。有 2 条是死循环：Qwen3.6 162295 第 120 帧 ctrl_grid 第 0 次，同一段 1,087 字符重复 42.5 遍，从思考的 45% 处开始；Thinking 162295 第 100 帧 ctrl_grid 第 4 次，同一段 1,435 字符重复 57.6 遍，从 29% 处开始。另 2 条不是死循环，是来回推翻（144865 grid）、觉得相机画面互相矛盾（162295 sep_camera）。
+  - 用户选了"强制收尾"（另两个选项是重新问一次、多给 token 接着想）：用 Qwen 官方的思考预算做法（Qwen 快速入门文档；Qwen3 Technical Report arXiv 2505.09388 第 4.3 节），把原来的思考原样接回去，加上收尾文字 `"\n\nConsidering the limited time by the user, I have to give the solution based on the thinking directly now.\n</think>\n\n"`，让模型直接作答。还是原来那次抽样。程序 `code/force_answer.py`，提交脚本 `kamiak/force_answer.sbatch`。
+  - 提交前在 CPU 节点上核对过两个模型的对话模板：接上思考后的提示，开头和正常请求完全一样，思考原样在里面，结尾停在 `</think>` 后面（Qwen3.6 的模板把 `</think>` 后的空行去掉了，模型自己补上）。
+  - 补答作业 31327070（Qwen3.6，2 分 39 秒）、31327071（Thinking，2 分 00 秒），都在 sn18。4 条全部解析成功，`finish_reason` 都是 stop，回答 78–93 token。每条的提示正好比原来多 24,600 token（原来的 24,576 个思考 token 加收尾文字），说明接回去的思考和原来的 token 数完全一致。
+  - 结果另存 `pilot_<MODEL>_forced_answers.jsonl`（每行有 `forced_answer: true`），原结果文件没动：
+
+    | 模型 | 条目 | 补出的分数 | 同一帧另外 4 次 |
+    |---|---|---|---|
+    | Qwen3.6 | 144865 第 100 帧 grid 第 3 次 | 25（front-right，lane change or side） | 30、15、15、50 |
+    | Qwen3.6 | 162295 第 120 帧 sep_camera 第 4 次 | 30（front，oncoming） | 15、60、10、10 |
+    | Qwen3.6 | 162295 第 120 帧 ctrl_grid 第 0 次 | 45（front-left，crossing or intersection） | 25、30、30、20 |
+    | Thinking | 162295 第 100 帧 ctrl_grid 第 4 次 | 40（front-left，pedestrian or cyclist） | 75、30、40、40 |
+
+  - 144865 那条思考里先写过一版草稿（risk 20，左侧银色轿车），强制收尾后的答案是 25、右前的警车，和草稿不一样。
+  - 分析时这 4 条可以算进去，也可以去掉作对照，用 `forced_answer` 区分。
 - 三个模型的作业日志都复制到了各自结果文件夹的 `logs/` 子文件夹。
 
 **接下来**：
@@ -185,6 +201,10 @@
 
 ## 5. 还没定的事（要问用户）
 - demo 用的模型（2026-10-19 定）：Qwen3.6-27B（保留 thinking）、Qwen3-VL-32B-Instruct（不思考）、Qwen3-VL-32B-Thinking（思考）三个都跑。以后要不要再加一个闭源模型对比，还没定。
+- 用户 2026-10-20 想再加 InternVL，版本和要不要思考还没定：
+  - 最新一代是 InternVL3.5（2025-08-26），之后没有新的 InternVL。
+  - 建议 InternVL3.5-38B（不带后缀 = 训练全流程，含 CascadeRL）：38.39 B 参数，BF16 约 76.8 GB，2 块 H100 够；语言部分是 Qwen3-32B，视觉是 InternViT-6B。
+  - 它的思考要靠官方系统提示词 `R1_SYSTEM_PROMPT` 打开，和我们"有经验的司机"的系统提示词冲突，要用户定怎么处理。思考模式官方推荐温度 0.6；不思考模式官方没给推荐值。
 - 问题措辞的细节：模板还标着 DRAFT。
 - 采样：试跑用各个模型自己推荐的值（Qwen3.6 温度 1.0、top_p 0.95、top_k 20；Qwen3-VL-32B-Instruct 温度 0.7、top_p 0.8、top_k 20；Qwen3-VL-32B-Thinking 温度 0.8、top_p 0.95、top_k 20），还没最终定。每帧问几次已经定了：5 次（2026-10-19）。思考的模型 `--max_tokens` 按小试结果定为 24576。
 - 敏感性分析做哪些。已经列了备选值：反应时间 0.7、1.5、2.2 s；减速度 3.4、8.5 m/s²。
@@ -207,7 +227,7 @@
 | 10-19（续，Kamiak 会话） | 模型从 Qwen3-VL-32B-Instruct 改成 Qwen3.6-27B，保留 thinking；查到 Kamiak 官方规定装包和大文件传输也不能在登录节点上直接跑，改用 `srun --partition=kamiak`／`--partition=dtn`；建了 conda 环境装 vLLM 0.32.0；`kamiak/qwen_vlm.sbatch` 改成实际路径，vLLM 启动加 `--reasoning-parser qwen3` |
 | 10-19（续 2） | 查出全集群 GPU 驱动只支持到 CUDA 12.2，vLLM 改装 cu129 版（torchcodec 也要配套）；模型下好；输入图片传上来；GPU 环境自检；sbatch 加上两个 FlashInfer 开关、明确发送采样参数；`run_vlm.py` 记下思考内容和 `finish_reason`；用户定每帧问 5 次（2,550 次请求）；小试 10 次全部成功；提交完整试跑（作业 31307048） |
 | 10-19（续 3） | 完整试跑跑完（2,550 次）；发现客户端超时自动重试会换掉思考长的回答，改成等 1 小时、不自动重试，重做 101 次 |
-| 10-19（续 4）～10-20 | Qwen3.6 结果挪进 `results/vlm_scores/qwen3.6-27b/`；核对后删掉旧的 Qwen3-VL-30B-A3B；加 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking（用户定），sbatch 用 `MODEL` 选模型；两个模型的小试和完整试跑都跑完 |
+| 10-19（续 4）～10-20 | Qwen3.6 结果挪进 `results/vlm_scores/qwen3.6-27b/`；核对后删掉旧的 Qwen3-VL-30B-A3B；加 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking（用户定），sbatch 用 `MODEL` 选模型；两个模型的小试和完整试跑都跑完；思考到上限的 4 条用 Qwen 的思考预算做法补了答案（用户定）；查了 InternVL 有哪些版本 |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 

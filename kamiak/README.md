@@ -116,6 +116,13 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
   - 10 次请求是不是都有回答，`parsed` 是不是都不为空；
   - `usage` 里的 `completion_tokens`，也就是思考加回答有多长，据此定 `--max_tokens`；
   - 每次要多久（`latency_s`），据此推算 2,550 次要多久、sbatch 的时限够不够。
+- 思考到 `--max_tokens` 还没结束的回答（`finish_reason` 是 `length`，`text` 为空）用 Qwen 官方的"思考预算"做法补答（2026-10-20 用户定）：
+  ```bash
+  sbatch --export=ALL,MODEL=qwen3.6-27b kamiak/force_answer.sbatch            # 另一个：MODEL=qwen3-vl-32b-thinking
+  ```
+  - `code/force_answer.py` 把原来的思考原样接回去，加上 Qwen 文档里的收尾文字（"Considering the limited time by the user, I have to give the solution based on the thinking directly now."）并关上 `</think>`，让模型照已有的思考直接作答。还是原来那次抽样，不重新抽。
+  - 服务不加 `--reasoning-parser`：回答里没有 `</think>`，加了解析器会把回答放进 `reasoning`。
+  - 结果另存 `results/vlm_scores/<MODEL>/pilot_<MODEL>_forced_answers.jsonl`（每行有 `forced_answer: true`），原结果文件不动。
 - 任务中断（时限到了、被抢占）后，再提交一次就会从没做完的地方接着跑。报错的请求不写进结果，下次会重发；回答解析不出来的会写进去（`parsed` 为空），不重发。
 - 跑完把结果传回办公室电脑（在办公室电脑的仓库根目录下）：`scp -r <netid>@kamiak.wsu.edu:~/benchmark-claude-remote/results/vlm_scores ./results/`。
 
