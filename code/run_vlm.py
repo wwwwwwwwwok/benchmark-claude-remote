@@ -149,6 +149,8 @@ def main():
     ap.add_argument('--max_tokens', type=int, default=300)
     ap.add_argument('--top_logprobs', type=int, default=5, help='0 = do not ask for log-probabilities')
     ap.add_argument('--workers', type=int, default=8)
+    ap.add_argument('--timeout', type=float, default=3600,
+                    help='seconds to wait for one reply; no automatic retry, a failed request is resent on the next run')
     ap.add_argument('--limit', type=int, default=0, help='only the first N targets (0 = all)')
     ap.add_argument('--show', type=int, default=1, help='print this many assembled requests')
     ap.add_argument('--send', action='store_true', help='actually send the requests (default: check only)')
@@ -201,7 +203,9 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
 
     from openai import OpenAI
-    client = OpenAI(base_url=a.base_url, api_key=os.environ.get(a.api_key_env, 'EMPTY'))
+    # max_retries=0: the client's own retries would silently replace a slow answer with a new sample
+    client = OpenAI(base_url=a.base_url, api_key=os.environ.get(a.api_key_env, 'EMPTY'),
+                    timeout=a.timeout, max_retries=0)
     lock = threading.Lock()
 
     def ask(job):

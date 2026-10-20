@@ -252,7 +252,7 @@
 - 调用模型：`code/run_vlm.py`，对任何 OpenAI 兼容的接口都能用（Kamiak 上自己启动的 vLLM 服务，或阿里云等托管接口）。默认只检查、不发送（打印组装好的请求和总规模），加 `--send` 才真的发；结果是 JSONL，能断点续跑，存分数、理由、思考内容（`reasoning`）、`finish_reason`、采样参数、token 用量和概率（包括思考部分的 token）。demo 5 组 × 102 帧 × 问 5 次 = 2,550 次请求，图片约 19,095,420 token（按 Qwen 的估算办法）。
 - 打算在学校的 Kamiak 上跑开源 Qwen（2026-10-17）：`camas` 分区有 H100 80GB，GPU 任务不被抢占。步骤见 `kamiak/README.md`，提交脚本 `kamiak/qwen_vlm.sbatch`。
 - 模型改成 Qwen3.6-27B（2026-10-19 我决定，原计划是 Qwen3-VL-32B-Instruct）：稠密模型，BF16 约 55.6 GB，vLLM 有官方 day-0 支持。保留它的 thinking 模式（会输出 `<think>...</think>`），具体对打分有什么影响先跑小试看。vLLM 启动加了 `--reasoning-parser qwen3`，把思考内容和最终 JSON 答案分开；`--max_tokens` 要比 300 大很多（思考会占 token 预算），已经写进 sbatch：小试里思考最长 10,896 token（拼图组），完整试跑用 24576。详见 `docs/handoff.md` 2026-10-19 条目。
-- 当前状态（2026-10-19）：模型和 vLLM 环境都装好了。Kamiak 的 GPU 驱动只支持到 CUDA 12.2，所以装的是 cu129 版，见 `kamiak/README.md`。GPU 环境自检通过：单卡 H100 起了服务，发了 1 个 `ctrl_grid` 请求，回答解析正常（risk 40），思考 1,634 token，用时 102.98 s（`--enforce-eager`、单卡）。小试 10 次全部成功；完整试跑（每帧 5 次，2,550 次请求）已经在 Kamiak 上提交（作业 31307048）。步骤见 `docs/handoff.md` 第 3 节，试跑后的分析见第 4 节。
+- 当前状态（2026-10-19）：模型和 vLLM 环境都装好了。Kamiak 的 GPU 驱动只支持到 CUDA 12.2，所以装的是 cu129 版，见 `kamiak/README.md`。GPU 环境自检通过：单卡 H100 起了服务，发了 1 个 `ctrl_grid` 请求，回答解析正常（risk 40），思考 1,634 token，用时 102.98 s（`--enforce-eager`、单卡）。小试 10 次全部成功；完整试跑（每帧 5 次，2,550 次请求）已经跑完：2,547 条解析正常，3 条思考到 24,576 token 还没结束。结果在 Kamiak 的 `results/vlm_scores/pilot_qwen3.6-27b.jsonl`，还没传回办公室电脑，也还没分析。步骤见 `docs/handoff.md` 第 3 节，试跑后的分析见第 4 节。
 - 还没定：问题措辞的细节；以后要不要再加一个闭源模型对比。
 
 ## 下一步

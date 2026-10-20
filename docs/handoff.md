@@ -75,7 +75,7 @@
   - `code/vlm_prompt_template.txt`：问题模板（英文）。`code/run_vlm.py` 里的文字和它一致，改措辞要两处一起改。
   - `code/run_vlm.py`：发请求的程序。默认只检查、不发送，加 `--send` 才真的发。
   - `kamiak/qwen_vlm.sbatch`、`kamiak/README.md`：Kamiak 上的任务脚本和操作步骤。
-- 目前（2026-10-19）：模型和环境都装好了；GPU 环境自检发了 1 个请求，正常（见第 3 节）。小试和完整试跑还没跑。
+- 目前（2026-10-19）：小试和完整试跑都跑完了（见第 3 节）。结果还在 Kamiak 上，还没分析。
 
 ## 3. 下一步：在 Kamiak 上试跑
 
@@ -101,10 +101,16 @@
   - vLLM 日志里有一条 `Failed to initialize FlashInfer Allreduce norm fusion workspace`：这是两卡通信的一个提速功能，要 NVSwitch，H100 PCIe 没有，vLLM 跳过了它，不影响结果。
 - 按小试结果定的完整试跑设置：`--max_tokens 24576`（`--max-model-len` 相应提到 40960）；同时发 32 个请求（KV 缓存 1,116,842 token，一个请求平均约 1.3 万）；时限 2 天。
 
+- 完整试跑（作业 31307048，sn18，5 小时 52 分；补跑作业 31315513，31 分 45 秒）：结果在 `results/vlm_scores/pilot_qwen3.6-27b.jsonl`，2,550 行，每个（片段, 帧, 组, 第几次）正好一条。文件约 3.5 GB，大部分是概率数据。
+  - 第一轮 2,547 条成功、3 条客户端超时。openai 客户端默认等 600 s、超时后自动重试 2 次，有 98 条是重试后才答完的，等于把思考长的回答换掉了。
+  - 用户决定重做：98 条移到 `pilot_qwen3.6-27b_timeout_retried.jsonl` 保存；原文件完整备份在 `/data/lab/cejli/sy/vlm_scores_backup/`；`run_vlm.py` 改成每个请求等 1 小时、不自动重试；再补跑这 101 次。
+  - 2,550 条里 2,547 条解析正常。3 条思考到 24,576 token 的上限还没结束（`finish_reason` 是 length，`text` 为空），算作没回答：凤凰城那段（144865）第 100 帧 grid 第 3 次；旧金山那段（162295）第 120 帧 sep_camera 第 4 次、ctrl_grid 第 0 次。
+  - 思考长度（token，中位 / 最长）：grid 5,286 / 24,576；sep_time 4,953 / 21,040；sep_camera 6,782 / 24,576；ctrl_grid 5,060 / 24,576；ctrl_sep 5,247 / 18,108。
+  - 同一帧问 5 次，分数的标准差平均（0–100 分）：grid 7.18，sep_time 7.71，sep_camera 9.54，ctrl_grid 5.89，ctrl_sep 7.06。
+  - 没完全按格式回答的：`main_hazard_camera` 有 68 条写成 `side left`、`side right`、`side-left`、`side-right`、`front left`、`front right`；`hazard_type` 有 1 条写成 `lane change`。分析前要统一写法。
+
 **接下来**：
-1. 完整试跑：作业 31307048（2026-10-19 提交），每帧 5 次、2,550 次请求，结果写到 `results/vlm_scores/pilot_qwen3.6-27b.jsonl`。估计要 7–15 小时。超时的话再 `sbatch kamiak/qwen_vlm.sbatch` 一次，会接着跑；报错的请求不写进结果，重新提交时会重发。
-2. 跑完检查：行数是不是 2,550，`parsed` 为空的、`finish_reason` 是 `length` 的各有多少。
-3. 把结果传回办公室电脑，和 SSM 的结果放在一起分析（分析做法先和用户确认，见第 4 节）。
+1. 把结果传回办公室电脑（`kamiak/README.md` 里有 scp 命令），和 SSM 的结果放在一起分析。分析做法先和用户确认，见第 4 节。
 
 **2026-10-19 踩过的坑**（细节和解决办法见 `kamiak/README.md`）：
 - Kamiak 规定登录节点上不能装包、不能长时间传文件（hpc.wsu.edu："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。要用 `srun` 放到计算节点上。Claude 在登录节点上跑过两次 `conda create`，严格说也算违规。
@@ -177,6 +183,7 @@
 | 10-19 | 写本交接文件；把检查脚本存进 `code/experiments/`；Kamiak 脚本补上"先建日志文件夹"；传文件改用 scp（办公室电脑没有 rsync） |
 | 10-19（续，Kamiak 会话） | 模型从 Qwen3-VL-32B-Instruct 改成 Qwen3.6-27B，保留 thinking；查到 Kamiak 官方规定装包和大文件传输也不能在登录节点上直接跑，改用 `srun --partition=kamiak`／`--partition=dtn`；建了 conda 环境装 vLLM 0.32.0；`kamiak/qwen_vlm.sbatch` 改成实际路径，vLLM 启动加 `--reasoning-parser qwen3` |
 | 10-19（续 2） | 查出全集群 GPU 驱动只支持到 CUDA 12.2，vLLM 改装 cu129 版（torchcodec 也要配套）；模型下好；输入图片传上来；GPU 环境自检；sbatch 加上两个 FlashInfer 开关、明确发送采样参数；`run_vlm.py` 记下思考内容和 `finish_reason`；用户定每帧问 5 次（2,550 次请求）；小试 10 次全部成功；提交完整试跑（作业 31307048） |
+| 10-19（续 3） | 完整试跑跑完（2,550 次）；发现客户端超时自动重试会换掉思考长的回答，改成等 1 小时、不自动重试，重做 101 次 |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 

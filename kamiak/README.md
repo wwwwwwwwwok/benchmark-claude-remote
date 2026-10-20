@@ -106,6 +106,11 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - dtn 上 `hf download` 报 "Model ... not found"：用的是系统 Python 3.9 的旧版 huggingface_hub。换成 conda 环境里 `hf` 的完整路径。
 - `sbatch: error: Invalid generic resource (gres) specification`：GPU 的写法不对，按 `scontrol show node` 里 Gres 那一行改（camas 是 `gpu:tesla:4`）。
 - 服务没起来：看 `logs/vllm_<任务号>.log`。显存不够可以把 `--max-model-len` 调小，或者用 4 块 GPU（`--gres` 和 `N_GPUS` 一起改）。
+- `APITimeoutError: Request timed out.`：客户端等得太久。
+  - openai 客户端默认每个请求等 600 s，超时后自动重试 2 次；每次重试都是重新抽一个回答，等于把思考长的回答换掉了。2026-10-19 的完整试跑因此有 98 条是重试后才答完的，另有 3 条失败。
+  - 所以 `run_vlm.py` 现在每个请求最多等 1 小时（`--timeout 3600`），不自动重试。报错的请求不写进结果，重新提交时会补发。
+  - `latency_s` 超过 600 s 的旧记录就是重试过的，已经移到 `results/vlm_scores/pilot_qwen3.6-27b_timeout_retried.jsonl`，并重新问过。
+- 日志 `logs/qwen-vlm_<任务号>.out` 里，`run_vlm.py` 的进度行要等作业结束才一起出现（Python 写文件时有缓冲）。跑的过程中看进度，就数结果文件的行数：`wc -l results/vlm_scores/<RUN>.jsonl`。
 - 作业显示 `CANCELLED by <你的 uid>`，内存也没超：多半是用终端里的 `srun` 跑的，终端（或 Claude 会话）断了。长任务用 `sbatch`。
 - 报 `$'\r': command not found`：脚本带着 Windows 的换行符（比如是从办公室电脑直接拷过去的，不是 git clone 的）。用 `sed -i 's/\r$//' kamiak/qwen_vlm.sbatch` 修。
 - 日志里说连不上 huggingface：模型已经在本地，在 sbatch 里 `conda activate` 那行后面加 `export HF_HUB_OFFLINE=1`。
