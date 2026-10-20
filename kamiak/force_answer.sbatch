@@ -27,6 +27,13 @@ case "$MODEL" in
         SERVE_ARGS=(--max-model-len 40960)
         SAMPLING=(--temperature 0.8 --top_p 0.95 --top_k 20)
         ;;
+    internvl3.5-38b-thinking)   # the reply-starts-with-<think> template only matters for normal requests; here the
+                                # thinking is sent back as the start of the reply. A sep reply that filled the context
+                                # leaves no room for the early-stopping text; vLLM refuses it (2026-10-20: 1 reply).
+        MODEL_DIR=/data/lab/cejli/sy/models/InternVL3_5-38B
+        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code --chat-template kamiak/internvl_thinking_chat_template.jinja)
+        SAMPLING=(--temperature 0.6)
+        ;;
     qwen3.6-27b)
         MODEL_DIR=/data/lab/cejli/sy/models/Qwen3.6-27B
         SERVE_ARGS=(--max-model-len 40960 --gdn-prefill-backend triton)

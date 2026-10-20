@@ -1,4 +1,5 @@
-"""Get a final answer for every reply that ran out of tokens while still thinking (finish_reason "length").
+"""Get a final answer for every reply that ran out of tokens without a readable answer (finish_reason "length" and
+`parsed` empty; a reply that wrote its answer and only then got stuck, as InternVL3.5 sometimes does, keeps it).
 
 Qwen's own way to cap the thinking ("thinking budget", Qwen quickstart docs and Qwen3 Technical Report, arXiv
 2505.09388, sec. 4.3): keep the thinking the model wrote, append the early-stopping text below, which closes the
@@ -63,10 +64,10 @@ def main():
             if '"length"' not in line:                # cheap filter: the Qwen3.6 file is 3.5 GB of log-probabilities
                 continue
             d = json.loads(line)
-            if d.get('finish_reason') == 'length':
+            if d.get('finish_reason') == 'length' and d.get('parsed') is None:
                 d.pop('logprobs', None)
                 cut.append(d)
-    print(f'{len(cut)} replies in {a.pilot} stopped at --max_tokens')
+    print(f'{len(cut)} replies in {a.pilot} stopped at --max_tokens without an answer')
 
     tg, ts = pd.read_csv(a.grid_targets), pd.read_csv(a.sep_targets)
     root_g, root_s = os.path.dirname(os.path.abspath(a.grid_targets)), os.path.dirname(os.path.abspath(a.sep_targets))
