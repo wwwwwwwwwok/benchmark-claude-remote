@@ -319,6 +319,44 @@
   - 协议里没有专门讲云服务或模型接口的条款。把 Waymo 的相机图片发给商业模型接口算不算"分发"，协议没写明，用闭源模型之前要先确认。
   - NuRisk 的数据里有 Waymo 来源的鸟瞰图，论文用 Gemini 和 GPT 的接口测过。但那是渲染出来的图，不是原始相机图片。
 
+### 7.7 2026 年的新论文（2026-10-19 查）
+- WaymoQA（arXiv 2511.20022，v2 2026-02）：
+  - 数据和任务：Waymo End-to-End 数据集，每个时刻 8 个相机，高风险场景的问答（3.5 万道，有图片题和视频题）。
+  - 模型：
+    - 闭源：GPT 5.2；
+    - 开源：Qwen2.5-VL（7B、32B）、InternVL3.5（4B、8B）、InternVL3（8B、14B）、Gemma3（4B、27B）、LLaVA-1.5 7B、LLaVA-OneVision 7B、Phi3.5-vision；
+    - 驾驶专用：InternVL2-DA-DriveLM 4B、OpenDriveVLA。
+  - 结果：
+    - GPT 5.2：图片题 67.4%，视频题 72.6%；开源里最好的 Qwen2.5-VL-32B：65.4%、64.1%。
+    - 模型在高风险场景比在普通场景差约 20%。
+    - 用 WaymoQA 微调后的 Qwen2.5-VL-7B 到 72.9%、72.8%。
+  - 这是把 Waymo 相机图片交给闭源模型（GPT 5.2）的先例。但论文没写是怎么调用的，先例也不等于协议允许。
+- VLM-AutoDrive（arXiv 2603.18178，2026-03）：Nexar 行车记录仪视频，找碰撞和险情。
+  - NVIDIA Cosmos-Reason1-7B 不微调时，碰撞的召回率接近 0；
+  - 微调后碰撞 F1 从 0.00 提到 0.69。
+- CrashSight（arXiv 2604.08457，2026-04）：路侧摄像头拍的 250 段事故视频，比了 8 个模型（摘要没列名字）。结论：会描述场景，但时间和因果推理弱。
+- C-CoT（arXiv 2605.10744，2026-05）：在 DeepAccident 上微调 Qwen2.5-VL-7B，做路口的风险预测和规划。
+- Qwen-Drive-1.0（arXiv 2609.00111，2026-08，Qwen 团队）：
+  - 通用模型：Qwen3.5-4B、InternVL3.5-8B、LLaVA-OneVision-2-8B、Gemma4-12B。
+  - 驾驶或"物理 AI"模型：NVIDIA Cosmos-Reason1-7B、Cosmos-Reason2（2B、8B、32B）、Cosmos3-nano、MiMo-Embodied-7B、UniDriveVLA-8B、Alpamayo-1.5-10B。
+  - 结论：
+    - 最小的通用模型 Qwen3.5-4B，驾驶问答的平均分比 Gemma4-12B 和所有驾驶专用模型都高；
+    - 专用模型的因果推理更弱，有的连回答格式都不守；
+    - Cosmos 系列主要用视频训练，可能不擅长单帧和多视角的图片输入。
+- Observe Before You Alert（arXiv 2609.08130，CoRL 2026）：用 Qwen3-VL-4B 生成安全方面的证据，决定什么时候提醒司机。
+- BD-HazardVLM（arXiv 2610.20627，2026-09，ECCV 2026 workshop）：
+  - 数据和模型：孟加拉的 500 张道路图；Qwen2.5-VL-7B、InternVL3-8B、MiniCPM-V-4.6。
+  - 判断"有没有危险"的准确率 88.0–89.2%，和全猜多数类的 89.0% 差不多；判断危险什么时候发生只有 1.6–12.4%。
+- DrivingBench（arXiv 2609.38948，2026-09）：让模型通过工具真的开一辆丰田卡罗拉绕锥桶（停车场、低速、有安全员）。
+  - 模型：GPT-6 Astra、Claude Fable 5.1、GPT-5.6 Sol、Grok 4.6。
+  - 只有 GPT-6 Astra 跑完全程，其余最好的是 Fable（45%）。
+  - 每个模型只试了一轮，作者自己说结果是初步的。
+- 2026 年这些论文的共同结论：
+  - 模型在高风险、事故场景上明显比普通场景差（WaymoQA、BD-HazardVLM、CrashSight）。
+  - 时间上的推理弱，打乱帧的顺序影响很小（RiskCueBench）。
+  - 驾驶专用模型不一定比新的通用模型好（Qwen-Drive-1.0、DriveBench）。
+  - 在领域数据上微调提升很大。但我们要看的是模型自己理解的风险，所以不能微调。
+
 ## 8. 不在仓库里的东西
 - 用户放在办公室电脑桌面上的原文 PDF：
   - ACT：`1-s2.0-S0968090X22000985-main.pdf`（Venthuruthiyil & Chunchu 2022）；
