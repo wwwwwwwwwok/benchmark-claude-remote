@@ -278,6 +278,47 @@
 - GSSM 的结果（PR-AUC 约 0.9 等）：是作者自己报的，论文还是预印本。
 - 阿里云的价格。
 
+### 7.6 驾驶相关的 VLM 基准论文比较了哪些模型（2026-10-19 查，用来挑 Qwen 以外的模型）
+- DriveBench（Xie et al.，ICCV 2025，arXiv 2501.04003）：nuScenes 上 4 类驾驶问答任务，12 个模型。
+  - 闭源：GPT-4o。
+  - 开源通用：LLaVA-1.5（7B、13B）、LLaVA-NeXT 7B、InternVL2 8B、Phi-3 和 Phi-3.5（4.2B）、Oryx 7B、Qwen2-VL（7B、72B）。
+  - 驾驶专用：DriveLM 7B、Dolphins 7B。
+  - 结论：
+    - 驾驶专用模型换了数据就不行：Dolphins 主要在 BDD 上微调，在 nuScenes 上表现差。
+    - 只给文字、不给图时，评分和给了清晰图片时很接近。说明模型常常靠文字线索和常识回答，不是真的在看图。
+- DVBench（arXiv 2504.14526，2025）：
+  - 数据和任务：SHRP2 安全关键事件的 5 s 视频，多选题。
+  - 14 个模型，全是开源：LLaMA-VID（7B、13B）、LLaVA-OneVision（0.5B、7B、72B）、LLaVA-NeXT-Video（7B、34B）、Video-LLaVA 7B、PLLaVA（7B、13B）、Qwen2-VL（2B、7B、72B）、MiniCPM-V。
+  - 最好的是 LLaVA-OneVision-72B，也只有 35.7%。
+- DSBench（arXiv 2511.14592，2025-11）：10 多个驾驶数据集的安全问答，包括车外和车内的风险，用 GPT-4o 当评分员。
+  - 闭源：Seed-1.6、Seed-1.5（字节）、Qwen-VL-Max、Qwen3-VL-Plus、GPT-4o、GLM-4V-Plus、Hunyuan-vision。
+  - 开源：MiMo-VL-7B（RL、SFT 两版）、Qwen2.5-VL（7B、32B、72B）、InternVL3.5（8B、38B）。
+  - 驾驶专用：DriveLMM-o1、RoboTron-Drive。
+  - 结论：模型大不一定好。Qwen2.5-VL-32B 比 72B 好；MiMo-VL-7B-RL 比好几个更大的、闭源的都好。
+- NuRisk（ICRA 2026，arXiv 2509.25944）：nuScenes、Waymo、CommonRoad 的鸟瞰图序列，判断每个对象的风险等级。
+  - 闭源：Gemini-2.5-Pro、Gemini-2.5-Flash、GPT-5-Mini、Qwen-VL-Max、Qwen-VL-Plus。
+  - 开源：Qwen2.5-VL-7B、InternVL3-8B。
+  - 结果：
+    - 只看图时最好的准确率是 33%（两个 Gemini）。
+    - 加上位置、速度、加速度等数字以后，Gemini-2.5-Flash 到 91–92%，开源模型提高很少。
+- RiskCueBench（arXiv 2601.03369，2026-01）：判断视频里早期的风险信号（包括车祸），每秒 1 帧。
+  - 表 3 的模型：Video-LLaVA、VideoLLaMA 3、Qwen3-VL-8B（普通版和思考版）、MiMo（SFT、RL）、Apollo-7B、InternVL-3.5、Keye-VL 1.5、GLM-4.1V-Thinking、Gemini 3 Flash（闭源）。正文列的模型和表格不完全一致。
+  - 结果：
+    - 车祸类 F1 最高的是 Gemini 3 Flash（0.69）；Qwen3-VL-8B 思考版 0.66，普通版 0.64。
+    - 打乱或倒放帧，结果几乎不变。
+- Driessen et al. 2024（Royal Society Open Science 11:231676）：用 GPT-4V 给 210 张图打风险分，和众包打分比，最好 r = 0.83。
+- 上面 5 个基准（不算 Driessen）里各家模型出现的次数：
+  - Qwen 系列：5 个都有；
+  - InternVL：4 个；
+  - GPT、LLaVA 系列：各 3 个；
+  - Gemini、MiMo-VL、GLM：各 2 个；
+  - 驾驶专用模型：2 个；
+  - Claude：0 个。
+- Waymo 数据能不能发给闭源模型的接口：
+  - Waymo 的使用协议（waymo.com/open/terms）第 2(b) 条：数据只能分发给在 waymo.com/open 注册并同意协议的人。
+  - 协议里没有专门讲云服务或模型接口的条款。把 Waymo 的相机图片发给商业模型接口算不算"分发"，协议没写明，用闭源模型之前要先确认。
+  - NuRisk 的数据里有 Waymo 来源的鸟瞰图，论文用 Gemini 和 GPT 的接口测过。但那是渲染出来的图，不是原始相机图片。
+
 ## 8. 不在仓库里的东西
 - 用户放在办公室电脑桌面上的原文 PDF：
   - ACT：`1-s2.0-S0968090X22000985-main.pdf`（Venthuruthiyil & Chunchu 2022）；
