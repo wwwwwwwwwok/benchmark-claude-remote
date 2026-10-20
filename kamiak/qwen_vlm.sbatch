@@ -10,7 +10,7 @@
 # Submit from the repository root (Slurm does not create the log folder, so make it first):
 #   mkdir -p logs && sbatch kamiak/qwen_vlm.sbatch                                  # MODEL=qwen3-vl-32b (default)
 #   sbatch --export=ALL,MODEL=qwen3-vl-32b-thinking kamiak/qwen_vlm.sbatch          # other models: qwen3-vl-32b-thinking,
-#                                                                                   # qwen3.6-27b
+#                                                                                   # qwen3.6-27b, internvl3.5-38b
 # Arguments after the script name are passed on to run_vlm.py and override the ones below, e.g. a small test run:
 #   sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/qwen3-vl-32b/smoke_qwen3-vl-32b.jsonl
 #SBATCH --job-name=qwen-vlm
@@ -52,6 +52,25 @@ case "$MODEL" in
         MODEL_DIR=/data/lab/cejli/sy/models/Qwen3.6-27B
         SERVE_ARGS=(--max-model-len 40960 --reasoning-parser qwen3 --gdn-prefill-backend triton)
         SAMPLING=(--temperature 1.0 --top_p 0.95 --top_k 20 --max_tokens 24576)
+        ;;
+    internvl3.5-38b)   # OpenGVLab/InternVL3_5-38B rev de99855b (2026-10-20, user's choice): InternViT-6B + Qwen3-32B,
+                       # thinking off (its default). generation_config.json has no sampling values; 0.8 / 0.8 are the
+                       # ones in the model card's API example (user's choice). --trust-remote-code: the config class
+                       # ships as .py files with the weights (read 2026-10-20: configuration only). Images are tiled
+                       # into up to 12 448x448 tiles + thumbnail (official default), so a sep prompt is ~35k tokens.
+        MODEL_DIR=/data/lab/cejli/sy/models/InternVL3_5-38B
+        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code)
+        SAMPLING=(--temperature 0.8 --top_p 0.8 --max_tokens 1024)
+        ;;
+    internvl3.5-38b-thinking)   # the same weights with thinking on (2026-10-20, user's choice to run both). InternVL3.5
+                                # thinks only when its R1_SYSTEM_PROMPT (model card) is the system prompt; it goes in
+                                # front of ours (code/internvl_thinking_system_prompt.txt, checked identical to the
+                                # card). Temperature 0.6 as the card recommends for thinking (it gives no top_p/top_k).
+                                # The model writes <think>...</think> itself, the R1 format: deepseek_r1 parser.
+                                # vLLM caps --max_tokens at the context left: ~5,900 tokens for a sep prompt.
+        MODEL_DIR=/data/lab/cejli/sy/models/InternVL3_5-38B
+        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code --reasoning-parser deepseek_r1)
+        SAMPLING=(--temperature 0.6 --max_tokens 24576 --system_prefix_file code/internvl_thinking_system_prompt.txt)
         ;;
     *) echo "unknown MODEL=$MODEL"; exit 1 ;;
 esac

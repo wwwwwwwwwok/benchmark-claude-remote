@@ -101,7 +101,7 @@ def build(cond, grid_imgs, sep_imgs):
     return p
 
 
-def to_messages(parts):
+def to_messages(parts, system=SYSTEM):
     content = []
     for kind, val in parts:
         if kind == 'text':
@@ -110,7 +110,7 @@ def to_messages(parts):
             with open(val, 'rb') as f:
                 b64 = base64.b64encode(f.read()).decode()
             content.append({'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{b64}'}})
-    return [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': content}]
+    return [{'role': 'system', 'content': system}, {'role': 'user', 'content': content}]
 
 
 def qwen_image_tokens(path):
@@ -151,6 +151,9 @@ def main():
     ap.add_argument('--workers', type=int, default=8)
     ap.add_argument('--timeout', type=float, default=3600,
                     help='seconds to wait for one reply; no automatic retry, a failed request is resent on the next run')
+    ap.add_argument('--system_prefix_file', default=None,
+                    help='text put before the system prompt, separated by a blank line (e.g. the prompt that turns '
+                         "on InternVL3.5's thinking); its file name is recorded in every output line")
     ap.add_argument('--limit', type=int, default=0, help='only the first N targets (0 = all)')
     ap.add_argument('--show', type=int, default=1, help='print this many assembled requests')
     ap.add_argument('--send', action='store_true', help='actually send the requests (default: check only)')
@@ -163,6 +166,10 @@ def main():
         t = t.head(a.limit)
     conds = a.conditions.split(',')
     assert all(c in CONDITIONS for c in conds), conds
+    system = SYSTEM
+    if a.system_prefix_file:
+        with open(a.system_prefix_file, encoding='utf-8') as f:
+            system = f.read().strip() + '\n\n' + SYSTEM
 
     jobs = []
     for r in t.itertuples():
@@ -176,7 +183,7 @@ def main():
     if not a.send:
         for seg, k, cond, rep, parts in jobs[:a.show]:
             print(f'===== {seg[:6]} frame {k} {cond} repeat {rep}')
-            print('[SYSTEM] ' + SYSTEM)
+            print('[SYSTEM] ' + system)
             for kind, val in parts:
                 print(val if kind == 'text' else f'<image {os.path.relpath(val)}>')
         per = {}
@@ -212,9 +219,12 @@ def main():
         seg, k, cond, rep, parts = job
         rec = dict(segment=seg, frame_idx=k, condition=cond, repeat=rep, model=a.model, temperature=a.temperature,
                    top_p=a.top_p, top_k=a.top_k, max_tokens=a.max_tokens)
+        if a.system_prefix_file:
+            rec['system_prefix_file'] = os.path.basename(a.system_prefix_file)
         t0 = time.time()
         try:
-            kw = dict(model=a.model, messages=to_messages(parts), temperature=a.temperature, max_tokens=a.max_tokens)
+            kw = dict(model=a.model, messages=to_messages(parts, system), temperature=a.temperature,
+                      max_tokens=a.max_tokens)
             if a.top_p is not None:
                 kw['top_p'] = a.top_p
             if a.top_k is not None:
