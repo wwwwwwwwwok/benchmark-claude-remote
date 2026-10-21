@@ -75,7 +75,7 @@
   - `code/vlm_prompt_template.txt`：问题模板（英文）。`code/run_vlm.py` 里的文字和它一致，改措辞要两处一起改。
   - `code/run_vlm.py`：发请求的程序。默认只检查、不发送，加 `--send` 才真的发。
   - `kamiak/qwen_vlm.sbatch`、`kamiak/README.md`：Kamiak 上的任务脚本和操作步骤。
-- 目前（2026-10-20）：三个模型（Qwen3.6-27B、Qwen3-VL-32B-Instruct、Qwen3-VL-32B-Thinking）的小试和完整试跑都跑完了（见第 3 节）。结果还在 Kamiak 上，还没分析。
+- 目前（2026-10-20）：Qwen3.6-27B、Qwen3-VL-32B-Instruct、Qwen3-VL-32B-Thinking、InternVL3.5-38B（不思考、思考）共 5 组的小试和完整试跑都跑完了（见第 3 节）。结果还在 Kamiak 上，还没分析。
 
 ## 3. 下一步：在 Kamiak 上试跑
 
@@ -146,10 +146,32 @@
 
   - 144865 那条思考里先写过一版草稿（risk 20，左侧银色轿车），强制收尾后的答案是 25、右前的警车，和草稿不一样。
   - 分析时这 4 条可以算进去，也可以去掉作对照，用 `forced_answer` 区分。
-- 三个模型的作业日志都复制到了各自结果文件夹的 `logs/` 子文件夹。
+- 第四个模型 InternVL3.5-38B（2026-10-20 用户定；不思考、思考两种都跑）：
+  - 为什么选它：InternVL 最新一代是 InternVL3.5（2025-08-26），之后没有新的 InternVL；38B 是不带后缀的版本（训练全流程，含 CascadeRL），稠密，和 Qwen3-VL-32B 差不多大。视觉是 InternViT-6B，语言是 Qwen3-32B。241B-A28B 装不下；Intern-S2（internlm，2026）397B 太大，36B 的 Mobius 要最新 vLLM 源码编译。
+  - 下载版本 `de99855be3642cd44fe97c9b72d70e5ce2c07f69`，36 个文件、76,797,097,400 字节，逐个按官方校验值核对，全部一致（作业 31327573 下载 15 分 55 秒；31327861 核对）。
+  - 启动前检查：
+    - vLLM 把它的对话模板认成 `openai` 格式（每张图留在自己的说明文字后面，和 Qwen 一样）；
+    - 读过 `--trust-remote-code` 会执行的两个配置文件，只是存参数；
+    - 日志里分词器的 `fix_mistral_regex` 警告是误报（`config.json` 没写 `transformers_version` 就会触发）；它的切词规则、词表、合并表和 Qwen3-VL-32B 相同，我们的提示和小试回答共 75,233 token 切出来完全一样。
+  - 图片按官方默认切块（每张最多 12 块 + 缩略图，每块 256 token），每次请求的提示：grid 14,423、sep_time 35,022、sep_camera 35,034、ctrl_grid 3,082、ctrl_sep 7,167 token，是 Qwen 的 2–2.6 倍。上下文上限 40,960（Qwen3-32B 的长度）。KV 缓存 133,168 token。
+  - 采样：模型的 `generation_config.json` 没写采样值。不思考版用模型页调用示例里的温度 0.8、top_p 0.8（用户选）；思考版用模型页对思考模式推荐的温度 0.6，不设 top_p、top_k。
+  - 思考怎么开（用户定）：官方办法是把系统提示词换成 `R1_SYSTEM_PROMPT`。用户要所有模型的问题完全一样，所以改成和 Qwen 思考模型的模板一样，在回答开头放 `<think>` + 换行（`kamiak/internvl_thinking_chat_template.jinja`：官方模板只改这一处，核对过渲染结果只多这几个字；InternVL 用官方提示词思考时，自己写出的头两个 token 也正是 `<think>`、换行）。
+  - 用官方提示词跑过一次小试作参照（作业 31327939，`smoke_internvl3.5-38b-thinking_official_r1_prompt.jsonl`）：10 条里 7 条把答案 JSON 写了两遍（中间夹一个 `</think>`），按当时的解析办法都算解析失败；思考大多 160–600 token。用新做法的小试（作业 31327962）：10 条里 1 条写两遍，思考 60–170 token。
+  - 解析办法改成取回答里第一份 JSON（2026-10-20 用户定，提交 c2a1813）。改之前核对过：以前所有结果文件（7,800 多条）按新办法解析，每一条都和原来一样。
+  - 不思考版：小试作业 31327935（10 条全部成功）。完整试跑作业 31327948，sn18，41 分 03 秒：2,550 条全部解析成功，`finish_reason` 都是 stop，0 报错，最长 53.8 s。
+    - 同一帧问 5 次的标准差平均：grid 6.41，sep_time 6.35，sep_camera 5.39，ctrl_grid 6.72，ctrl_sep 4.98。分数最低 10（和 Qwen3-VL-32B-Instruct 一样从不打 10 以下）。
+    - 不合格式的：`main_hazard_camera` 49 条（`side left` 37、`side right` 10、`front left` 2）；`hazard_type` 4 条（`traffic flow` 2、`traffic congestion` 1、`intersection` 1）。
+  - 思考版：完整试跑作业 31328458，sn18，1 小时 54 分 53 秒：2,550 条，0 报错。
+    - 这次作业比解析办法的修改早 45 s 启动，用的还是旧办法（当时 99 条读不出）。跑完后按新办法只重算了这个文件的 `parsed`（`/data/lab/cejli/sy/tmp_checks/reparse_scores.py`；原文件备份在 `/data/lab/cejli/sy/vlm_scores_backup/pilot_internvl3.5-38b-thinking.before_reparse.jsonl`）：92 条新读出，原来读出的没有一条变。
+    - 思考很短：各组中位 79–104 token，90% 在 142–268 以内。96 条把答案写了两遍（ctrl_grid 49、grid 29 最多）。
+    - 15 条写到上限（`finish_reason` length）：8 条答案已经写出，之后陷进"空格、换行"死循环；7 条没读出答案。
+    - 同一帧问 5 次的标准差平均：grid 6.54，sep_time 8.25，sep_camera 7.54，ctrl_grid 7.15，ctrl_sep 5.60。分数最低 5。
+  - 没读出答案的 7 条，照 Qwen 的做法强制收尾补答（`force_answer.py` 改成只挑写到上限而且没读出答案的条目）：作业 31329166 补出 5 条；162295 第 35 帧 sep_camera 第 4 次补不了：提示 35,036 + 原来的思考 5,923 token 已经到上下文上限，再接收尾话就是 40,983 > 40,960，vLLM 拒绝；162295 第 55 帧 sep_camera 第 1 次因为 vLLM 图片缓存出错（见 `kamiak/README.md`"出问题时先看这里"）没补上，关掉图片缓存后重补（作业 31329725，sn17）：这次有回答，但 JSON 的字段没加花括号（`"risk": 10, "main_hazard_camera": "front", ...`），还重复写到上限，所以按"完整 JSON"的规则仍然读不出（内容是 risk 10、front、pedestrian or cyclist）。
+  - 补完的结果（`pilot_internvl3.5-38b-thinking_forced_answers.jsonl`）：5 条读出——131841 第 50 帧 sep_time 第 3 次 30、131841 第 50 帧 grid 第 0 次 30、162295 第 75 帧 ctrl_sep 第 1 次 10、162295 第 90 帧 grid 第 2 次 40、162295 第 100 帧 grid 第 0 次 40；2 条仍然没有答案（第 35 帧上下文满了，第 55 帧没有花括号）。所以思考版 2,550 条里有效答案 2,548 条（2,543 + 5）。
+- 所有模型的作业日志都复制到了各自结果文件夹的 `logs/` 子文件夹。
 
 **接下来**：
-1. 把三个模型的结果传回办公室电脑（`kamiak/README.md` 里有 scp 命令），和 SSM 的结果放在一起分析。分析做法先和用户确认，见第 4 节。
+1. 把所有模型的结果传回办公室电脑（`kamiak/README.md` 里有 scp 命令），和 SSM 的结果放在一起分析。分析做法先和用户确认，见第 4 节。
 
 **2026-10-19 踩过的坑**（细节和解决办法见 `kamiak/README.md`）：
 - Kamiak 规定登录节点上不能装包、不能长时间传文件（hpc.wsu.edu："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。要用 `srun` 放到计算节点上。Claude 在登录节点上跑过两次 `conda create`，严格说也算违规。
@@ -201,10 +223,7 @@
 
 ## 5. 还没定的事（要问用户）
 - demo 用的模型（2026-10-19 定）：Qwen3.6-27B（保留 thinking）、Qwen3-VL-32B-Instruct（不思考）、Qwen3-VL-32B-Thinking（思考）三个都跑。以后要不要再加一个闭源模型对比，还没定。
-- 用户 2026-10-20 想再加 InternVL，版本和要不要思考还没定：
-  - 最新一代是 InternVL3.5（2025-08-26），之后没有新的 InternVL。
-  - 建议 InternVL3.5-38B（不带后缀 = 训练全流程，含 CascadeRL）：38.39 B 参数，BF16 约 76.8 GB，2 块 H100 够；语言部分是 Qwen3-32B，视觉是 InternViT-6B。
-  - 它的思考要靠官方系统提示词 `R1_SYSTEM_PROMPT` 打开，和我们"有经验的司机"的系统提示词冲突，要用户定怎么处理。思考模式官方推荐温度 0.6；不思考模式官方没给推荐值。
+- InternVL3.5-38B 已经加上（2026-10-20 用户定，不思考、思考两种都跑），设置见第 3 节。
 - 问题措辞的细节：模板还标着 DRAFT。
 - 采样：试跑用各个模型自己推荐的值（Qwen3.6 温度 1.0、top_p 0.95、top_k 20；Qwen3-VL-32B-Instruct 温度 0.7、top_p 0.8、top_k 20；Qwen3-VL-32B-Thinking 温度 0.8、top_p 0.95、top_k 20），还没最终定。每帧问几次已经定了：5 次（2026-10-19）。思考的模型 `--max_tokens` 按小试结果定为 24576。
 - 敏感性分析做哪些。已经列了备选值：反应时间 0.7、1.5、2.2 s；减速度 3.4、8.5 m/s²。
@@ -228,6 +247,7 @@
 | 10-19（续 2） | 查出全集群 GPU 驱动只支持到 CUDA 12.2，vLLM 改装 cu129 版（torchcodec 也要配套）；模型下好；输入图片传上来；GPU 环境自检；sbatch 加上两个 FlashInfer 开关、明确发送采样参数；`run_vlm.py` 记下思考内容和 `finish_reason`；用户定每帧问 5 次（2,550 次请求）；小试 10 次全部成功；提交完整试跑（作业 31307048） |
 | 10-19（续 3） | 完整试跑跑完（2,550 次）；发现客户端超时自动重试会换掉思考长的回答，改成等 1 小时、不自动重试，重做 101 次 |
 | 10-19（续 4）～10-20 | Qwen3.6 结果挪进 `results/vlm_scores/qwen3.6-27b/`；核对后删掉旧的 Qwen3-VL-30B-A3B；加 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking（用户定），sbatch 用 `MODEL` 选模型；两个模型的小试和完整试跑都跑完；思考到上限的 4 条用 Qwen 的思考预算做法补了答案（用户定）；查了 InternVL 有哪些版本 |
+| 10-20（续） | 加 InternVL3.5-38B，不思考、思考都跑完（用户定：思考版问题和其他模型一样，回答开头放 `<think>`）；解析改成取第一份 JSON（用户定）；所有模型固定在 camas 的 2 块 H100 PCIe 80GB 上跑（用户定）；InternVL 没读出答案的 7 条强制收尾补答 |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 

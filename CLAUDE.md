@@ -257,7 +257,8 @@
 - 第二个模型 Qwen3-VL-32B-Instruct（2026-10-19 晚我决定加的）：稠密、不思考，采样用它推荐的温度 0.7、top_p 0.8、top_k 20；不能加 `--reasoning-parser`（会把整段回答当成思考）。sbatch 里用 `MODEL` 切换模型，见 `kamiak/README.md`。完整试跑跑完（14 分 34 秒）：2,550 条全部解析成功，同一帧 5 次的标准差平均 3.45–4.25。结果在 `results/vlm_scores/qwen3-vl-32b/`。
 - 第三个模型 Qwen3-VL-32B-Thinking（2026-10-19 晚我决定加的）：和 Instruct 同一个底座，先思考再回答，用来单独看思考的作用。采样用它推荐的温度 0.8、top_p 0.95、top_k 20；加 `--reasoning-parser qwen3`，`--max_tokens 24576`。完整试跑跑完（1 小时 06 分）：2,549 条解析正常，1 条思考到上限没答完；思考中位 562–851 token，比 Qwen3.6 短得多；同一帧 5 次的标准差平均 6.78–8.24。结果在 `results/vlm_scores/qwen3-vl-32b-thinking/`。
 - 思考到 `--max_tokens` 还没答完的回答（Qwen3.6 3 条、Qwen3-VL-32B-Thinking 1 条），用 Qwen 官方的"思考预算"做法补答（2026-10-20 我定的）：原来的思考原样接回去，加上收尾文字关上 `</think>`，让模型直接作答，不重新抽样。4 条全部答出，另存 `pilot_<MODEL>_forced_answers.jsonl`（`forced_answer: true`），原结果文件不动。见 `kamiak/README.md` 和 `docs/handoff.md` 第 3 节。
-- 三个模型的结果都还没传回办公室电脑，也还没分析。细节见 `docs/handoff.md` 第 3 节，试跑后的分析见第 4 节。
+- 第四个模型 InternVL3.5-38B（2026-10-20 我定的），不思考、思考都跑完了：不思考版 2,550 条全部解析成功，同一帧 5 次的标准差平均 4.98–6.72；思考版思考很短（中位 79–104 token），有时把答案写两遍，所以解析改成取第一份 JSON（我定的，以前的结果一条不变）；没读出答案的 7 条强制收尾补答，补出 5 条；1 条因为上下文满了补不了，1 条补出的答案没加花括号读不出，所以 2,550 条里有效答案 2,548 条。结果在 `results/vlm_scores/internvl3.5-38b/`、`results/vlm_scores/internvl3.5-38b-thinking/`。
+- 所有模型的结果都还没传回办公室电脑，也还没分析。细节见 `docs/handoff.md` 第 3 节，试跑后的分析见第 4 节。
 - 还没定：问题措辞的细节；以后要不要再加一个闭源模型对比。
 
 ## 下一步

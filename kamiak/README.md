@@ -1,11 +1,12 @@
-# 在 Kamiak 上跑 VLM（开源 Qwen）
+# 在 Kamiak 上跑 VLM（开源 Qwen、InternVL）
 
-思路：在 GPU 节点上用 vLLM 把开源的 Qwen 模型启动成一个本地服务，再用 `code/run_vlm.py` 把每个目标帧的图和问题发过去。不按量收费，模型版本固定，可以复现，还能拿到每个回答的概率。
+思路：在 GPU 节点上用 vLLM 把开源模型启动成一个本地服务，再用 `code/run_vlm.py` 把每个目标帧的图和问题发过去。不按量收费，模型版本固定，可以复现，还能拿到每个回答的概率。
 
-跑过三个模型（都是 2026-10-19，用户定的）：
-- Qwen3.6-27B（保留 thinking）；
-- Qwen3-VL-32B-Instruct（稠密，不思考）；
-- Qwen3-VL-32B-Thinking（和 Instruct 同一个底座、同样大小，先思考再回答；和 Instruct 一比，就能单独看出思考的作用）。
+跑过这些模型（都是用户定的）：
+- Qwen3.6-27B（保留 thinking；2026-10-19）；
+- Qwen3-VL-32B-Instruct（稠密，不思考；2026-10-19）；
+- Qwen3-VL-32B-Thinking（和 Instruct 同一个底座、同样大小，先思考再回答；和 Instruct 一比，就能单独看出思考的作用；2026-10-19）；
+- InternVL3.5-38B，同一个权重跑两次：不思考、思考（2026-10-20）。视觉部分是 InternViT-6B，语言部分是 Qwen3-32B。
 
 用哪个由 sbatch 里的 `MODEL` 决定，默认是 `qwen3-vl-32b`。下面的路径都是这个账号的（课题组 `cejli`，个人目录 `sy`）。
 
@@ -37,6 +38,7 @@
   - `Qwen3.6-27B`：15 个分片，51.75 GiB。一块 H100 就装得下（权重占显存 51.01 GiB）。
   - `Qwen3-VL-32B-Instruct`：版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，14 个分片，66,726,519,322 字节（62.14 GiB）。要 2 块 H100。
   - `Qwen3-VL-32B-Thinking`：版本 `7edd10ffd1196091948fb245ff63e406ccb2d4d1`，14 个分片，66,726,519,215 字节（62.14 GiB）。要 2 块 H100。
+  - `InternVL3_5-38B`：OpenGVLab/InternVL3_5-38B 版本 `de99855be3642cd44fe97c9b72d70e5ce2c07f69`，36 个文件（16 个分片），76,797,097,400 字节（71.52 GiB）。要 2 块 H100（每块权重占 37.8 GiB，KV 缓存只剩 133,168 token）。
   - 原来 `hf_cache` 里的 Qwen3-VL-30B-A3B-Instruct（MoE）2026-10-19 按用户要求删掉了；删之前核对过和官方一致，要用可以重新下。
   - 脚本默认用 2 块卡。
 
@@ -62,14 +64,15 @@
    - `torchcodec` 那一行不能省：pip 默认装的 0.17.0 和 cu129 的 torch 不配套，vLLM 启动时会报 `OSError: Could not load this library: .../libtorchcodec_image.so`。cu129 索引上最新的是 0.16.0+cu129。
 3. 下载模型权重，在 dtn 上下。下面是 Qwen3.6-27B；另两个把仓库名、文件夹名换掉，再加上 `--revision`：
    - Qwen3-VL-32B-Instruct：`--revision 0cfaf48183f594c314753d30a4c4974bc75f3ccb`，2026-10-19 用了 9 分 25 秒；
-   - Qwen3-VL-32B-Thinking：`--revision 7edd10ffd1196091948fb245ff63e406ccb2d4d1`，2026-10-19 用了 14 分 41 秒。
+   - Qwen3-VL-32B-Thinking：`--revision 7edd10ffd1196091948fb245ff63e406ccb2d4d1`，2026-10-19 用了 14 分 41 秒；
+   - InternVL3.5-38B：仓库 `OpenGVLab/InternVL3_5-38B`，`--revision de99855be3642cd44fe97c9b72d70e5ce2c07f69`，2026-10-20 用了 15 分 55 秒（用 `sbatch --wrap` 提交，会话断了也不影响）。
 
    ```bash
    srun --partition=dtn --account=cejli --time=03:00:00 --cpus-per-task=2 --mem=900M bash -c '
    export HF_HOME=/data/lab/cejli/sy/hf_cache
    /data/lab/cejli/sy/conda_envs/vllm_cu129/bin/hf download Qwen/Qwen3.6-27B --local-dir /data/lab/cejli/sy/models/Qwen3.6-27B'
    ```
-   - 下完核对：用 HuggingFace API（`https://huggingface.co/api/models/<仓库名>/tree/<版本>`）拿到每个文件的官方 SHA256 / git 校验值，和本地重新算的比。2026-10-19 三个模型都逐个核对过，全部一致。
+   - 下完核对：用 HuggingFace API（`https://huggingface.co/api/models/<仓库名>/tree/<版本>`）拿到每个文件的官方 SHA256 / git 校验值，和本地重新算的比。2026-10-19 三个 Qwen、2026-10-20 InternVL3.5-38B 都逐个核对过，全部一致。
    - 命令是 `hf`：新版 huggingface_hub 把 `huggingface-cli` 改名了。
    - 要用 conda 环境里 `hf` 的完整路径（环境里是 huggingface_hub 2.2.0）。dtn1 上不能 `conda activate`；系统 Python 3.9 最多只能装到 huggingface_hub 1.8.0，用它下 Qwen3.6 会误报 "Model 'Qwen/Qwen3.6-27B' not found"。
    - `--mem` 不要超过 900M（见上面 dtn 的说明）。2026-10-19 实际下载用了 16 分 48 秒。
@@ -91,11 +94,12 @@ mkdir -p logs                   # Slurm 不会自己建日志文件夹；没有�
 sbatch kamiak/qwen_vlm.sbatch --limit 2 --repeats 1 --out results/vlm_scores/qwen3-vl-32b/smoke_qwen3-vl-32b.jsonl
 # ↑ 先小试：2 个目标帧 × 5 组 × 1 次 = 10 次请求
 sbatch kamiak/qwen_vlm.sbatch   # 小试没问题再跑完整试跑（2,550 次请求），默认 MODEL=qwen3-vl-32b
-sbatch --export=ALL,MODEL=qwen3-vl-32b-thinking kamiak/qwen_vlm.sbatch   # 换成别的模型（还有 qwen3.6-27b）
+sbatch --export=ALL,MODEL=qwen3-vl-32b-thinking kamiak/qwen_vlm.sbatch   # 换成别的模型
+#   MODEL 还可以是 qwen3.6-27b、internvl3.5-38b、internvl3.5-38b-thinking
 squeue -u $USER                 # 看任务状态；日志在 logs/
 ```
 - 写在脚本名后面的参数会原样传给 `run_vlm.py`，并覆盖脚本里的同名参数。
-- 三个模型共同的设置：同样的问题、5 个比较组、每帧问 5 次；同时发 32 个请求（`--workers 32`），时限 2 天；`VLLM_USE_FLASHINFER_SAMPLER=0`（原因见下面"出问题时先看这里"）。
+- 所有模型共同的设置：同样的问题、5 个比较组、每帧问 5 次；同时发 32 个请求（`--workers 32`），时限 2 天；`VLLM_USE_FLASHINFER_SAMPLER=0`（原因见下面"出问题时先看这里"）。
 - 每个模型自己的设置（采样都用模型自带 `generation_config.json` 里的推荐值，明确发给服务，也记进每行输出）：
 
   | | Qwen3-VL-32B-Instruct | Qwen3-VL-32B-Thinking | Qwen3.6-27B |
@@ -108,6 +112,25 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
   | 其他 | | | `--gdn-prefill-backend triton` |
   | 完整试跑用时（2,550 次） | 14 分 34 秒 | 1 小时 06 分 | 5 小时 52 分（另补跑 31 分 45 秒） |
 
+  InternVL3.5-38B（`generation_config.json` 里没有采样值，用的是用户选的值）：
+
+  | | 不思考 | 思考 |
+  |---|---|---|
+  | `MODEL=` | `internvl3.5-38b` | `internvl3.5-38b-thinking` |
+  | 采样 | 温度 0.8、top_p 0.8（模型页调用示例里的值），不设 top_k | 温度 0.6（模型页对思考模式的推荐），不设 top_p、top_k |
+  | 思考 | 没有 | 问题和其他模型完全一样；`--chat-template kamiak/internvl_thinking_chat_template.jinja` 让回答以 `<think>` 开头（和 Qwen 思考模型的模板一样），`--reasoning-parser deepseek_r1` 把思考分到 `reasoning` |
+  | `--max_tokens` | 1024 | 24576（vLLM 会自动截到剩下的上下文：sep 组只剩约 5,900） |
+  | `--max-model-len` | 40960（它的语言模型最长就是 40,960） | 40960 |
+  | 其他 | `--trust-remote-code` | `--trust-remote-code` |
+  | 完整试跑用时（2,550 次） | 41 分 03 秒 | 1 小时 54 分 53 秒 |
+
+- InternVL 要注意的地方：
+  - `--trust-remote-code`：模型的配置类是随权重一起发的 .py 文件。2026-10-20 读过会被执行的两个（`configuration_internvl_chat.py`、`configuration_intern_vit.py`），只是存配置参数。
+  - 图片按官方默认切成最多 12 块 448×448 加一张缩略图，每块 256 token，比 Qwen 多很多：每次请求 grid 约 14,400、sep 约 35,000、ctrl_grid 约 3,100、ctrl_sep 约 7,200 token（Qwen 是 7,250、13,650、1,650、2,900）。
+  - 它的对话模板 vLLM 认成 `openai` 格式（和 Qwen 一样），每张图留在自己的说明文字后面，不会被挪到最前面。
+  - 官方开启思考的办法是把系统提示词换成 `R1_SYSTEM_PROMPT`（`code/internvl_thinking_system_prompt.txt`，和模型页一字不差；`run_vlm.py --system_prefix_file` 可以把它拼在我们的系统提示词前面）。用户 2026-10-20 决定不用它，好让所有模型的问题一样。用它跑过一次小试作参照（`smoke_internvl3.5-38b-thinking_official_r1_prompt.jsonl`）。
+  - 思考版有时把答案 JSON 写两遍，中间夹一个 `</think>`；有时在答案前后陷进"空格、换行"的死循环，一直写到上限。`run_vlm.py` 取回答里第一份 JSON（2026-10-20 用户定）。
+
 - 不思考的模型千万不要加 `--reasoning-parser qwen3`：vLLM 0.32.0 的这个解析器默认把输出先当成思考内容，等不到 `</think>` 就会把整段回答放进 `reasoning`，`text` 是空的，全部解析失败。
 - 结果在 `results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl`（小试是同一文件夹里的 `smoke_<MODEL>.jsonl`），每行一个请求，内容有：
   - 回答原文 `text` 和解析出的 JSON `parsed`；
@@ -119,10 +142,11 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
   - 10 次请求是不是都有回答，`parsed` 是不是都不为空；
   - `usage` 里的 `completion_tokens`，也就是思考加回答有多长，据此定 `--max_tokens`；
   - 每次要多久（`latency_s`），据此推算 2,550 次要多久、sbatch 的时限够不够。
-- 思考到 `--max_tokens` 还没结束的回答（`finish_reason` 是 `length`，`text` 为空）用 Qwen 官方的"思考预算"做法补答（2026-10-20 用户定）：
+- 写到 `--max_tokens` 还没读出答案的回答（`finish_reason` 是 `length`，`parsed` 为空）用 Qwen 官方的"思考预算"做法补答（2026-10-20 用户定）：
   ```bash
-  sbatch --export=ALL,MODEL=qwen3.6-27b kamiak/force_answer.sbatch            # 另一个：MODEL=qwen3-vl-32b-thinking
+  sbatch --export=ALL,MODEL=qwen3.6-27b kamiak/force_answer.sbatch   # 还有 qwen3-vl-32b-thinking、internvl3.5-38b-thinking
   ```
+  - 已经写出答案、之后才卡住的（InternVL 有 8 条）保留原答案，不补。
   - `code/force_answer.py` 把原来的思考原样接回去，加上 Qwen 文档里的收尾文字（"Considering the limited time by the user, I have to give the solution based on the thinking directly now."）并关上 `</think>`，让模型照已有的思考直接作答。还是原来那次抽样，不重新抽。
   - 服务不加 `--reasoning-parser`：回答里没有 `</think>`，加了解析器会把回答放进 `reasoning`。
   - 结果另存 `results/vlm_scores/<MODEL>/pilot_<MODEL>_forced_answers.jsonl`（每行有 `forced_answer: true`），原结果文件不动。
@@ -147,4 +171,6 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - 日志 `logs/qwen-vlm_<任务号>.out` 里，`run_vlm.py` 的进度行要等作业结束才一起出现（Python 写文件时有缓冲）。跑的过程中看进度，就数结果文件的行数：`wc -l results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl`。
 - 作业显示 `CANCELLED by <你的 uid>`，内存也没超：多半是用终端里的 `srun` 跑的，终端（或 Claude 会话）断了。长任务用 `sbatch`。
 - 报 `$'\r': command not found`：脚本带着 Windows 的换行符（比如是从办公室电脑直接拷过去的，不是 git clone 的）。用 `sed -i 's/\r$//' kamiak/qwen_vlm.sbatch` 修。
+- InternVL 的日志里有 `The tokenizer you are loading ... with an incorrect regex pattern ... fix_mistral_regex=True`：误报，不用管。transformers 只要看到 `config.json` 里没有 `transformers_version` 就发这条（InternVL 的正好没有），不会改动分词器。2026-10-20 核对过：切词规则、词表、合并表都和 Qwen3-VL-32B 的一样，我们所有提示文字和小试回答共 75,233 token 切出来完全相同。
+- 补答时 InternVL 报 500，服务日志里是 `Multi-modal cache miss ... P0/P1 cache drift`：前一个请求因为太长被拒，它的图片留在了服务前端的缓存里却没到后端，下一个用到同样图片的请求就出错。`kamiak/force_answer.sbatch` 里给 InternVL 加了 `--mm-processor-cache-gb 0`（关掉这个缓存，只影响速度）。
 - 日志里说连不上 huggingface：模型已经在本地，在 sbatch 里 `conda activate` 那行后面加 `export HF_HUB_OFFLINE=1`。

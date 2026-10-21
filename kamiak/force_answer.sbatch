@@ -30,8 +30,12 @@ case "$MODEL" in
     internvl3.5-38b-thinking)   # the reply-starts-with-<think> template only matters for normal requests; here the
                                 # thinking is sent back as the start of the reply. A sep reply that filled the context
                                 # leaves no room for the early-stopping text; vLLM refuses it (2026-10-20: 1 reply).
+                                # --mm-processor-cache-gb 0: the refused request's images stayed in the API server's
+                                # image cache but never reached the engine, so the next request sharing them (the
+                                # next frame's 2 s window) failed with "cache drift" (500). Speed only, not results.
         MODEL_DIR=/data/lab/cejli/sy/models/InternVL3_5-38B
-        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code --chat-template kamiak/internvl_thinking_chat_template.jinja)
+        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code --chat-template kamiak/internvl_thinking_chat_template.jinja
+                    --mm-processor-cache-gb 0)
         SAMPLING=(--temperature 0.6)
         ;;
     qwen3.6-27b)
