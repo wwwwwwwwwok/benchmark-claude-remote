@@ -55,12 +55,25 @@
    输出 frame_ssm.csv（逐帧）、scene_summary.csv（逐段）、params.txt、TTC 对比图和快照图。
 4. 点云检查（可选，要读原始 tfrecord）：`python -I code/check_lidar_points.py <tfrecord 文件夹> <提取输出文件夹> <结果文件夹>/frame_ssm.csv <结果文件夹>/lidar_check`
    做两件事：一是把前车车尾的点云和标注框车尾对比；二是用激光雷达的逐点语义标签给每辆车定车型。
+5. VLM 分数和 SSM 比较：`python -I code/analyze_vlm_ssm.py <结果文件夹>/vlm_scores <结果文件夹>/frame_ssm.csv <输出文件夹> [--n_boot 2000] [--resample frame|segment]`
+   - 读每个模型文件夹里的 `pilot_<模型>.jsonl` 和补答文件，不读 smoke 和超时重试的文件；
+   - 输出 `agreement.csv`（每个模型 × 组 × SSM 的各项统计和 95% 区间）、`ssm_differences.csv`（SSM 两两之差）、`condition_summary.csv`（解析、稳定性、用时）、逐条和逐帧的表，以及 `params.txt`。
 
 参数在 `code/waymo_ssm_frames.py` 顶部的 PARAMS，几何假设在 `code/wod_common.py` 顶部。
 
 ## 已经定下来的做法
 - 比较方式：VLM 分数和 SSM 都转成排名 / 百分位。主指标用 Kendall τ-b，另报 Spearman（并列取平均秩）和 NHTSA 的成对一致率（arXiv 2306.14657），用配对 bootstrap 判断哪个 SSM 更接近。
 - 并列多的 SSM（比如 TTC 为无穷大）用两步法：先看 VLM 能不能分出有无冲突（AUC），再只在有值的帧里比排名。
+- 具体算法（2026-10-21 我同意，程序 `code/analyze_vlm_ssm.py`）：
+  - 每帧的分数：问 5 次的平均；思考写到上限、没读出答案的，用强制收尾补出的答案；完全没有答案的那次不算。
+  - 方向：TTC、THW、MTTC、PICUD、PSD、2D-TTC、ACT 反过来排，DRAC、CI 不动，统一成"越大越危险"。
+  - "有冲突"：TTC、MTTC、2D-TTC、ACT、THW、PICUD、PSD 有数值（没有前车就没有数值），DRAC、CI 大于 0。
+  - 第一步：用全部目标帧算 AUC（有冲突的帧分数高于没冲突的帧的概率，分数一样算一半）。
+  - 第二步：只在有冲突的帧里算 Kendall τ-b（主）、Spearman、成对一致率（两边先后判断相同的帧对占比，两边都并列也算相同）。
+  - 总的 τ-b：全部目标帧一起算，没冲突的帧并列在最安全一头；所有 SSM 用同一批帧，所以判断"最像哪个 SSM"用它。
+  - 误差范围：bootstrap 2,000 次，95% 区间；SSM 之间的差也用同一批重抽样算区间。试跑按帧重抽，正式的 202 段按片段重抽。
+  - 核对：去掉补出来的答案、用中位数代替平均，各算一遍点估计。
+  - 稳定性：同一帧 5 次分数的标准差（除以 5）、5 次之间两两的 τ-b、ICC。
 - TA、CS 已删除：要先判断"谁在避让"，轨迹数据看不出来。
 - RSS 也已删除（2026-10-15，我决定）：代码、输出列、表格（5 张表共 26 行）和文档里都去掉了。
 - DSS、TET、TIT 也已删除（2026-10-15，我决定），代码、输出列、表格（5 张表共 73 行）和文档里都去掉了。

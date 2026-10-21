@@ -171,7 +171,18 @@
 - 所有模型的作业日志都复制到了各自结果文件夹的 `logs/` 子文件夹。
 
 **接下来**：
-1. 把所有模型的结果传回办公室电脑（`kamiak/README.md` 里有 scp 命令），和 SSM 的结果放在一起分析。分析做法先和用户确认，见第 4 节。
+1. 已完成（2026-10-21）：所有模型的结果已传回办公室电脑的 `results/vlm_scores/`，逐行核对过：
+   - 每个试跑文件 2,550 行，没有坏行，每次请求一行；
+   - 读出的答案数和上面记的一致。
+2. 已完成（2026-10-21）：分析程序 `code/analyze_vlm_ssm.py`，方法见 CLAUDE.md "已经定下来的做法"。
+   - 第一次结果在 `results/vlm_analysis/`：bootstrap 2,000 次，按帧重抽，用时 376 s。
+   - 主要发现：模型的分数主要被场景左右。
+     - 夜间下雨那段，所有模型、所有组都打分最高，可那段一帧 TTC 都没有。
+     - 所以三段混在一起算时，TTC、ACT 的 AUC 都低于 0.5，总的 τ-b 是负的，95% 区间都在 0 以下。
+     - THW、PSD 和 Qwen 几个组是正的关系，比如 Qwen3.6 按相机排：THW 的总 τ-b 0.30，区间 0.16–0.43。
+   - 只在凤凰城那段里比，几乎所有模型、所有组和 TTC 的 τ-b 都是正的（0.08–0.57）。
+   - 稳定性：Qwen3-VL-32B-Instruct 最稳，5 次平均后的 ICC 0.96–0.99；其余 0.78–0.97。
+3. 等用户决定：要不要在方法里加"同一段里比"（只用同一段里的帧对算 AUC 和 τ-b），和混在一起的结果一起报。
 
 **2026-10-19 踩过的坑**（细节和解决办法见 `kamiak/README.md`）：
 - Kamiak 规定登录节点上不能装包、不能长时间传文件（hpc.wsu.edu："Do not run applications or installs on the login nodes, use sbatch or idev to run them on a compute node"）。要用 `srun` 放到计算节点上。Claude 在登录节点上跑过两次 `conda create`，严格说也算违规。
