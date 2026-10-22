@@ -89,8 +89,12 @@
     3. 同一个时段里比。
   - 程序另外还算第 4 种"同一段里比"：天气、光线、地点、道路都一样，最严格。要不要报还没定。
   - 为什么要分组：试跑里模型的分数主要被场景左右。夜间下雨那段，所有模型、所有组都打分最高，但那段一帧 TTC 都没有。
-  - 天气用我们自己看图标的（`labels/scene_labels.csv` 的 `weather` 列）。Waymo 的天气标签不可靠：夜间那段明明在下雨（路面全湿、镜头上有雨滴），Waymo 标的是 sunny。
-  - 时段用 Waymo 的标签（Day、Night、Dawn/Dusk）。
+  - 天气现在用的是我们自己看图标的（`labels/scene_labels.csv` 的 `weather` 列）。Waymo 自己也有天气标签（`context.stats.weather`，抄在 `weather_waymo` 列），但不适合直接分组：
+    - 只有两个值：官方 dataset.proto 写的是 "Currently either Sunny or Rain."，没说是怎么判断的；
+    - 几乎全是 sunny：Xu et al. 2021（SPG，ICCV，作者有 Waymo 的人）按这个元数据算，validation 99.5% 的帧是 dry，折算下来 202 段里大约只有 1 段是 rain；
+    - 有标错的：夜间那段明明在下雨（路面全湿、镜头上有雨滴），Waymo 标的是 sunny。
+    - 用 Waymo 的还是自己标，还没最后定（2026-10-21 我问过 Waymo 原始标签）。
+  - 时段用 Waymo 的标签（Day、Night、Dawn/Dusk）。官方说是按太阳高度算的（"determined from sun elevation"）。validation 202 段里 Day 160、Night 23、Dawn 19（Sun et al. 2020，Table 4）。
   - demo 的 3 段是 Claude 看图标的，等我核对：夜间那段 rain，凤凰城、旧金山 dry。
   - 202 段的天气分几类还没定。
   - demo 里分组 2 和 3 完全一样（下雨那段正好是夜间那段），扩到 202 段才会不同。
