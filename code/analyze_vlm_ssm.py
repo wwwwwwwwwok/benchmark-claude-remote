@@ -11,6 +11,10 @@ Method (agreed with the user 2026-10-21, see CLAUDE.md "VLM 打分"):
     Frames where the ego or the lead moves backwards (frame_ssm.csv columns reversing_ego, reversing_lead) are left
     out of the seven lead-vehicle SSMs (they use speed magnitudes), like edge frames; TTC2D and ACT keep them
     (user's decision, 2026-10-21). So the lead-vehicle SSMs can use slightly fewer frames than TTC2D and ACT.
+    Below a closing speed of --closing_min (default 0.1 m/s) TTC and DRAC count as having no value, as THW has none
+    when the ego is slower than 0.1 m/s: dividing by a speed smaller than its measurement error gives noise (user's
+    decision, 2026-10-22; the ego speed estimates differ by 0.120 m/s at the 95th percentile). MTTC and CI keep their
+    values (they use the accelerations too). frame_ssm.csv is not changed; --closing_min 0 is the sensitivity run.
  1. Step 1: AUC of the frame score for conflict vs no-conflict frames
     (= P(score of a conflict frame > score of a no-conflict frame), ties count one half).
  2. Step 2, conflict frames only: Kendall tau-b (main), Spearman rho, and the pairwise agreement
@@ -60,6 +64,8 @@ SSMS = ['TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD', 'PSD', 'TTC2D', 'ACT']
 LEAD_SSMS = {'TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD', 'PSD'}  # left out where the ego or the lead reverses
 SMALLER_RISKIER = {'TTC', 'THW', 'MTTC', 'PICUD', 'PSD', 'TTC2D', 'ACT'}
 POSITIVE_IS_CONFLICT = {'DRAC', 'CI'}                          # 0 = not closing in
+CLOSING_MIN = 0.1                    # m/s: below it TTC and DRAC have no value (user, 2026-10-22; see the docstring)
+CLOSING_SSMS = {'TTC', 'DRAC'}
 CONDITIONS = ['grid', 'sep_time', 'sep_camera', 'ctrl_grid', 'ctrl_sep']
 CAMERAS = ['front-left', 'front', 'front-right', 'left-side', 'right-side', 'none']
 CAMERA_FIX = {'side left': 'left-side', 'side-left': 'left-side', 'left side': 'left-side',
@@ -164,7 +170,7 @@ def read_model(model_dir):
 
 
 # ------------------------------------------------------------------ SSMs on the target frames
-def ssm_table(frame_ssm_csv, frames):
+def ssm_table(frame_ssm_csv, frames, closing_min=CLOSING_MIN):
     f = pd.read_csv(frame_ssm_csv)
     t = frames.merge(f, on=['segment', 'frame_idx'], how='left', validate='one_to_one', indicator=True)
     if (t['_merge'] != 'both').any():
@@ -176,11 +182,16 @@ def ssm_table(frame_ssm_csv, frames):
     if missing:
         raise ValueError(f'{frame_ssm_csv} has no {missing} columns: recompute it with the current waymo_ssm_frames.py')
     reversing = t['reversing_ego'].astype(bool).to_numpy() | t['reversing_lead'].astype(bool).to_numpy()
+    closing = t['closing'].to_numpy(float)
+    slow_closing = (closing > 0) & (closing < closing_min)          # where TTC / DRAC would have a value; NaN -> False
     out = t[['segment', 'frame_idx']].copy()
     out['reversing'] = reversing
+    out['slow_closing'] = slow_closing
     for s in SSMS:
         v = t[s].to_numpy(float)
         conflict = (np.nan_to_num(v, nan=0.0) > 0) if s in POSITIVE_IS_CONFLICT else np.isfinite(v)
+        if s in CLOSING_SSMS:
+            conflict &= ~slow_closing                                # no value below closing_min
         r = np.where(conflict, -v if s in SMALLER_RISKIER else v, np.nan)
         out[s] = v
         out[s + '_conflict'] = conflict
@@ -393,6 +404,8 @@ def main():
     ap.add_argument('--n_boot', type=int, default=2000)
     ap.add_argument('--seed', type=int, default=20261021)
     ap.add_argument('--resample', choices=['frame', 'segment'], default='frame')
+    ap.add_argument('--closing_min', type=float, default=CLOSING_MIN,
+                    help='m/s: TTC and DRAC have no value below this closing speed; 0 = off (sensitivity run)')
     a = ap.parse_args()
     group_by = [c for c in a.group_by.split(',') if c] if a.scene_labels else []
     os.makedirs(a.out_dir, exist_ok=True)
@@ -430,7 +443,7 @@ def main():
     fs.to_csv(os.path.join(a.out_dir, 'vlm_frame_scores.csv'), index=False)
 
     # --- SSMs and scene groupings
-    ssm_df = ssm_table(a.frame_ssm, frames)
+    ssm_df = ssm_table(a.frame_ssm, frames, a.closing_min)
     groupings, labels_used = scene_groupings(frames, a.scene_labels, group_by)
     for gname in group_by:
         ssm_df[gname] = groupings[gname]
@@ -581,6 +594,8 @@ def main():
             f.write(f"model {i['model']}: {i['lines']} requests ({os.path.basename(i['file'])}), "
                     f"forced answers used {i['forced_used']}\n")
         rev = ssm_df['reversing'].to_numpy(bool)
+        f.write(f'closing speed below {a.closing_min} m/s, TTC and DRAC without a value there: '
+                f'{int(ssm_df["slow_closing"].sum())} target frames\n')
         f.write(f'frames where the ego or the lead moves backwards, left out of the lead-vehicle SSMs: {int(rev.sum())}'
                 + (f' ({", ".join(f"{s[:6]} {k}" for s, k in ssm_df.loc[rev, ["segment", "frame_idx"]].values)})'
                    if rev.any() else '') + '\n')

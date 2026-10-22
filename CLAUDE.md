@@ -33,6 +33,7 @@
 - `results/`：运行结果，不进仓库，可以重新生成。
 - `docs/handoff.md`：交接说明，包括当前进度、下一步和文献笔记。
 - `code/experiments/`：以前做决定时用的一次性检查脚本（存档），每个脚本的结论见里面的 README。
+- `vlm_frames/`：正式 VLM 实验问哪些帧的两份清单（`code/make_vlm_frame_lists.py` 生成，文件开头的 `#` 行写着来源和日期，读的时候用 `comment='#'`）。
 - `kamiak/`：在 Kamiak 上跑 VLM 的任务脚本和步骤；还有下载、提取 Waymo 训练集 + 验证集并算 SSM 的脚本（`waymo_*.sbatch`、`waymo_submit.sh`）。
 
 ## 数据（不进仓库）
@@ -64,7 +65,8 @@
 5. 场景标签：`python -I code/make_scene_labels.py <提取输出文件夹> labels/scene_labels.csv`
    - 每段一行，从 context.json 抄 Waymo 的时段、地点、天气，并留一列 `weather` 给人看图填；
    - 已有的行不覆盖，新片段追加在后面。
-6. VLM 分数和 SSM 比较：`python -I code/analyze_vlm_ssm.py <结果文件夹>/vlm_scores <结果文件夹>/frame_ssm.csv <输出文件夹> --scene_labels labels/scene_labels.csv [--group_by weather,time_of_day] [--n_boot 2000] [--resample frame|segment]`
+6. 正式实验的目标帧清单：`python -I code/make_vlm_frame_lists.py <结果文件夹（含 <split>/ssm/frame_ssm.csv）> vlm_frames`，写出主实验和对比实验两份清单。
+7. VLM 分数和 SSM 比较：`python -I code/analyze_vlm_ssm.py <结果文件夹>/vlm_scores <结果文件夹>/frame_ssm.csv <输出文件夹> --scene_labels labels/scene_labels.csv [--group_by weather,time_of_day] [--n_boot 2000] [--resample frame|segment]`
    - 读每个模型文件夹里的 `pilot_<模型>.jsonl` 和补答文件，不读 smoke 和超时重试的文件；
    - 输出：
      - `agreement.csv`：每个模型 × 组 × SSM × 比较分组的各项统计和 95% 区间；
@@ -83,6 +85,11 @@
   - 方向：TTC、THW、MTTC、PICUD、PSD、2D-TTC、ACT 反过来排，DRAC、CI 不动，统一成"越大越危险"。
   - "有冲突"：TTC、MTTC、2D-TTC、ACT、THW、PICUD、PSD 有数值（没有前车就没有数值），DRAC、CI 大于 0。
   - 自车或前车倒车的帧，前车类 7 个指标不算（2026-10-21 我定的），2D-TTC、ACT 照常算。
+  - 接近速度（自车速度 − 前车速度）低于 0.1 m/s 时，TTC 和 DRAC 当作没有数值（2026-10-22 我定的）。MTTC、CI 不动，它们还考虑了加速度。
+    - 理由和 THW 一样（自车慢于 0.1 m/s 时 THW 当作没有数值）：除以一个比测量误差还小的速度，算出来只是噪声。
+    - 0.1 m/s 和量出来的误差同一量级：自车平滑速度和 Waymo 报的自车速度，差的绝对值中位 0.019 m/s、95% 0.120 m/s（不算段头尾）；整段没动过的车，标注速度 95% 0.028 m/s、最大 0.212 m/s（不算轨迹头尾）。
+    - 像倒车帧那样在分析里处理（`analyze_vlm_ssm.py --closing_min`，默认 0.1），`frame_ssm.csv` 里的数不动。
+    - 敏感性分析只报一种：不设这条（`--closing_min 0`）。
   - 第一步：用全部目标帧算 AUC（有冲突的帧分数高于没冲突的帧的概率，分数一样算一半）。
   - 第二步：只在有冲突的帧里算 Kendall τ-b（主）、Spearman、成对一致率（两边先后判断相同的帧对占比，两边都并列也算相同）。
   - 总的 τ-b：全部目标帧一起算，没冲突的帧并列在最安全一头；所有 SSM 用同一批帧，所以判断"最像哪个 SSM"用它。
@@ -321,6 +328,10 @@
 - 思考到 `--max_tokens` 还没答完的回答（Qwen3.6 3 条、Qwen3-VL-32B-Thinking 1 条），用 Qwen 官方的"思考预算"做法补答（2026-10-20 我定的）：原来的思考原样接回去，加上收尾文字关上 `</think>`，让模型直接作答，不重新抽样。4 条全部答出，另存 `pilot_<MODEL>_forced_answers.jsonl`（`forced_answer: true`），原结果文件不动。见 `kamiak/README.md` 和 `docs/handoff.md` 第 3 节。
 - 第四个模型 InternVL3.5-38B（2026-10-20 我定的），不思考、思考都跑完了：不思考版 2,550 条全部解析成功，同一帧 5 次的标准差平均 4.98–6.72；思考版思考很短（中位 79–104 token），有时把答案写两遍，所以解析改成取第一份 JSON（我定的，以前的结果一条不变）；没读出答案的 7 条强制收尾补答，补出 5 条；1 条因为上下文满了补不了，1 条补出的答案没加花括号读不出，所以 2,550 条里有效答案 2,548 条。结果在 `results/vlm_scores/internvl3.5-38b/`、`results/vlm_scores/internvl3.5-38b-thinking/`。
 - 所有模型的结果都还没传回办公室电脑，也还没分析。细节见 `docs/handoff.md` 第 3 节，试跑后的分析见第 4 节。
+- 正式实验问哪些帧（2026-10-22 我定的；用 `results_lead_final_excl` 的 1,000 段）：
+  - 主实验：9 个指标都有数值的目标帧，按不设接近速度门槛的版本取，1,123 帧（241 段），清单 `vlm_frames/main_all9_targets.csv`；主结果分析时再去掉接近速度低于 0.1 m/s 的 39 帧（清单里 `closing_below_0_1` 标着）。
+  - 对比实验先留着不跑：前车类 7 个都有数值的目标帧，1,873 帧（303 段，主实验的 1,123 帧包含在里面），清单 `vlm_frames/comparison_lead7_targets.csv`（`in_main` 标着）；以后要跑只补问多出来的 750 帧。
+  - 以后补跑对比实验时，模型、问题、采样设置、输入方式、软件版本都要和主实验完全一样，结果才能合在一起。
 - 还没定：问题措辞的细节；以后要不要再加一个闭源模型对比。
 
 ## 下一步
