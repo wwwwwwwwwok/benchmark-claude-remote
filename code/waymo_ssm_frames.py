@@ -12,8 +12,7 @@ Pairing methods (wod_common.py)
     map      : lane route from the HD map (falls back to `path` when the ego is not on a mapped lane)
 `path` and `map` also require the lead's box to overlap the ego sideways, measured across the route
 (wod_common.lateral_overlap, decided 2026-10-21 and 2026-10-22). A `map` lead slower than 0.5 m/s stays the lead
-only if `path` picks it too, or it moves in the segment and the ego does not drive past it later
-(wod_common.LEAD_SLOW_SPEED, decided 2026-10-22).
+only if `path` picks it too, or it moves in the segment (wod_common.LEAD_SLOW_SPEED, decided 2026-10-22).
 Lead-vehicle SSMs are computed with the `map` pairing; 2D metrics use all objects. Frames where the ego or the lead
 moves backwards are flagged (reversing_ego, reversing_lead) and left out of the lead-vehicle SSMs in the analysis.
 
@@ -227,7 +226,7 @@ def process(seg, cameras):
     # of the main analysis (decided 2026-10-16)
     half = wc.KIN_WINDOW // 2
     span = seg.objects.groupby('id')['frame_idx'].agg(['min', 'max'])
-    moving, last_behind = wc.slow_lead_facts(seg)
+    moving = wc.moving_tracks(seg)
     for k in range(n):
         o_all = seg.objects_at(k, cameras=cameras, types=['vehicle', 'pedestrian', 'cyclist'])
         o_rng = o_all[wc.box_nearest_dist(o_all['cx'], o_all['cy'], o_all['length'], o_all['width'],
@@ -242,7 +241,7 @@ def process(seg, cameras):
         r = res['map']
         if r and r['v_lead'] < wc.LEAD_SLOW_SPEED:       # slow lead: wc.LEAD_SLOW_SPEED, decided 2026-10-22
             lid, rp = o_lead.loc[r['i'], 'id'], res['path']
-            if not ((rp and o_lead.loc[rp['i'], 'id'] == lid) or (lid in moving and last_behind.get(lid, -1) <= k)):
+            if not ((rp and o_lead.loc[rp['i'], 'id'] == lid) or lid in moving):
                 res['map'] = None
         for m, r in res.items():
             row[f'lead_{m}'] = o_lead.loc[r['i'], 'id'] if r else None
@@ -449,7 +448,7 @@ def main():
                 f'lead (map, path) = same lane (|d| < {wc.LANE_HALF} m), same direction, ahead, nearest, and overlapping '
                 f'the ego across the route (lead: four corners; ego: box centre +- half width; no margin)\n'
                 f'slow lead (map, < {wc.LEAD_SLOW_SPEED} m/s) = kept only if the path pairing picks it too, or it '
-                f'moves in the segment (away from its track ends) and the ego does not drive past it later; else no lead\n'
+                f'moves in the segment (away from its track ends); else no lead\n'
                 f'reversing = speed >= {wc.REVERSING_MIN_SPEED} m/s and travelling more than 90 deg from the heading\n'
                 f'ego = {a.ego}\n' + '\n'.join(ego_lines) + '\n' + '\n'.join(label_lines) + '\n')
 
