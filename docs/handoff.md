@@ -428,6 +428,7 @@
     | TTC < 3 s / < 5 s | 20 / 184 | 2 / 32 | 18 / 152 |
 
   - TTC < 3 s 的帧：9 个都有数值的 97 帧（14 段），前车几乎停着 77 帧、沿路线法也选同一辆 58 帧；"前车停着、后来被自车开过去"的 0 帧（`results_lead_final` 里那 13 帧就是 R02 那辆车的）。
+  - 点云检查也用这一版的前车重跑了（作业 31363651、31363652，101 个全部 COMPLETED；`results_lead_final_excl/<split>/lidar_check/`、`lidar_check_summary.txt`）：前车车尾 77,186 帧、803 辆前车、550 段，点云和框的车尾差中位 0.041 m，95% 在 0.145 m 以内；超过 0.5 m 的 892 帧（1.16%），超过 1 m 的 140 帧（0.18%）。前车 833 辆，788 辆有车型：car 724、truck 30、bus 27、other_vehicle 6、motorcyclist 1（R02 那辆车在快的那些帧里还是前车，所以前车辆数不变）。
   - τ-b（9 个都有数值的全部帧）和 `results_lead_final` 比变得最多的是 TTC–CI，−0.151 → −0.157；矩阵：TTC–DRAC 0.783、TTC–MTTC 0.413、TTC–2D-TTC 0.621、TTC–ACT 0.553、THW–PICUD 0.598、THW–PSD 0.634、DRAC–2D-TTC 0.533、DRAC–ACT 0.489、MTTC–CI 0.041、CI–PSD 0.277、PICUD–PSD 0.237、2D-TTC–ACT 0.687，其余在 −0.16 到 0.35 之间（完整的在 `results_lead_final_excl/value_frames/tau_b_9ssm_all.csv`）。
 - R07、R10、R02 查出来的（2026-10-22；`tmp_checks/followup_sheets.py`；拼图在 `results_lead_slow/acceptance/followup/`，每秒一格，每格优先用 FRONT，FRONT 看不到就换成那辆车框最大的相机并写明；Claude 没打开）：
   - R07（验证集 `447576862407975570_4360_000_4380_000` 第 159 帧，car 5.58 × 2.03 m）：FRONT 里一直看不到它，所以原来的拼图没有框。这一段里只有 FRONT_RIGHT（第 123–197 帧）和 SIDE_RIGHT（第 123–185 帧）看得到，第 159 帧只有 SIDE_RIGHT。整段速度 0；离路沿 0.07 m，是停在路边的车；地图车道路线往右转，它在转过去那条路的路边，离路线中心线 1.679 m（那里车道按地图边线宽 5.431 m）。到片段结束自车也没开到它跟前。拼图 `R07_44757686_f159.jpg`（第 149–189 帧）。
