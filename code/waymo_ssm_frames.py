@@ -1,7 +1,8 @@
 """Per-frame SSMs for Waymo segments extracted from v1.4.3, comparing three lead-vehicle pairing methods.
 
 Usage:
-    python -I waymo_ssm_frames.py <extracted_root> <out_dir> [--cameras FRONT,FRONT_LEFT,...|none] [segment ...]
+    python -I waymo_ssm_frames.py <extracted_root> <out_dir> [--cameras FRONT,FRONT_LEFT,...|none]
+                                  [--lead_exclusions labels/lead_exclusions.csv] [segment ...]
 
 Objects count only if they appear in at least one of the given camera images (the views the VLM sees);
 default = all five Waymo cameras. 'none' keeps every labelled object, including ones no camera sees.
@@ -12,7 +13,8 @@ Pairing methods (wod_common.py)
     map      : lane route from the HD map (falls back to `path` when the ego is not on a mapped lane)
 `path` and `map` also require the lead's box to overlap the ego sideways, measured across the route
 (wod_common.lateral_overlap, decided 2026-10-21 and 2026-10-22). A `map` lead slower than 0.5 m/s stays the lead
-only if `path` picks it too, or it moves in the segment (wod_common.LEAD_SLOW_SPEED, decided 2026-10-22).
+only if `path` picks it too, or it moves in the segment (wod_common.LEAD_SLOW_SPEED, decided 2026-10-22); a slow lead
+listed in the manual exclusion table (labels/lead_exclusions.csv: segment, id, frame range) fails that rule.
 Lead-vehicle SSMs are computed with the `map` pairing; 2D metrics use all objects. Frames where the ego or the lead
 moves backwards are flagged (reversing_ego, reversing_lead) and left out of the lead-vehicle SSMs in the analysis.
 
@@ -212,7 +214,8 @@ LEAD_COLS = ['gap', 'v_ego', 'v_lead', 'a_ego', 'a_lead', 'closing', 'TTC', 'THW
 
 
 # ------------------------------------------------------------------ per segment
-def process(seg, cameras):
+def process(seg, cameras, excluded):
+    """excluded: {lead id: [(first frame, last frame), ...]} of this segment from the manual exclusion table."""
     lmap = LaneMap(seg.map)
     n = len(seg.frames)
     if lmap.ok:
@@ -241,7 +244,8 @@ def process(seg, cameras):
         r = res['map']
         if r and r['v_lead'] < wc.LEAD_SLOW_SPEED:       # slow lead: wc.LEAD_SLOW_SPEED, decided 2026-10-22
             lid, rp = o_lead.loc[r['i'], 'id'], res['path']
-            if not ((rp and o_lead.loc[rp['i'], 'id'] == lid) or lid in moving):
+            manual = any(f0 <= k <= f1 for f0, f1 in excluded.get(lid, ()))   # labels/lead_exclusions.csv
+            if manual or not ((rp and o_lead.loc[rp['i'], 'id'] == lid) or lid in moving):
                 res['map'] = None
         for m, r in res.items():
             row[f'lead_{m}'] = o_lead.loc[r['i'], 'id'] if r else None
@@ -401,9 +405,20 @@ def main():
                     help='footprint = real car size; camera = ego as a point at the FRONT camera')
     ap.add_argument('--cameras', default='FRONT,FRONT_LEFT,FRONT_RIGHT,SIDE_LEFT,SIDE_RIGHT',
                     help="objects must appear in one of these camera images; 'none' = no camera filter")
+    here = os.path.dirname(os.path.abspath(__file__))
+    ap.add_argument('--lead_exclusions', default=os.path.join(here, '..', 'labels', 'lead_exclusions.csv'),
+                    help='manual table of slow leads that fail the slow-lead rule (segment, id, frame_from, frame_to, '
+                         'reason, decided); required')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     cameras = None if a.cameras == 'none' else a.cameras.split(',')
+    ex = pd.read_csv(a.lead_exclusions, dtype={'segment': str, 'id': str})
+    missing = {'segment', 'id', 'frame_from', 'frame_to', 'reason', 'decided'} - set(ex.columns)
+    if missing or (ex['frame_from'] > ex['frame_to']).any():
+        sys.exit(f'{a.lead_exclusions}: missing columns {sorted(missing)} or a frame range that runs backwards')
+    excluded = {}
+    for r in ex.itertuples():
+        excluded.setdefault(r.segment, {}).setdefault(r.id, []).append((int(r.frame_from), int(r.frame_to)))
     segs = a.segments or sorted(d for d in os.listdir(a.root) if os.path.isdir(os.path.join(a.root, d)))
     frames, ego_lines, label_lines = [], [], []
     for name in segs:
@@ -423,7 +438,7 @@ def main():
         if edge > wc.LABEL_RANGE:
             print(f'WARNING {name}: labelled boxes reach {edge:.3f} m, beyond LABEL_RANGE = {wc.LABEL_RANGE} m; '
                   f'those boxes are left out')
-        df, lmap, ego_lanes, ego_s = process(seg, cameras)
+        df, lmap, ego_lanes, ego_s = process(seg, cameras, excluded.get(name, {}))
         frames.append(df)
         plot_ttc_methods(df, name, a.out)
         diff = df.index[(df['lead_map'].fillna('-') != df['lead_path'].fillna('-')) |
@@ -449,6 +464,9 @@ def main():
                 f'the ego across the route (lead: four corners; ego: box centre +- half width; no margin)\n'
                 f'slow lead (map, < {wc.LEAD_SLOW_SPEED} m/s) = kept only if the path pairing picks it too, or it '
                 f'moves in the segment (away from its track ends); else no lead\n'
+                f'lead exclusions (manual, {os.path.basename(a.lead_exclusions)}) = {len(ex)} rows: '
+                + '; '.join(f'{r.segment} {r.id} frames {r.frame_from}-{r.frame_to} ({r.decided})'
+                            for r in ex.itertuples()) + '\n'
                 f'reversing = speed >= {wc.REVERSING_MIN_SPEED} m/s and travelling more than 90 deg from the heading\n'
                 f'ego = {a.ego}\n' + '\n'.join(ego_lines) + '\n' + '\n'.join(label_lines) + '\n')
 

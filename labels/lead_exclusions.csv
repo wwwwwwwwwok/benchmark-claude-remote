@@ -1,0 +1,2 @@
+segment,id,frame_from,frame_to,reason,decided
+8822503619482926605_1080_000_1100_000,g6_UwxnRLj9vb7fyRo3ZCg,72,100,"Slow (< 0.5 m/s) after moving earlier in the segment and later passed by the ego, so the slow-lead rule keeps it; the user looked at the FRONT camera sheets of acceptance frame R02 and judged it not a lead. Of the three vehicles in this class (not edge frames), R01 and R03 are leads; this one is not, and no rule separates them.",2026-10-22
