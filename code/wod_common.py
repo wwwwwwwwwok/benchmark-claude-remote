@@ -30,6 +30,10 @@ LOOKAHEAD = 150.0                    # length (m) of the lane route / ego path s
                                      # LABEL_RANGE so that on curves the route still reaches every labelled object
 LEAD_TYPES = ('vehicle', 'cyclist')
 SPEED_FRAME = 'global'               # frame of the labels' speed/accel (checked by check_v143_extract.py)
+# a road user is moving backwards when it is at least this fast and travels more than 90 deg away from its heading
+# (below it the direction of travel is noise, as in speed_and_accel). Frames where the ego or the lead does are flagged
+# and left out of the lead-vehicle SSMs, because those use speed magnitudes (decided by the user, 2026-10-21)
+REVERSING_MIN_SPEED = 0.5
 # ego speed and acceleration: Savitzky-Golay 1st/2nd derivative of the ego position in the world frame, the
 # same filter that reproduces Waymo's labelled object speeds and accelerations from the box centres
 # (19 frames = 1.9 s, quadratic; demo: speed RMSE 0.003 m/s, acceleration RMSE 0.006 m/s2)
@@ -175,6 +179,20 @@ def extend_straight(xy, length, baseline=10.0):
     return np.vstack([xy, xy[-1] + d / n * length])
 
 
+def extend_back(xy, length, baseline=10.0):
+    """Prepend a straight piece along the start direction (the mirror of extend_straight)."""
+    return extend_straight(xy[::-1], length, baseline)[::-1]
+
+
+def box_corners(cx, cy, length, width, heading):
+    """Corners (N, 4, 2) of boxes given by centre, length, width and heading, in any 2D frame."""
+    cx, cy, L, W, h = (np.asarray(x, float).reshape(-1) for x in (cx, cy, length, width, heading))
+    c, s = np.cos(h)[:, None], np.sin(h)[:, None]
+    dx = np.array([1, 1, -1, -1]) * L[:, None] / 2
+    dy = np.array([1, -1, -1, 1]) * W[:, None] / 2
+    return np.stack([cx[:, None] + dx * c - dy * s, cy[:, None] + dx * s + dy * c], axis=-1)
+
+
 # ------------------------------------------------------------------ lane map
 class LaneMap:
     def __init__(self, map_df):
@@ -285,10 +303,41 @@ def _kinematics(seg, k, v_lead, a_lead, hdg_lead):
     return dict(v_lead=vl, a_lead=al, v_ego=ve, a_ego=ae)
 
 
-def _pick_lead(s_rel, d, dh, o, gap_ok_min=0.0):
+def moving_backwards(v, heading, v_min=REVERSING_MIN_SPEED):
+    """Speed >= v_min and direction of travel more than 90 deg from the heading (v: horizontal velocity vector,
+    heading in the same frame)."""
+    v = np.asarray(v, float)[:2]
+    return bool(np.hypot(*v) >= v_min and abs(wrap(np.arctan2(v[1], v[0]) - heading)) > np.pi / 2)
+
+
+def ego_corners_map(seg, k):
+    """The ego footprint's four corners in the map frame at frame k."""
+    c = np.array([[EGO_X_FRONT, EGO_HALF_W, 0.0], [EGO_X_FRONT, -EGO_HALF_W, 0.0],
+                  [EGO_X_REAR, -EGO_HALF_W, 0.0], [EGO_X_REAR, EGO_HALF_W, 0.0]])
+    return (c @ seg.R[k].T + seg.pose[k, :3, 3] + seg.offset[k])[:, :2]
+
+
+def lateral_overlap(seg, k, xy, P, hdg, o):
+    """Does each object's box overlap the ego box sideways, measured across the route xy (decided by the user,
+    2026-10-21)? The four corners of both boxes are projected onto the route (signed lateral offset of the nearest
+    route point); the two lateral intervals must overlap, with no margin. Without this a stopped car beside the path
+    whose centre is within LANE_HALF of the lane centre line counts as the lead while the ego drives past it. The route
+    is first extended straight backwards, so that the ego's rear corners, which can lie behind its start, still project
+    across it."""
+    ext = extend_back(xy, 10.0)
+    s_ext = cumlen(ext)
+    _, de, _ = project(ext, s_ext, ego_corners_map(seg, k))
+    _, dc, _ = project(ext, s_ext, box_corners(P[:, 0], P[:, 1], o['length'], o['width'], hdg).reshape(-1, 2))
+    dc = dc.reshape(-1, 4)
+    return (dc.min(1) < de.max()) & (de.min() < dc.max(1))
+
+
+def _pick_lead(s_rel, d, dh, o, gap_ok_min=0.0, overlap=None):
     L = o['length'].to_numpy(float)
     gap = s_rel - L / 2 - EGO_X_FRONT
     ok = (s_rel > 0) & (np.abs(d) < LANE_HALF) & (np.abs(dh) < LEAD_MAX_DHEADING) & (gap > gap_ok_min)
+    if overlap is not None:                  # map and path pairing; the straight corridor does without
+        ok &= overlap
     if not ok.any():
         return None
     i = np.flatnonzero(ok)[np.argmin(s_rel[ok])]
@@ -314,11 +363,12 @@ def _lead_on_polyline(seg, k, o, xy, s_ego):
     s_cum = cumlen(xy)
     P, hdg, v, a = seg.to_map(k, o)
     s, d, ph = project(xy, s_cum, P)
-    res = _pick_lead(s - s_ego, d, wrap(hdg - ph), o)
+    res = _pick_lead(s - s_ego, d, wrap(hdg - ph), o, overlap=lateral_overlap(seg, k, xy, P, hdg, o))
     if res is None:
         return None
     i, gap = res
-    return dict(i=i, gap=gap, **_kinematics(seg, k, v[i], a[i], hdg[i]))
+    return dict(i=i, gap=gap, lead_reversing=moving_backwards(v[i], hdg[i]),
+                **_kinematics(seg, k, v[i], a[i], hdg[i]))
 
 
 def ego_future_path(seg, k, min_step=0.5):

@@ -11,6 +11,8 @@
 #   sbatch --array=0-20%20 kamiak/waymo_ssm.sbatch <workspace> validation     # 202 segments -> blocks 0-20
 #   sbatch --array=0-79%20 kamiak/waymo_ssm.sbatch <workspace> training       # 798 segments -> blocks 0-79
 #   On the shared kamiak partition a block can be preempted: resubmit it (--array=<k>); extracted segments are skipped.
+#   --export=ALL,RUN=<name> writes the blocks to <workspace>/ssm_parts_<name>/ instead, so a rerun with changed code
+#   keeps the earlier results (2026-10-21: RUN=lead_overlap, the lateral-overlap lead rule and the reversing flags).
 #SBATCH --job-name=waymo-ssm
 #SBATCH --partition=kamiak
 #SBATCH --account=cejli
@@ -29,7 +31,7 @@ RAW=$WS/raw/$SPLIT
 EXT=$WS/extracted/$SPLIT
 DONE=$WS/extracted/${SPLIT}_done       # one empty file per finished segment
 BLOCK=$(printf '%03d' "$SLURM_ARRAY_TASK_ID")
-PART=$WS/ssm_parts/$SPLIT/$BLOCK
+PART=$WS/ssm_parts${RUN:+_$RUN}/$SPLIT/$BLOCK
 
 [[ -f "$RAW/DOWNLOAD_COMPLETE" ]] || { echo "$RAW: download not complete"; exit 1; }
 # byte order, the same order as Python's sorted() in waymo_ssm_frames.py and merge_ssm_parts.py

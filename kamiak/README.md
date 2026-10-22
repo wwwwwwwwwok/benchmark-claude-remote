@@ -245,7 +245,8 @@ bash kamiak/waymo_submit.sh "$WS" validation
 bash kamiak/waymo_submit.sh "$WS" training
 squeue -u $USER
 ```
-- 每个 split 三步：下载 → 提取、检查、算 SSM（每 10 段一个任务，最多同时 20 个）→ 合并。
+- 每个 split 三步：下载 → 提取、检查、算 SSM（每 10 段一个任务，最多同时 20 个）→ 合并。已经下载完（有 `DOWNLOAD_COMPLETE`）的 split 不再交下载作业。
+- 改了程序要重算、又要留着旧结果时：`RUN=<名字> bash kamiak/waymo_submit.sh "$WS" <split>`，结果写到 `$WS/ssm_parts_<名字>/` 和 `/data/lab/cejli/sy/waymo_v143/results_<名字>/`；提取过的段跳过，只重新检查和算 SSM。2026-10-21 用 `RUN=lead_overlap` 重算了前车加横向重叠、标出倒车以后的结果。
 - 结果在 `/data/lab/cejli/sy/waymo_v143/results/<split>/`：
   - `ssm/` 下面的文件和办公室电脑 `results/waymo_demo/` 一样：`frame_ssm.csv`、`scene_summary.csv`、`params.txt`、图；
   - `checks/` 是提取检查。

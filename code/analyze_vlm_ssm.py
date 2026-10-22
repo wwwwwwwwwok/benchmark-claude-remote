@@ -8,6 +8,9 @@ Method (agreed with the user 2026-10-21, see CLAUDE.md "VLM 打分"):
     are kept as they are.
     "Conflict" for an SSM = it has a value: TTC / MTTC / TTC2D / ACT / THW / PICUD / PSD finite (no lead = no value),
     DRAC / CI > 0.
+    Frames where the ego or the lead moves backwards (frame_ssm.csv columns reversing_ego, reversing_lead) are left
+    out of the seven lead-vehicle SSMs (they use speed magnitudes), like edge frames; TTC2D and ACT keep them
+    (user's decision, 2026-10-21). So the lead-vehicle SSMs can use slightly fewer frames than TTC2D and ACT.
  1. Step 1: AUC of the frame score for conflict vs no-conflict frames
     (= P(score of a conflict frame > score of a no-conflict frame), ties count one half).
  2. Step 2, conflict frames only: Kendall tau-b (main), Spearman rho, and the pairwise agreement
@@ -54,6 +57,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 warnings.filterwarnings('ignore', message='.*constant.*')       # tau / rho of a constant input -> nan, handled
 
 SSMS = ['TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD', 'PSD', 'TTC2D', 'ACT']
+LEAD_SSMS = {'TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD', 'PSD'}  # left out where the ego or the lead reverses
 SMALLER_RISKIER = {'TTC', 'THW', 'MTTC', 'PICUD', 'PSD', 'TTC2D', 'ACT'}
 POSITIVE_IS_CONFLICT = {'DRAC', 'CI'}                          # 0 = not closing in
 CONDITIONS = ['grid', 'sep_time', 'sep_camera', 'ctrl_grid', 'ctrl_sep']
@@ -168,7 +172,12 @@ def ssm_table(frame_ssm_csv, frames):
                          f"{t.loc[t['_merge'] != 'both', ['segment', 'frame_idx']].values.tolist()}")
     if t['edge_frame'].astype(bool).any():
         raise ValueError('some target frames are edge frames; the VLM targets should exclude them')
+    missing = [c for c in ('reversing_ego', 'reversing_lead') if c not in t.columns]
+    if missing:
+        raise ValueError(f'{frame_ssm_csv} has no {missing} columns: recompute it with the current waymo_ssm_frames.py')
+    reversing = t['reversing_ego'].astype(bool).to_numpy() | t['reversing_lead'].astype(bool).to_numpy()
     out = t[['segment', 'frame_idx']].copy()
+    out['reversing'] = reversing
     for s in SSMS:
         v = t[s].to_numpy(float)
         conflict = (np.nan_to_num(v, nan=0.0) > 0) if s in POSITIVE_IS_CONFLICT else np.isfinite(v)
@@ -176,6 +185,7 @@ def ssm_table(frame_ssm_csv, frames):
         out[s] = v
         out[s + '_conflict'] = conflict
         out[s + '_risk'] = r                                  # larger = riskier; NaN where no conflict
+        out[s + '_use'] = ~reversing if s in LEAD_SSMS else np.ones(len(t), bool)   # frames this SSM is counted on
     return out
 
 
@@ -316,15 +326,20 @@ def stats_by_grouping(x, conflict, r_all, ids, labels, pairs=None):
 def all_stats(x, ssm, ids, groupings):
     """Statistics of one frame-score vector x against every SSM, for every grouping. Returns
     {ssm: ({grouping: (auc, tau_c, rho_c, agree_c, tau_all)}, n_conflict, n_no_conflict)}; rho_c only for 'all'.
-    Frames with x = NaN are left out."""
+    Frames with x = NaN are left out, and for each SSM the frames it is not counted on (ssm[s + '_use'] False)."""
     ok = ~np.isnan(x)
-    xs, ids_s = x[ok], ids[ok]
-    labs = {g: v[ok] for g, v in groupings.items()}
-    pairs = {g: within_pairs(v) for g, v in labs.items() if g != 'all' and len(np.unique(v)) > 20}
+    by_mask = {}                                              # frame selection -> group labels and pairs
     out = {}
     for s in SSMS:
-        conflict = ssm[s + '_conflict'][ok]
-        r = ssm[s + '_risk'][ok]
+        use = ok & ssm[s + '_use']
+        key = use.tobytes()
+        if key not in by_mask:
+            labs = {g: v[use] for g, v in groupings.items()}
+            by_mask[key] = labs, {g: within_pairs(v) for g, v in labs.items() if g != 'all' and len(np.unique(v)) > 20}
+        labs, pairs = by_mask[key]
+        xs, ids_s = x[use], ids[use]
+        conflict = ssm[s + '_conflict'][use]
+        r = ssm[s + '_risk'][use]
         if conflict.any() and len(xs) >= 3:
             r_all = np.where(conflict, r, np.nanmin(r[conflict]) - 1.0)   # no conflict: one tie at the safe end
         else:
@@ -421,8 +436,8 @@ def main():
         ssm_df[gname] = groupings[gname]
     ssm_df.to_csv(os.path.join(a.out_dir, 'ssm_target_frames.csv'), index=False)
     gnames = list(groupings)
-    ssm = {c: ssm_df[c].to_numpy() for c in ssm_df.columns if c.endswith(('_conflict', '_risk'))}
-    ssm = {k: (v.astype(bool) if k.endswith('_conflict') else v.astype(float)) for k, v in ssm.items()}
+    ssm = {c: ssm_df[c].to_numpy() for c in ssm_df.columns if c.endswith(('_conflict', '_risk', '_use'))}
+    ssm = {k: (v.astype(float) if k.endswith('_risk') else v.astype(bool)) for k, v in ssm.items()}
     n_frames = len(frames)
     ids = np.arange(n_frames)
     seg_of = frames['segment'].to_numpy()
@@ -565,9 +580,14 @@ def main():
         for i in info:
             f.write(f"model {i['model']}: {i['lines']} requests ({os.path.basename(i['file'])}), "
                     f"forced answers used {i['forced_used']}\n")
-        f.write('frames with a value (conflict) / without, per SSM:\n')
+        rev = ssm_df['reversing'].to_numpy(bool)
+        f.write(f'frames where the ego or the lead moves backwards, left out of the lead-vehicle SSMs: {int(rev.sum())}'
+                + (f' ({", ".join(f"{s[:6]} {k}" for s, k in ssm_df.loc[rev, ["segment", "frame_idx"]].values)})'
+                   if rev.any() else '') + '\n')
+        f.write('frames with a value (conflict) / without, per SSM (frames it is counted on):\n')
         for s in SSMS:
-            f.write(f'  {s}: {int(ssm[s + "_conflict"].sum())} / {int((~ssm[s + "_conflict"]).sum())}\n')
+            c, u = ssm[s + '_conflict'], ssm[s + '_use']
+            f.write(f'  {s}: {int((c & u).sum())} / {int((~c & u).sum())}\n')
         f.write('replies written differently from the prompt (normalised):\n')
         for r in odd.itertuples():
             f.write(f'  {r.field}: "{r.written}" -> "{r.used}": {r.replies}\n')
@@ -576,8 +596,9 @@ def main():
 
     # --- console summary
     pd.set_option('display.width', 200)
-    print(f'\ntarget frames {n_frames}; frames with a value per SSM: ' +
-          ', '.join(f'{s} {int(ssm[s + "_conflict"].sum())}' for s in SSMS))
+    print(f'\ntarget frames {n_frames} ({int(ssm_df["reversing"].sum())} with the ego or the lead reversing, left out '
+          f'of the lead-vehicle SSMs); frames with a value per SSM: ' +
+          ', '.join(f'{s} {int((ssm[s + "_conflict"] & ssm[s + "_use"]).sum())}' for s in SSMS))
     print('\nrepeat stability and cost (main points):')
     print(cond[['model', 'condition', 'answered', 'forced_answers', 'no_answer', 'sd_repeats_mean',
                 'retest_tau_b_mean', 'icc_mean_of_k', 'latency_median_s']].round(3).to_string(index=False))

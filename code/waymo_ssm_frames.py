@@ -10,7 +10,10 @@ Pairing methods (wod_common.py)
     straight : straight corridor in the vehicle frame (|lateral| < 1.75 m)
     path     : corridor along the path the ego actually drives next
     map      : lane route from the HD map (falls back to `path` when the ego is not on a mapped lane)
-Lead-vehicle SSMs are computed with the `map` pairing; 2D metrics use all objects.
+`path` and `map` also require the lead's box to overlap the ego box sideways, measured across the route
+(wod_common.lateral_overlap, decided 2026-10-21).
+Lead-vehicle SSMs are computed with the `map` pairing; 2D metrics use all objects. Frames where the ego or the lead
+moves backwards are flagged (reversing_ego, reversing_lead) and left out of the lead-vehicle SSMs in the analysis.
 
 Lead-vehicle SSMs follow the traffic-safety convention (textbook TTC): speeds are the magnitudes of the
 two velocities and the closing speed is ego speed - lead speed; accelerations are the rates of change of
@@ -247,6 +250,10 @@ def process(seg, cameras):
         row['edge_lead'] = bool(r) and bool(k - lo < half or hi - k < half)
         row['edge_frame'] = row['edge_ego'] or row['edge_lead']
         row['map_fallback'] = bool(r.get('fallback')) if r else (ego_lanes[k] is None)
+        # the lead-vehicle SSMs use speed magnitudes, so they are wrong while the ego or the lead reverses: flagged
+        # and left out of those SSMs in the analysis, like edge frames (decided 2026-10-21)
+        row['reversing_ego'] = wc.moving_backwards(seg.ego_v[k], seg.yaw[k])
+        row['reversing_lead'] = bool(r['lead_reversing']) if r else False
         row.update(lead_ssms(r['gap'], r['v_ego'], r['v_lead'], r['a_ego'], r['a_lead']) if r
                    else {c: np.nan for c in LEAD_COLS})
 
@@ -431,6 +438,9 @@ def main():
         f.write('\n'.join(f'{k} = {v}' for k, v in PARAMS.items()) + f'\ncameras = {a.cameras}\n'
                 f'label_range = {wc.LABEL_RANGE} m (nearest point of the box)\n'
                 f'v_moving = {V_MOVING}, ego {V_MOVING_EGO} m/s\n'
+                f'lead (map, path) = same lane (|d| < {wc.LANE_HALF} m), same direction, ahead, nearest, and the two '
+                f'boxes overlap across the route (no margin)\n'
+                f'reversing = speed >= {wc.REVERSING_MIN_SPEED} m/s and travelling more than 90 deg from the heading\n'
                 f'ego = {a.ego}\n' + '\n'.join(ego_lines) + '\n' + '\n'.join(label_lines) + '\n')
 
 
