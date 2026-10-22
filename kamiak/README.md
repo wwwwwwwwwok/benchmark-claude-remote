@@ -256,6 +256,12 @@ squeue -u $USER
   - `$WS/extracted/<split>/`：提取结果，含全部图片；
   - `$WS/ssm_parts/<split>/`：每块的结果。
 - **2 周内要做完的事**：算完 SSM、看完数以后，决定留哪些图（只留每 0.5 s 一帧约 79 GB），复制到课题组目录。点云检查（`check_lidar_points.py`）要用原始文件，要做也得在这 2 周里做。
+- 点云检查（2026-10-22 在新规则的结果上做完）：每块一个任务，用那一块的 `frame_ssm.csv`，结果写在块旁边的 `lidar_check/`：
+  ```bash
+  sbatch --array=0-20%20 --export=ALL,RUN=lead_overlap kamiak/waymo_lidar_check.sbatch "$WS" validation
+  sbatch --array=0-79%20 --export=ALL,RUN=lead_overlap kamiak/waymo_lidar_check.sbatch "$WS" training
+  ```
+  - 每段约 20 s，每块最多 3 分 11 秒，内存 8G 足够。合并和汇总用 `/data/lab/cejli/sy/tmp_checks/merge_lidar_parts.py`（结果见 `docs/handoff.md` 第 2 节最后）。
 - 出问题：
   - 某一块失败：看 `logs/waymo-ssm_<作业号>_<块号>.out`。改好后只重交那一块：`sbatch --array=<块号> kamiak/waymo_ssm.sbatch "$WS" <split>`。再重交合并（命令就是 `waymo_submit.sh` 最后那条 `sbatch --wrap`）。还在等的合并作业会显示 `DependencyNeverSatisfied`，用 `scancel` 取消。
   - 下载中断（时限到了、网络断了）：再跑一次 `bash kamiak/waymo_submit.sh "$WS" <split>`。下好的文件、提取过的段都会跳过。
