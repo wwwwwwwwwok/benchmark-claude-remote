@@ -15,7 +15,7 @@
 3. 问清楚现在在哪台机器上：
    - 办公室电脑（Windows）：仓库在 `D:\Ph.D\博士论文\benchmark`。Waymo 数据和 demo 结果都在这台电脑上，路径见 CLAUDE.md 的"数据"一节。
    - Kamiak（WSU 的 Linux 集群）：只有仓库和传上去的 VLM 输入图片，没有 Waymo 原始数据和提取结果。按第 3 节做。
-     - 2026-10-21 用户定：在 Kamiak 上下训练集 798 段 + 验证集 202 段，先把 SSM 全算出来。脚本写好了，还没跑，步骤见 `kamiak/README.md`"Waymo 训练集 + 验证集"。
+     - 2026-10-21 用户定：在 Kamiak 上下训练集 798 段 + 验证集 202 段，先把 SSM 全算出来。步骤见 `kamiak/README.md`"Waymo 训练集 + 验证集"，进度见第 2 节最后。
    - 家里电脑：打算用另一个数据集测试流程（CLAUDE.md "下一步"）。
    - 每台电脑的数据路径写在本机的 `CLAUDE.local.md` 里（不进仓库）。
 4. 做完重要决定：更新 CLAUDE.md；进度有变化时也更新本文件第 2 节；然后 commit + push。
@@ -77,6 +77,12 @@
   - `code/run_vlm.py`：发请求的程序。默认只检查、不发送，加 `--send` 才真的发。
   - `kamiak/qwen_vlm.sbatch`、`kamiak/README.md`：Kamiak 上的任务脚本和操作步骤。
 - 目前（2026-10-20）：Qwen3.6-27B、Qwen3-VL-32B-Instruct、Qwen3-VL-32B-Thinking、InternVL3.5-38B（不思考、思考）共 5 组的小试和完整试跑都跑完了（见第 3 节）。结果还在 Kamiak 上，还没分析。
+
+### Waymo 训练集 + 验证集 1,000 段：在 Kamiak 上进行中（2026-10-21 开始）
+用户给的步骤：看空间 → 装 gcloud 和 Python 环境 → 用户自己登录 Google → 建 scratch → 先交验证集，前几块没出错再交训练集 → 检查段数、帧数、77 m、WARNING → 查"9 个指标都有数值的帧"那几个数（第 3 节"接下来"第 4 条）。每一步做完更新这里。
+- 看空间（2026-10-21）：课题组目录剩 129 GB；scratch 还没有工作区，整个 scratch 剩 20 TB，每人最多 10 TB。
+- 装 gcloud 和 Python 环境（2026-10-21）：做完了，版本都对，见 `kamiak/README.md`。两样一共占 1.4 GB，课题组目录剩 127 GB。
+- 下一步：用户自己登录 Google。
 
 ## 3. 下一步：在 Kamiak 上试跑
 

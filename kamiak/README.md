@@ -155,7 +155,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - 任务中断（时限到了、被抢占）后，再提交一次就会从没做完的地方接着跑。报错的请求不写进结果，下次会重发；回答解析不出来的会写进去（`parsed` 为空），不重发。
 - 跑完把结果传回办公室电脑（在办公室电脑的仓库根目录下）：`scp -r <netid>@kamiak.wsu.edu:~/benchmark-claude-remote/results/vlm_scores ./results/`。
 
-## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好，还没在 Kamiak 上跑过）
+## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好；gcloud 和 Python 环境当天装好，还没下载）
 用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。
 
 脚本：
@@ -189,9 +189,12 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
    du -sh --si /data/lab/cejli/sy
    lsworkspace
    ```
+   - 2026-10-21 装东西之前：课题组目录配额 501 GB，已用 372 GB，剩 129 GB；其中 `sy` 占 369 GB（`models/` 266 GB、`conda_envs/` 45 GB、`hf_cache/` 41 GB）。scratch 还没有工作区，整个 scratch 剩 20 TB。
+   - 装完 gcloud 和 Python 环境，剩 127 GB。
 2. 装 gcloud（在计算节点上）：
    ```bash
    srun --partition=kamiak --account=cejli --time=00:20:00 --cpus-per-task=2 --mem=4G bash -c '
+   set -euo pipefail               # 校验不通过就停，不解压、不安装
    cd /data/lab/cejli/sy
    curl -fO https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz
    echo "351ed4a2812c5525c1cee00334257a42c020fcaffa27d3067c1eec0a618dd83f  google-cloud-cli-linux-x86_64.tar.gz" | sha256sum -c
@@ -203,6 +206,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
    - 校验值是 Google 官网（docs.cloud.google.com/sdk/docs/downloads-versioned-archives）2026-10-21 列的 590.0.0 版的值。Google 出了新版，这个文件就会换，`sha256sum -c` 会报 FAILED：到那个页面查新的校验值再装。
    - 最后一行应该是 `.../google-cloud-sdk/platform/bundledpythonunix/bin/python3`，也就是用安装包自带的 Python。dtn1 上的系统 Python 是 3.9，gcloud 要 3.10 以上。
    - 装好以后，安装包（94 MB）可以删。
+   - 2026-10-21 装好了（作业 31350055，cn170）：安装包 94,021,891 字节，校验通过；`gcloud --version` 是 Google Cloud SDK 590.0.0（core 2026.10.16、gsutil 5.37、bq 2.1.40、bundled-python3-unix 3.14.8）；用的是自带的 Python。装完占 532 MB。
+   - 家目录里还有一套旧的 gcloud（`~/google-cloud-sdk`，562.0.0），`.bashrc` 把它加进了 PATH，所以直接打 `gcloud` 用的是旧的。脚本和这里的命令都写完整路径。两套共用 `~/.config/gcloud` 里的登录信息，里面已经有一个 2026-03-26 登录的 Google 账号。
 3. 登录 Google。这一步你自己做，用在 waymo.com/open 注册过的那个 Google 账号：
    ```bash
    /data/lab/cejli/sy/google-cloud-sdk/bin/gcloud auth login --no-launch-browser
@@ -214,6 +219,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 4. 建 Python 环境（在计算节点上）：
    ```bash
    srun --partition=kamiak --account=cejli --time=00:30:00 --cpus-per-task=4 --mem=8G bash -c '
+   set -eo pipefail                # 出错就停（不加 -u：conda 的脚本里有没赋值的变量）
    source /opt/apps/miniconda3/3.12/etc/profile.d/conda.sh
    conda create -p /data/lab/cejli/sy/conda_envs/waymo python=3.13 -y
    /data/lab/cejli/sy/conda_envs/waymo/bin/pip install numpy==2.3.5 pandas==2.3.3 pyarrow==22.0.0 protobuf==7.34.1 \
@@ -221,6 +227,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
    /data/lab/cejli/sy/conda_envs/waymo/bin/python -I -c "import sys, numpy, pandas, pyarrow, google.protobuf, scipy, matplotlib, PIL; print(sys.version.split()[0], numpy.__version__, pandas.__version__, pyarrow.__version__, google.protobuf.__version__, scipy.__version__, matplotlib.__version__, PIL.__version__)"'
    ```
    最后一行应该打印 `3.13.x 2.3.5 2.3.3 22.0.0 7.34.1 1.16.3 3.10.7 12.0.0`。
+   - 2026-10-21 装好了（作业 31350056，cn170）：打印的是 `3.13.16 2.3.5 2.3.3 22.0.0 7.34.1 1.16.3 3.10.7 12.0.0`。装完占 812 MB。
+   - pip 自动装的依赖：contourpy 1.4.0、cycler 0.12.1、fonttools 4.67.0、kiwisolver 1.5.1、packaging 26.3、pyparsing 3.3.3、python-dateutil 3.0.0、pytz 2026.5、six 1.17.0、tzdata 2026.5。
 
 ### 运行（在仓库根目录 `~/benchmark-claude-remote` 下）
 ```bash
