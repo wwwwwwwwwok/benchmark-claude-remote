@@ -310,26 +310,27 @@ def moving_backwards(v, heading, v_min=REVERSING_MIN_SPEED):
     return bool(np.hypot(*v) >= v_min and abs(wrap(np.arctan2(v[1], v[0]) - heading)) > np.pi / 2)
 
 
-def ego_corners_map(seg, k):
-    """The ego footprint's four corners in the map frame at frame k."""
-    c = np.array([[EGO_X_FRONT, EGO_HALF_W, 0.0], [EGO_X_FRONT, -EGO_HALF_W, 0.0],
-                  [EGO_X_REAR, -EGO_HALF_W, 0.0], [EGO_X_REAR, EGO_HALF_W, 0.0]])
+def ego_centre_map(seg, k):
+    """Centre of the ego footprint (midway between the bumpers) in the map frame at frame k, as a (1, 2) array."""
+    c = np.array([[(EGO_X_FRONT + EGO_X_REAR) / 2, 0.0, 0.0]])
     return (c @ seg.R[k].T + seg.pose[k, :3, 3] + seg.offset[k])[:, :2]
 
 
 def lateral_overlap(seg, k, xy, P, hdg, o):
-    """Does each object's box overlap the ego box sideways, measured across the route xy (decided by the user,
-    2026-10-21)? The four corners of both boxes are projected onto the route (signed lateral offset of the nearest
-    route point); the two lateral intervals must overlap, with no margin. Without this a stopped car beside the path
-    whose centre is within LANE_HALF of the lane centre line counts as the lead while the ego drives past it. The route
-    is first extended straight backwards, so that the ego's rear corners, which can lie behind its start, still project
-    across it."""
+    """Does each object's box overlap the ego sideways, measured across the route xy? Decided by the user: a candidate
+    takes the lateral offsets of its four corners (projected onto the route: signed offset of the nearest route point;
+    2026-10-21); the ego takes the lateral offset of its box centre +- half its width, as if aligned with the route
+    (2026-10-22: while the ego turns, its rotated corners stretch its interval, though it still sweeps one car width
+    along the route). The two intervals must overlap, with no margin. Without this a stopped car beside the path whose
+    centre is within LANE_HALF of the lane centre line counts as the lead while the ego drives past it. The route is
+    first extended straight backwards, so that a point just behind its start still projects across it."""
     ext = extend_back(xy, 10.0)
     s_ext = cumlen(ext)
-    _, de, _ = project(ext, s_ext, ego_corners_map(seg, k))
+    _, dce, _ = project(ext, s_ext, ego_centre_map(seg, k))
+    e0, e1 = dce[0] - EGO_HALF_W, dce[0] + EGO_HALF_W
     _, dc, _ = project(ext, s_ext, box_corners(P[:, 0], P[:, 1], o['length'], o['width'], hdg).reshape(-1, 2))
     dc = dc.reshape(-1, 4)
-    return (dc.min(1) < de.max()) & (de.min() < dc.max(1))
+    return (dc.min(1) < e1) & (e0 < dc.max(1))
 
 
 def _pick_lead(s_rel, d, dh, o, gap_ok_min=0.0, overlap=None):
