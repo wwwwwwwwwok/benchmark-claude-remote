@@ -258,10 +258,14 @@ squeue -u $USER
   - 某一块失败：看 `logs/waymo-ssm_<作业号>_<块号>.out`。改好后只重交那一块：`sbatch --array=<块号> kamiak/waymo_ssm.sbatch "$WS" <split>`。再重交合并（命令就是 `waymo_submit.sh` 最后那条 `sbatch --wrap`）。还在等的合并作业会显示 `DependencyNeverSatisfied`，用 `scancel` 取消。
   - 下载中断（时限到了、网络断了）：再跑一次 `bash kamiak/waymo_submit.sh "$WS" <split>`。下好的文件、提取过的段都会跳过。
   - 下载作业因为内存不够被杀（日志里有 `oom`）：把 `waymo_download.sbatch` 里的 `CLOUDSDK_STORAGE_PROCESS_COUNT` 改成 1。
-- 日志里可以不管的警告（2026-10-21 验证集）：
-  - `check_v143_extract.py` 的 `RuntimeWarning: All-NaN slice encountered`：有一段的自车一帧都没对上地图车道，检查表里"离车道中心多远"那几格是空的。
-  - `waymo_ssm_frames.py` 的 pandas `FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated`：同一段的 `ego_lane` 一列全空。pandas 2.3.3 拼表时不看全空的列，所以结果不受影响；以后换 pandas 版本要再看一下。
-  - 这一段是 `5990032395956045002_6600_000_6620_000`：自车平均 1.25 m/s，199 帧都按设计退回"沿自车实际路线"找前车（`map_fallback`），每帧都找到了前车。
+- 日志里可以不管的警告（2026-10-21 验证集第 15 块，都来自 `5990032395956045002_6600_000_6620_000`：这段自车走的路地图里没有车道，199 帧一帧都没对上，见 `docs/handoff.md` 第 2 节最后）：
+  - `check_v143_extract.py:83: RuntimeWarning: All-NaN slice encountered`（`ego_to_lane_with_offset_median_m=np.nanmedian(d_with)`），第 85 行同样一条（`ego_to_lane_without_offset_median_m=np.nanmedian(d_without)`）。
+    - 原因：检查程序找 10 m 内、方向差 45° 内的车道中心线，这段一帧都没有，`np.nanmedian` 对全空的数组返回 NaN 并发这条警告。第 84 行的 90% 分位数先判断了有没有值，所以没有警告。
+    - 影响：只是检查表 `checks/extract_checks.csv` 里这段的这 3 格是空的，本来就该是空的。检查表不进 SSM 的计算。
+  - `waymo_ssm_frames.py:424: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.`（`fr = pd.concat(frames, ignore_index=True)`）
+    - 原因：这段的 `ego_lane` 一列全空（只有这一列）。
+    - 影响：pandas 2.3.3 定拼接后的列类型时不看全空的列，结果是数值列；以后的 pandas 会把它算进去，`ego_lane` 可能变成 object 类型，csv 里车道编号的写法可能从 `123.0` 变成 `123`，数值不变。别的列不受影响。
+  - 顺带：合并后的 `frame_ssm.csv` 里 `ego_lane` 本来就有两种写法（验证集 29,143 格写成 `123.0`，10,295 格写成 `123`），看那一块里有没有空值。读进来都是同样的数。
 
 ## 出问题时先看这里
 - 任务马上失败、没有日志：多半是没有先建 `logs` 文件夹。
