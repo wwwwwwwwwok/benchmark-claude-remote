@@ -1,0 +1,4 @@
+segment,time_of_day,location,weather_waymo,weather,weather_note,labeled_by
+13184115878756336167_1354_000_1374_000,Night,location_other,sunny,rain,"night; wet road with reflections, rain drops on the lens","Claude from step_100.jpg, 2026-10-21; to check by the user"
+14486517341017504003_3406_349_3426_349,Day,location_phx,sunny,dry,"clear sky, dry road","Claude from step_100.jpg, 2026-10-21; to check by the user"
+16229547658178627464_380_000_400_000,Day,location_sf,sunny,dry,"overcast, dry road","Claude from step_100.jpg, 2026-10-21; to check by the user"

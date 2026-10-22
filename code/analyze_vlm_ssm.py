@@ -8,22 +8,33 @@ Method (agreed with the user 2026-10-21, see CLAUDE.md "VLM 打分"):
     are kept as they are.
     "Conflict" for an SSM = it has a value: TTC / MTTC / TTC2D / ACT / THW / PICUD / PSD finite (no lead = no value),
     DRAC / CI > 0.
- 1. Step 1, all target frames: AUC of the frame score for conflict vs no-conflict frames
+ 1. Step 1: AUC of the frame score for conflict vs no-conflict frames
     (= P(score of a conflict frame > score of a no-conflict frame), ties count one half).
  2. Step 2, conflict frames only: Kendall tau-b (main), Spearman rho, and the pairwise agreement
     (share of frame pairs on which both give the same order: riskier, equal or safer; the agreement index of
     Singh et al. 2023, arXiv 2306.14657).
- 3. Overall, all target frames: Kendall tau-b with the no-conflict frames tied at the safe end. Every SSM uses the
+ 3. Overall: Kendall tau-b over all target frames with the no-conflict frames tied at the safe end. Every SSM uses the
     same frames, so this is the statistic for "which SSM is the VLM closest to".
- 4. Bootstrap (resampling frames, or segments with --resample segment): 95 % intervals of every statistic, and of the
-    differences between SSMs in the overall tau-b and in the AUC (paired: one resample serves all SSMs).
- 5. Checks: frame score without the forced answers; median instead of mean (point estimates).
+ 4. Comparison groups (2026-10-21, user's decision), column 'grouping': every statistic is counted over frame pairs
+    that share a scene condition, so that the condition cannot drive the result:
+      all          every pair of frames (mixed comparison)
+      weather      pairs with the same weather label     (labels/scene_labels.csv, our own labels from the images;
+      time_of_day  pairs with the same time of day        Waymo's weather field is wrong for at least one segment)
+      segment      pairs from the same segment (weather, light, place and road all fixed; the strictest)
+    Spearman is only given for 'all'. agreement_by_segment.csv has every segment on its own.
+ 5. Bootstrap: 95 % intervals of every statistic, and of the differences between SSMs in the overall tau-b and the
+    AUC per grouping (paired: one resample serves all SSMs). --resample frame (pilot) resamples frames within each
+    segment; --resample segment (202 segments) resamples whole segments.
+ 6. Checks: frame score without the forced answers; median instead of mean (point estimates).
  Also per model x condition: answers, repeat stability (SD over repeats, test-retest tau-b, ICC), time and tokens.
 
 Inputs: <vlm_scores>/<model>/pilot_<model>.jsonl (+ pilot_<model>_forced_answers.jsonl if present) for every model
 folder; smoke_* and *_timeout_retried files are not used. <frame_ssm.csv> from waymo_ssm_frames.py.
+<scene_labels.csv> (code/make_scene_labels.py makes the template): one row per segment with the label columns named
+in --group_by; an empty label is an error.
 
 usage: python -I analyze_vlm_ssm.py <results/vlm_scores> <frame_ssm.csv> <out_dir>
+                                    [--scene_labels labels/scene_labels.csv] [--group_by weather,time_of_day]
                                     [--n_boot 2000] [--seed 20261021] [--resample frame|segment]
 """
 import argparse
@@ -54,6 +65,8 @@ HAZARD_TYPES = ['rear-end', 'lane change or side', 'crossing or intersection', '
                 'other', 'none']
 HAZARD_FIX = {'lane change': 'lane change or side', 'intersection': 'crossing or intersection'}
 KEY = ['segment', 'frame_idx', 'condition', 'repeat']
+STATS = ['auc', 'tau_b_conflict', 'spearman_conflict', 'agreement_conflict', 'tau_b_all']
+DIFF_STATS = ['tau_b_all', 'auc']
 
 
 # ------------------------------------------------------------------ reading the VLM replies
@@ -166,6 +179,28 @@ def ssm_table(frame_ssm_csv, frames):
     return out
 
 
+def scene_groupings(frames, scene_csv, group_by):
+    """Frame labels for every grouping: {'all': one group, <label column>: the segment's label, 'segment': segment}."""
+    seg = frames['segment'].to_numpy()
+    g = {'all': np.zeros(len(frames), int)}
+    used = None
+    if group_by:
+        lab = pd.read_csv(scene_csv, dtype=str).set_index('segment')
+        missing = sorted(set(seg) - set(lab.index))
+        if missing:
+            raise ValueError(f'{scene_csv}: no row for segments {missing}')
+        for col in group_by:
+            if col not in lab.columns:
+                raise ValueError(f'{scene_csv}: no column {col!r}')
+            v = lab.loc[seg, col]
+            if v.isna().any() or (v.str.strip() == '').any():
+                raise ValueError(f'{scene_csv}: empty {col!r} label for {sorted(set(seg[v.isna().to_numpy()]))}')
+            g[col] = v.str.strip().to_numpy()
+        used = lab.loc[sorted(set(seg)), group_by]
+    g['segment'] = seg
+    return g, used
+
+
 # ------------------------------------------------------------------ statistics
 def tie_pairs(*cols):
     _, c = np.unique(np.stack(cols, axis=1), axis=0, return_counts=True)
@@ -174,54 +209,137 @@ def tie_pairs(*cols):
 
 def auc(score, conflict):
     """P(score of a conflict frame > score of a no-conflict frame), ties count one half (Mann-Whitney U / n1 n0)."""
+    u, d = auc_counts(score, conflict)
+    return u / d if d > 0 else np.nan
+
+
+def auc_counts(score, conflict):
     n1 = int(conflict.sum())
     n0 = len(conflict) - n1
     if n1 == 0 or n0 == 0:
-        return np.nan
+        return 0.0, 0.0
     r = rankdata(score)
-    return float((r[conflict].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+    return float(r[conflict].sum() - n1 * (n1 + 1) / 2), float(n1 * n0)
+
+
+def pair_counts(x, y, ids):
+    """Pair counts over all pairs of the given frames, for tau-b and the pairwise agreement:
+    S = concordant - discordant, tx / ty = pairs untied in x / in y, agree = pairs with the same order in x and y
+    (tied in both counts), n = pairs. Pairs of a frame with its own bootstrap copy are left out of agree and n; they
+    are tied in both, so they change neither S nor tx nor ty."""
+    n = len(x)
+    if n < 2:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+    n0 = n * (n - 1) / 2
+    n1, n2, n12 = tie_pairs(x), tie_pairs(y), tie_pairs(x, y)
+    tx, ty = n0 - n1, n0 - n2
+    untied = n0 - n1 - n2 + n12                              # pairs untied in x and in y: concordant + discordant
+    s = 0.0 if untied == 0 else float(kendalltau(x, y, variant='b').statistic) * np.sqrt(tx * ty)
+    n_same = tie_pairs(ids)
+    return s, tx, ty, (untied + s) / 2 + n12 - n_same, n0 - n_same
 
 
 def pair_stats(x, y, ids):
-    """Kendall tau-b, Spearman rho and pairwise agreement of x and y (both larger = riskier).
-    Pairwise agreement = share of pairs with the same order (riskier, equal or safer) in x and y. In a bootstrap
-    resample, pairs made of a frame and its own copy are not counted (they are equal in both by construction); this
-    does not change tau-b, whose numerator and tie-corrected denominator exclude such pairs anyway."""
-    n = len(x)
-    if n < 3:
+    """Kendall tau-b, Spearman rho and pairwise agreement of x and y (both larger = riskier), over all pairs."""
+    if len(x) < 3:
         return np.nan, np.nan, np.nan
-    tau = kendalltau(x, y, variant='b').statistic
-    rho = spearmanr(x, y).statistic
-    n0 = n * (n - 1) / 2
-    n1, n2, n12 = tie_pairs(x), tie_pairs(y), tie_pairs(x, y)
-    untied = n0 - n1 - n2 + n12                              # pairs untied in x and in y: concordant + discordant
-    nc = 0.0 if untied == 0 else (untied + tau * np.sqrt((n0 - n1) * (n0 - n2))) / 2
-    n_same = tie_pairs(ids)
-    agree = (nc + n12 - n_same) / (n0 - n_same) if n0 > n_same else np.nan
-    return float(tau), float(rho), float(agree)
+    s, tx, ty, ag, npairs = pair_counts(x, y, ids)
+    tau = s / np.sqrt(tx * ty) if tx * ty > 0 else np.nan
+    return float(tau), float(spearmanr(x, y).statistic), float(ag / npairs) if npairs > 0 else np.nan
 
 
-def all_stats(x, ssm, ids):
-    """Statistics of one frame-score vector x against every SSM. Returns {ssm: (auc, tau_c, rho_c, agree_c, tau_all,
-    n_conflict, n_none)}. Frames with x = NaN are left out."""
+def grouped_stats(x, conflict, r_all, ids, labels):
+    """AUC, tau-b and agreement among conflict frames, and overall tau-b, counted over frame pairs with the same label
+    (stratified: tau-b = sum of S / sqrt(sum of tx * sum of ty); AUC = sum of U / sum of n1 n0). Few, large groups."""
+    u = d = sc = txc = tyc = agc = nc = sa = txa = tya = 0.0
+    for g in np.unique(labels):
+        m = labels == g
+        a, b = auc_counts(x[m], conflict[m])
+        u, d = u + a, d + b
+        mc = m & conflict
+        s, tx, ty, ag, npairs = pair_counts(x[mc], r_all[mc], ids[mc])
+        sc, txc, tyc, agc, nc = sc + s, txc + tx, tyc + ty, agc + ag, nc + npairs
+        s, tx, ty, _, _ = pair_counts(x[m], r_all[m], ids[m])
+        sa, txa, tya = sa + s, txa + tx, tya + ty
+    return (u / d if d > 0 else np.nan,
+            sc / np.sqrt(txc * tyc) if txc * tyc > 0 else np.nan,
+            agc / nc if nc > 0 else np.nan,
+            sa / np.sqrt(txa * tya) if txa * tya > 0 else np.nan)
+
+
+def within_pairs(labels):
+    """Position pairs (p < q) with the same label."""
+    ps, qs = [], []
+    for g in np.unique(labels):
+        pos = np.flatnonzero(labels == g)
+        if len(pos) >= 2:
+            i, j = np.triu_indices(len(pos), 1)
+            ps.append(pos[i])
+            qs.append(pos[j])
+    if not ps:
+        return np.array([], int), np.array([], int)
+    return np.concatenate(ps), np.concatenate(qs)
+
+
+def paired_stats(x, conflict, r_all, ids, p, q):
+    """The same as grouped_stats, counted pair by pair over the given position pairs (fast for many small groups,
+    e.g. the 202 segments)."""
+    dx = np.sign(x[p] - x[q])
+    cp, cq = conflict[p], conflict[q]
+    one = cp != cq
+    sgn = np.where(cp[one], dx[one], -dx[one])            # +1: the conflict frame scores higher
+    auc_ = float(((sgn > 0) + 0.5 * (sgn == 0)).mean()) if one.any() else np.nan
+
+    def tau_agree(mask):
+        a_, b_ = dx[mask], np.sign(r_all[p[mask]] - r_all[q[mask]])
+        tx, ty = (a_ != 0).sum(), (b_ != 0).sum()
+        tau = float((a_ * b_).sum() / np.sqrt(tx * ty)) if tx * ty > 0 else np.nan
+        other = ids[p[mask]] != ids[q[mask]]                 # not a frame with its own bootstrap copy
+        agree = float(((a_ == b_) & other).sum() / other.sum()) if other.any() else np.nan
+        return tau, agree
+
+    tau_c, agree_c = tau_agree(cp & cq)
+    tau_all, _ = tau_agree(np.ones(len(p), bool))
+    return auc_, tau_c, agree_c, tau_all
+
+
+def stats_by_grouping(x, conflict, r_all, ids, labels, pairs=None):
+    """(auc, tau_c, agree_c, tau_all) over pairs with the same label: pair by pair when there are many small groups,
+    otherwise group by group."""
+    _, counts = np.unique(labels, return_counts=True)
+    if len(counts) > 20 and counts.max() <= 200:
+        p, q = pairs if pairs is not None else within_pairs(labels)
+        return paired_stats(x, conflict, r_all, ids, p, q)
+    return grouped_stats(x, conflict, r_all, ids, labels)
+
+
+def all_stats(x, ssm, ids, groupings):
+    """Statistics of one frame-score vector x against every SSM, for every grouping. Returns
+    {ssm: ({grouping: (auc, tau_c, rho_c, agree_c, tau_all)}, n_conflict, n_no_conflict)}; rho_c only for 'all'.
+    Frames with x = NaN are left out."""
     ok = ~np.isnan(x)
+    xs, ids_s = x[ok], ids[ok]
+    labs = {g: v[ok] for g, v in groupings.items()}
+    pairs = {g: within_pairs(v) for g, v in labs.items() if g != 'all' and len(np.unique(v)) > 20}
     out = {}
     for s in SSMS:
         conflict = ssm[s + '_conflict'][ok]
         r = ssm[s + '_risk'][ok]
-        xs, ids_s = x[ok], ids[ok]
-        a = auc(xs, conflict)
-        tc, rc, ac = pair_stats(xs[conflict], r[conflict], ids_s[conflict])
-        if conflict.any():
+        if conflict.any() and len(xs) >= 3:
             r_all = np.where(conflict, r, np.nanmin(r[conflict]) - 1.0)   # no conflict: one tie at the safe end
-            t_all = kendalltau(xs, r_all, variant='b').statistic if len(xs) >= 3 else np.nan
         else:
-            t_all = np.nan
-        out[s] = (a, tc, rc, ac, float(t_all), int(conflict.sum()), int((~conflict).sum()))
+            r_all = None
+        per = {}
+        for g, lab in labs.items():
+            if r_all is None:
+                per[g] = (np.nan,) * 5
+                continue
+            a, tc, ac, ta = stats_by_grouping(xs, conflict, r_all, ids_s, lab, pairs.get(g))
+            rho = float(spearmanr(xs[conflict], r[conflict]).statistic) if g == 'all' and conflict.sum() >= 3 \
+                else np.nan
+            per[g] = (a, tc, rho, ac, ta)
+        out[s] = (per, int(conflict.sum()), int((~conflict).sum()))
     return out
-
-
-STAT_NAMES = ['auc', 'tau_b_conflict', 'spearman_conflict', 'agreement_conflict', 'tau_b_all']
 
 
 def repeat_stability(req_mc):
@@ -254,10 +372,14 @@ def main():
     ap.add_argument('vlm_scores')
     ap.add_argument('frame_ssm')
     ap.add_argument('out_dir')
+    ap.add_argument('--scene_labels', default=None, help='CSV with one row per segment (labels/scene_labels.csv)')
+    ap.add_argument('--group_by', default='weather,time_of_day',
+                    help="label columns of --scene_labels to group by ('' = none); 'all' and 'segment' are always on")
     ap.add_argument('--n_boot', type=int, default=2000)
     ap.add_argument('--seed', type=int, default=20261021)
     ap.add_argument('--resample', choices=['frame', 'segment'], default='frame')
     a = ap.parse_args()
+    group_by = [c for c in a.group_by.split(',') if c] if a.scene_labels else []
     os.makedirs(a.out_dir, exist_ok=True)
     t0 = time.time()
 
@@ -292,47 +414,70 @@ def main():
     fs = fs.merge(nf, on=['model', 'condition', 'segment', 'frame_idx'], how='left')
     fs.to_csv(os.path.join(a.out_dir, 'vlm_frame_scores.csv'), index=False)
 
-    # --- SSMs
+    # --- SSMs and scene groupings
     ssm_df = ssm_table(a.frame_ssm, frames)
+    groupings, labels_used = scene_groupings(frames, a.scene_labels, group_by)
+    for gname in group_by:
+        ssm_df[gname] = groupings[gname]
     ssm_df.to_csv(os.path.join(a.out_dir, 'ssm_target_frames.csv'), index=False)
+    gnames = list(groupings)
     ssm = {c: ssm_df[c].to_numpy() for c in ssm_df.columns if c.endswith(('_conflict', '_risk'))}
     ssm = {k: (v.astype(bool) if k.endswith('_conflict') else v.astype(float)) for k, v in ssm.items()}
     n_frames = len(frames)
     ids = np.arange(n_frames)
     seg_of = frames['segment'].to_numpy()
+    seg_list = np.array(sorted(set(seg_of)))
+    seg_frames = {s: np.flatnonzero(seg_of == s) for s in seg_list}
+    seg_label = {gname: {s: groupings[gname][seg_frames[s][0]] for s in seg_list} for gname in group_by}
 
     def score_vec(m, c, col):
         s = fs[(fs.model == m) & (fs.condition == c)].set_index(['segment', 'frame_idx'])[col]
         return s.reindex(pd.MultiIndex.from_frame(frames)).to_numpy(float)
 
-    # --- point estimates (main variant + checks)
-    rows = []
+    # --- point estimates (main variant + checks), and each segment on its own
+    rows, seg_rows = [], []
     for m, c in itertools.product(models, CONDITIONS):
         for variant, col in [('mean', 'score_mean'), ('mean_no_forced', 'score_mean_no_forced'),
                              ('median', 'score_median')]:
-            st = all_stats(score_vec(m, c, col), ssm, ids)
-            for s, v in st.items():
-                rows.append(dict(model=m, condition=c, ssm=s, variant=variant, **dict(zip(STAT_NAMES, v[:5])),
-                                 n_conflict=v[5], n_no_conflict=v[6]))
+            st = all_stats(score_vec(m, c, col), ssm, ids, groupings)
+            for s, (per, n_c, n_n) in st.items():
+                for gname, v in per.items():
+                    rows.append(dict(model=m, condition=c, ssm=s, grouping=gname,
+                                     n_groups=len(np.unique(groupings[gname])), variant=variant,
+                                     **dict(zip(STATS, v)), n_conflict=n_c, n_no_conflict=n_n))
+        x = score_vec(m, c, 'score_mean')
+        for sg, fi in seg_frames.items():
+            st = all_stats(x[fi], {k: v[fi] for k, v in ssm.items()}, ids[fi], {'all': np.zeros(len(fi), int)})
+            for s, (per, n_c, n_n) in st.items():
+                v = per['all']
+                seg_rows.append(dict(model=m, condition=c, segment=sg, ssm=s, auc=v[0], tau_b_conflict=v[1],
+                                     agreement_conflict=v[3], tau_b_all=v[4], n_conflict=n_c, n_no_conflict=n_n,
+                                     score_mean=float(np.nanmean(x[fi])),
+                                     **{gname: seg_label[gname][sg] for gname in group_by}))
     est = pd.DataFrame(rows)
+    pd.DataFrame(seg_rows).to_csv(os.path.join(a.out_dir, 'agreement_by_segment.csv'), index=False)
 
-    # --- bootstrap (main variant)
+    # --- bootstrap (main variant). 'frame': frames resampled within each segment, so every segment keeps its
+    # number of target frames; 'segment': whole segments resampled, every drawn copy is its own segment group
     rng = np.random.default_rng(a.seed)
-    seg_list = np.array(sorted(set(seg_of)))
-    seg_frames = {s: np.flatnonzero(seg_of == s) for s in seg_list}
     xs = {(m, c): score_vec(m, c, 'score_mean') for m, c in itertools.product(models, CONDITIONS)}
-    boot = np.full((a.n_boot, len(models), len(CONDITIONS), len(SSMS), len(STAT_NAMES)), np.nan)
+    boot = np.full((a.n_boot, len(models), len(CONDITIONS), len(SSMS), len(gnames), len(STATS)), np.nan)
     tb = time.time()
     for b in range(a.n_boot):
         if a.resample == 'frame':
-            idx = rng.integers(0, n_frames, n_frames)
+            idx = np.concatenate([rng.choice(seg_frames[s], len(seg_frames[s])) for s in seg_list])
+            gb = {gname: v[idx] for gname, v in groupings.items()}
         else:
-            idx = np.concatenate([seg_frames[s] for s in rng.choice(seg_list, len(seg_list))])
+            draw = rng.choice(seg_list, len(seg_list))
+            idx = np.concatenate([seg_frames[s] for s in draw])
+            gb = {gname: v[idx] for gname, v in groupings.items()}
+            gb['segment'] = np.concatenate([np.full(len(seg_frames[s]), k) for k, s in enumerate(draw)])
         sb = {k: v[idx] for k, v in ssm.items()}
         for (mi, m), (ci, c) in itertools.product(enumerate(models), enumerate(CONDITIONS)):
-            st = all_stats(xs[(m, c)][idx], sb, ids[idx])
+            st = all_stats(xs[(m, c)][idx], sb, ids[idx], gb)
             for si, s in enumerate(SSMS):
-                boot[b, mi, ci, si] = st[s][:5]
+                for gi, gname in enumerate(gnames):
+                    boot[b, mi, ci, si, gi] = st[s][0][gname]
         if b in (0, 9) or (b + 1) % 250 == 0:
             done = b + 1
             print(f'bootstrap {done}/{a.n_boot} ({(time.time() - tb) / done * (a.n_boot - done):.0f} s left)')
@@ -344,32 +489,33 @@ def main():
         lo, hi = np.percentile(arr[ok], [2.5, 97.5])
         return float(lo), float(hi), int(ok.sum())
 
-    main_rows = est[est.variant == 'mean'].copy()
-    for stat in STAT_NAMES:
+    main_rows = est[est.variant == 'mean'].drop(columns='variant').copy()
+    for k, stat in enumerate(STATS):
         lo, hi, nv = [], [], []
         for r in main_rows.itertuples():
             v = ci(boot[:, models.index(r.model), CONDITIONS.index(r.condition), SSMS.index(r.ssm),
-                        STAT_NAMES.index(stat)])
+                        gnames.index(r.grouping), k])
             lo.append(v[0]), hi.append(v[1]), nv.append(v[2])
         main_rows[stat + '_lo'], main_rows[stat + '_hi'], main_rows[stat + '_nboot'] = lo, hi, nv
-    checks = est[est.variant != 'mean'].pivot_table(index=['model', 'condition', 'ssm'], columns='variant',
-                                                    values=STAT_NAMES)
+    checks = est[est.variant != 'mean'].pivot_table(index=['model', 'condition', 'ssm', 'grouping'],
+                                                    columns='variant', values=STATS)
     checks.columns = [f'{s}_{v}' for s, v in checks.columns]
-    agreement = main_rows.merge(checks.reset_index(), on=['model', 'condition', 'ssm'], how='left')
+    agreement = main_rows.merge(checks.reset_index(), on=['model', 'condition', 'ssm', 'grouping'], how='left')
     agreement.to_csv(os.path.join(a.out_dir, 'agreement.csv'), index=False)
 
-    # --- differences between SSMs (overall tau-b and AUC), paired over the same resamples
+    # --- differences between SSMs (overall tau-b and AUC, per grouping), paired over the same resamples
     drows = []
     for (mi, m), (ci_, c) in itertools.product(enumerate(models), enumerate(CONDITIONS)):
-        pe = main_rows[(main_rows.model == m) & (main_rows.condition == c)].set_index('ssm')
-        for (i, s1), (j, s2) in itertools.combinations(enumerate(SSMS), 2):
-            for stat in ['tau_b_all', 'auc']:
-                k = STAT_NAMES.index(stat)
-                diff = boot[:, mi, ci_, i, k] - boot[:, mi, ci_, j, k]
-                lo, hi, nv = ci(diff)
-                d0 = pe.at[s1, stat] - pe.at[s2, stat]
-                drows.append(dict(model=m, condition=c, stat=stat, ssm_1=s1, ssm_2=s2, diff=d0, diff_lo=lo,
-                                  diff_hi=hi, nboot=nv, clear=bool(lo > 0 or hi < 0) if not np.isnan(lo) else False))
+        for gi, gname in enumerate(gnames):
+            pe = main_rows[(main_rows.model == m) & (main_rows.condition == c) &
+                           (main_rows.grouping == gname)].set_index('ssm')
+            for (i, s1), (j, s2) in itertools.combinations(enumerate(SSMS), 2):
+                for stat in DIFF_STATS:
+                    k = STATS.index(stat)
+                    lo, hi, nv = ci(boot[:, mi, ci_, i, gi, k] - boot[:, mi, ci_, j, gi, k])
+                    drows.append(dict(model=m, condition=c, grouping=gname, stat=stat, ssm_1=s1, ssm_2=s2,
+                                      diff=pe.at[s1, stat] - pe.at[s2, stat], diff_lo=lo, diff_hi=hi, nboot=nv,
+                                      clear=bool(lo > 0 or hi < 0) if not np.isnan(lo) else False))
     pd.DataFrame(drows).to_csv(os.path.join(a.out_dir, 'ssm_differences.csv'), index=False)
 
     # --- per model x condition: answers, stability, time
@@ -402,8 +548,20 @@ def main():
     with open(os.path.join(a.out_dir, 'params.txt'), 'w', encoding='utf-8') as f:
         f.write(f'analyze_vlm_ssm.py run {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
         f.write(f'vlm_scores = {os.path.abspath(a.vlm_scores)}\nframe_ssm = {os.path.abspath(a.frame_ssm)}\n')
-        f.write(f'bootstrap: {a.n_boot} resamples of {a.resample}s, seed {a.seed}, 95 % percentile intervals\n')
+        f.write(f'scene_labels = {os.path.abspath(a.scene_labels) if a.scene_labels else "(none)"}\n')
+        how = 'frames resampled within each segment' if a.resample == 'frame' else 'segments resampled'
+        f.write(f'bootstrap: {a.n_boot} resamples ({how}), seed {a.seed}, 95 % percentile intervals\n')
         f.write(f'target frames: {n_frames} ({", ".join(f"{s[:6]} {len(v)}" for s, v in seg_frames.items())})\n')
+        f.write('groupings (statistics counted over frame pairs in the same group):\n')
+        for gname in gnames:
+            vals, cnt = np.unique(groupings[gname], return_counts=True)
+            desc = 'one group' if gname == 'all' else ', '.join(
+                f'{str(v)[:20]} {k}' for v, k in zip(vals, cnt)) if len(vals) <= 12 else f'{len(vals)} groups'
+            f.write(f'  {gname}: {desc} (frames)\n')
+        if labels_used is not None:
+            f.write('scene labels per segment:\n')
+            for s, r in labels_used.iterrows():
+                f.write(f'  {s}: ' + ', '.join(f'{k}={v}' for k, v in r.items()) + '\n')
         for i in info:
             f.write(f"model {i['model']}: {i['lines']} requests ({os.path.basename(i['file'])}), "
                     f"forced answers used {i['forced_used']}\n")
@@ -423,11 +581,10 @@ def main():
     print('\nrepeat stability and cost (main points):')
     print(cond[['model', 'condition', 'answered', 'forced_answers', 'no_answer', 'sd_repeats_mean',
                 'retest_tau_b_mean', 'icc_mean_of_k', 'latency_median_s']].round(3).to_string(index=False))
-    for stat, label in [('tau_b_all', 'overall Kendall tau-b, all target frames (no conflict tied at the safe end)'),
-                        ('auc', 'step 1: AUC conflict vs no conflict'),
-                        ('tau_b_conflict', 'step 2: Kendall tau-b within conflict frames')]:
-        print(f'\n{label}:')
-        tab = main_rows.pivot_table(index=['model', 'condition'], columns='ssm', values=stat)[SSMS]
+    for gname in gnames:
+        print(f'\noverall Kendall tau-b, pairs within the same {gname} group (no conflict tied at the safe end):')
+        tab = main_rows[main_rows.grouping == gname].pivot_table(index=['model', 'condition'], columns='ssm',
+                                                                 values='tau_b_all')[SSMS]
         print(tab.round(3).to_string())
     print(f'\ndone in {time.time() - t0:.0f} s; outputs in {os.path.abspath(a.out_dir)}')
 

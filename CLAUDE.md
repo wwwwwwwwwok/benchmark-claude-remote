@@ -55,9 +55,17 @@
    输出 frame_ssm.csv（逐帧）、scene_summary.csv（逐段）、params.txt、TTC 对比图和快照图。
 4. 点云检查（可选，要读原始 tfrecord）：`python -I code/check_lidar_points.py <tfrecord 文件夹> <提取输出文件夹> <结果文件夹>/frame_ssm.csv <结果文件夹>/lidar_check`
    做两件事：一是把前车车尾的点云和标注框车尾对比；二是用激光雷达的逐点语义标签给每辆车定车型。
-5. VLM 分数和 SSM 比较：`python -I code/analyze_vlm_ssm.py <结果文件夹>/vlm_scores <结果文件夹>/frame_ssm.csv <输出文件夹> [--n_boot 2000] [--resample frame|segment]`
+5. 场景标签：`python -I code/make_scene_labels.py <提取输出文件夹> labels/scene_labels.csv`
+   - 每段一行，从 context.json 抄 Waymo 的时段、地点、天气，并留一列 `weather` 给人看图填；
+   - 已有的行不覆盖，新片段追加在后面。
+6. VLM 分数和 SSM 比较：`python -I code/analyze_vlm_ssm.py <结果文件夹>/vlm_scores <结果文件夹>/frame_ssm.csv <输出文件夹> --scene_labels labels/scene_labels.csv [--group_by weather,time_of_day] [--n_boot 2000] [--resample frame|segment]`
    - 读每个模型文件夹里的 `pilot_<模型>.jsonl` 和补答文件，不读 smoke 和超时重试的文件；
-   - 输出 `agreement.csv`（每个模型 × 组 × SSM 的各项统计和 95% 区间）、`ssm_differences.csv`（SSM 两两之差）、`condition_summary.csv`（解析、稳定性、用时）、逐条和逐帧的表，以及 `params.txt`。
+   - 输出：
+     - `agreement.csv`：每个模型 × 组 × SSM × 比较分组的各项统计和 95% 区间；
+     - `ssm_differences.csv`：SSM 两两之差；
+     - `agreement_by_segment.csv`：每段单独算的结果；
+     - `condition_summary.csv`：解析、稳定性、用时；
+     - 逐条和逐帧的表，以及 `params.txt`。
 
 参数在 `code/waymo_ssm_frames.py` 顶部的 PARAMS，几何假设在 `code/wod_common.py` 顶部。
 
@@ -74,6 +82,18 @@
   - 误差范围：bootstrap 2,000 次，95% 区间；SSM 之间的差也用同一批重抽样算区间。试跑按帧重抽，正式的 202 段按片段重抽。
   - 核对：去掉补出来的答案、用中位数代替平均，各算一遍点估计。
   - 稳定性：同一帧 5 次分数的标准差（除以 5）、5 次之间两两的 τ-b、ICC。
+- 比较分组（2026-10-21 我定的）：
+  - 每种统计都按分组算一遍，只数同一组里的帧对：
+    1. 所有帧混在一起比；
+    2. 同一种天气里比；
+    3. 同一个时段里比。
+  - 程序另外还算第 4 种"同一段里比"：天气、光线、地点、道路都一样，最严格。要不要报还没定。
+  - 为什么要分组：试跑里模型的分数主要被场景左右。夜间下雨那段，所有模型、所有组都打分最高，但那段一帧 TTC 都没有。
+  - 天气用我们自己看图标的（`labels/scene_labels.csv` 的 `weather` 列）。Waymo 的天气标签不可靠：夜间那段明明在下雨（路面全湿、镜头上有雨滴），Waymo 标的是 sunny。
+  - 时段用 Waymo 的标签（Day、Night、Dawn/Dusk）。
+  - demo 的 3 段是 Claude 看图标的，等我核对：夜间那段 rain，凤凰城、旧金山 dry。
+  - 202 段的天气分几类还没定。
+  - demo 里分组 2 和 3 完全一样（下雨那段正好是夜间那段），扩到 202 段才会不同。
 - TA、CS 已删除：要先判断"谁在避让"，轨迹数据看不出来。
 - RSS 也已删除（2026-10-15，我决定）：代码、输出列、表格（5 张表共 26 行）和文档里都去掉了。
 - DSS、TET、TIT 也已删除（2026-10-15，我决定），代码、输出列、表格（5 张表共 73 行）和文档里都去掉了。
