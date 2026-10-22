@@ -1,4 +1,6 @@
-# 在 Kamiak 上跑 VLM（开源 Qwen、InternVL）
+# 在 Kamiak 上跑 VLM（开源 Qwen、InternVL），以及下载、处理 Waymo 数据
+
+Waymo 数据的部分见下面"Waymo 训练集 + 验证集"一节。
 
 思路：在 GPU 节点上用 vLLM 把开源模型启动成一个本地服务，再用 `code/run_vlm.py` 把每个目标帧的图和问题发过去。不按量收费，模型版本固定，可以复现，还能拿到每个回答的概率。
 
@@ -31,8 +33,8 @@
   - dtn1 上没有 `/opt/apps`，不能 `conda activate`；系统 Python 是 3.9。
 - 存储：
   - 家目录 100 GB（2026-10-19 只剩 13 GB）。
-  - 课题组目录 `/data/lab/cejli`，个人的东西放 `/data/lab/cejli/sy`。
-  - 临时目录 `/scratch/user/<netid>/`（用 `mkworkspace` 建，每个最多 10 TB，2 周后自动删除）。
+  - 课题组目录 `/data/lab/cejli`，个人的东西放 `/data/lab/cejli/sy`。官方说每个导师默认 500 GB，更多要按年租（hpc.wsu.edu/users-guide/storage/，2026-10-21 查）。
+  - 临时目录 `/scratch/user/<netid>/`：用 `mkworkspace` 建，每人一共最多 10 TB；每个最多存 2 周，到期连数据一起自动删，没有快照和备份。
   - `/tmp` 是每台机器自己的，别的节点看不到，脚本和日志不要放在 `/tmp`。
 - 模型（都放在 `/data/lab/cejli/sy/models/`，下载后都按官方校验值逐个核对过）：
   - `Qwen3.6-27B`：15 个分片，51.75 GiB。一块 H100 就装得下（权重占显存 51.01 GiB）。
@@ -152,6 +154,97 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
   - 结果另存 `results/vlm_scores/<MODEL>/pilot_<MODEL>_forced_answers.jsonl`（每行有 `forced_answer: true`），原结果文件不动。
 - 任务中断（时限到了、被抢占）后，再提交一次就会从没做完的地方接着跑。报错的请求不写进结果，下次会重发；回答解析不出来的会写进去（`parsed` 为空），不重发。
 - 跑完把结果传回办公室电脑（在办公室电脑的仓库根目录下）：`scp -r <netid>@kamiak.wsu.edu:~/benchmark-claude-remote/results/vlm_scores ./results/`。
+
+## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好，还没在 Kamiak 上跑过）
+用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。
+
+脚本：
+- `kamiak/waymo_download.sbatch`：在 dtn 上从 Waymo 的存储桶下一个 split 到 scratch。下好的文件会跳过，所以中断了再交一次就接着下。gcloud 下载时会用存储桶里的校验值核对每个文件；下完脚本再核对每个文件的大小，全对才写 `DOWNLOAD_COMPLETE`。
+- `kamiak/waymo_ssm.sbatch`：作业数组，一个任务管 10 段。
+  - 先提取，用的是 `code/wod_v143_extract.py`，5 个相机都要，和办公室电脑一样。提取过的段会跳过。
+  - 每段提取完，把表格（context.json 和 parquet，每段约 4.3 MB）复制一份到课题组目录。
+  - 再对这 10 段跑 `check_v143_extract.py` 和 `waymo_ssm_frames.py`，设置和 demo 一样（5 个相机、自车按真实车身）。
+- `code/merge_ssm_parts.py`：把各块的结果拼成和一次算完一样的文件。
+  - 2026-10-21 在办公室电脑上用 demo 3 段测过：分块算、再拼起来，`frame_ssm.csv`、`scene_summary.csv`、`params.txt`、`extract_checks.csv` 和图都和一次算完的逐字节相同；`frame_ssm.csv` 也和 `results/waymo_demo/` 里试跑用的那份相同。
+  - 有块缺了、有段重复、各块参数不一样时，会报错停下。
+- `kamiak/waymo_submit.sh`：按顺序提交上面三步，前一步没出错才开始下一步。
+
+要用户同意的下载：
+- gcloud 安装包 `google-cloud-cli-linux-x86_64.tar.gz`：来源 dl.google.com，94,021,891 字节，2026-10-20 的 590.0.0 版。
+- Python 包（PyPI，版本和办公室电脑一样）：numpy 2.3.5、pandas 2.3.3、pyarrow 22.0.0、protobuf 7.34.1、scipy 1.16.3、matplotlib 3.10.7、pillow 12.0.0。这 7 个约 129 MB；加上依赖和 conda 装的 Python 3.13，约 200 MB。
+- Waymo 数据：验证集 202 个、训练集 798 个文件。按本地 3 段平均每段 1,008,350,027 字节推算，一共约 1.0 TB；准确大小下载作业开头会打出来。
+
+要多少地方（按本地 3 段推算）：
+- scratch：原始文件约 1.0 TB，提取结果（含全部图片）约 376 GB。
+- 课题组目录：表格副本约 4.3 GB，SSM 结果约 1 GB。课题组默认 500 GB，模型已经占了 247.55 GiB，先看还剩多少。
+
+要多久（估计）：
+- 下载：dtn 上从 HuggingFace 下模型是每秒 53–113 MiB，按这个速度 1 TB 要 2.5–5.5 小时。
+- 提取和算 SSM：办公室电脑上每段约 6 s 提取（不算写图片）、11 s 算 SSM。
+
+### 一次性准备
+1. 看空间：
+   ```bash
+   df -H /data/lab/cejli
+   du -sh --si /data/lab/cejli/sy
+   lsworkspace
+   ```
+2. 装 gcloud（在计算节点上）：
+   ```bash
+   srun --partition=kamiak --account=cejli --time=00:20:00 --cpus-per-task=2 --mem=4G bash -c '
+   cd /data/lab/cejli/sy
+   curl -fO https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz
+   echo "351ed4a2812c5525c1cee00334257a42c020fcaffa27d3067c1eec0a618dd83f  google-cloud-cli-linux-x86_64.tar.gz" | sha256sum -c
+   tar -xf google-cloud-cli-linux-x86_64.tar.gz
+   ./google-cloud-sdk/install.sh --quiet --usage-reporting=false --command-completion=false --path-update=false
+   ./google-cloud-sdk/bin/gcloud --version
+   ./google-cloud-sdk/bin/gcloud info --format="value(basic.python_location)"'
+   ```
+   - 校验值是 Google 官网（docs.cloud.google.com/sdk/docs/downloads-versioned-archives）2026-10-21 列的 590.0.0 版的值。Google 出了新版，这个文件就会换，`sha256sum -c` 会报 FAILED：到那个页面查新的校验值再装。
+   - 最后一行应该是 `.../google-cloud-sdk/platform/bundledpythonunix/bin/python3`，也就是用安装包自带的 Python。dtn1 上的系统 Python 是 3.9，gcloud 要 3.10 以上。
+   - 装好以后，安装包（94 MB）可以删。
+3. 登录 Google。这一步你自己做，用在 waymo.com/open 注册过的那个 Google 账号：
+   ```bash
+   /data/lab/cejli/sy/google-cloud-sdk/bin/gcloud auth login --no-launch-browser
+   /data/lab/cejli/sy/google-cloud-sdk/bin/gcloud storage ls gs://waymo_open_dataset_v_1_4_3/individual_files/validation/ | head -3
+   ```
+   - 第一条会给一个网址：在自己电脑的浏览器里打开，登录、同意，再把页面上的验证码贴回终端。
+   - 登录信息存在家目录的 `~/.config/gcloud`，dtn 和计算节点都能用。
+   - 第二条能列出 3 个文件名，就说明有权限。这两条都很短，在登录节点上跑就行。
+4. 建 Python 环境（在计算节点上）：
+   ```bash
+   srun --partition=kamiak --account=cejli --time=00:30:00 --cpus-per-task=4 --mem=8G bash -c '
+   source /opt/apps/miniconda3/3.12/etc/profile.d/conda.sh
+   conda create -p /data/lab/cejli/sy/conda_envs/waymo python=3.13 -y
+   /data/lab/cejli/sy/conda_envs/waymo/bin/pip install numpy==2.3.5 pandas==2.3.3 pyarrow==22.0.0 protobuf==7.34.1 \
+       scipy==1.16.3 matplotlib==3.10.7 pillow==12.0.0
+   /data/lab/cejli/sy/conda_envs/waymo/bin/python -I -c "import sys, numpy, pandas, pyarrow, google.protobuf, scipy, matplotlib, PIL; print(sys.version.split()[0], numpy.__version__, pandas.__version__, pyarrow.__version__, google.protobuf.__version__, scipy.__version__, matplotlib.__version__, PIL.__version__)"'
+   ```
+   最后一行应该打印 `3.13.x 2.3.5 2.3.3 22.0.0 7.34.1 1.16.3 3.10.7 12.0.0`。
+
+### 运行（在仓库根目录 `~/benchmark-claude-remote` 下）
+```bash
+git pull
+WS=$(mkworkspace)               # 建 scratch，2 周后自动删
+echo "$WS"; lsworkspace         # 记下路径和到期时间，写进本机的 CLAUDE.local.md
+bash kamiak/waymo_submit.sh "$WS" validation
+bash kamiak/waymo_submit.sh "$WS" training
+squeue -u $USER
+```
+- 每个 split 三步：下载 → 提取、检查、算 SSM（每 10 段一个任务，最多同时 20 个）→ 合并。
+- 结果在 `/data/lab/cejli/sy/waymo_v143/results/<split>/`：
+  - `ssm/` 下面的文件和办公室电脑 `results/waymo_demo/` 一样：`frame_ssm.csv`、`scene_summary.csv`、`params.txt`、图；
+  - `checks/` 是提取检查。
+- 表格副本在 `/data/lab/cejli/sy/waymo_v143/tables/<split>/<段名>/`。scratch 删了以后还能用它重算 SSM，只是快照图里没有相机画面。
+- scratch 上有：
+  - `$WS/raw/<split>/`：原始文件、`bucket_listing.txt`（存储桶里每个文件的大小）、`DOWNLOAD_COMPLETE`；
+  - `$WS/extracted/<split>/`：提取结果，含全部图片；
+  - `$WS/ssm_parts/<split>/`：每块的结果。
+- **2 周内要做完的事**：算完 SSM、看完数以后，决定留哪些图（只留每 0.5 s 一帧约 79 GB），复制到课题组目录。点云检查（`check_lidar_points.py`）要用原始文件，要做也得在这 2 周里做。
+- 出问题：
+  - 某一块失败：看 `logs/waymo-ssm_<作业号>_<块号>.out`。改好后只重交那一块：`sbatch --array=<块号> kamiak/waymo_ssm.sbatch "$WS" <split>`。再重交合并（命令就是 `waymo_submit.sh` 最后那条 `sbatch --wrap`）。还在等的合并作业会显示 `DependencyNeverSatisfied`，用 `scancel` 取消。
+  - 下载中断（时限到了、网络断了）：再跑一次 `bash kamiak/waymo_submit.sh "$WS" <split>`。下好的文件、提取过的段都会跳过。
+  - 下载作业因为内存不够被杀（日志里有 `oom`）：把 `waymo_download.sbatch` 里的 `CLOUDSDK_STORAGE_PROCESS_COUNT` 改成 1。
 
 ## 出问题时先看这里
 - 任务马上失败、没有日志：多半是没有先建 `logs` 文件夹。

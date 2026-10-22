@@ -33,7 +33,7 @@
 - `results/`：运行结果，不进仓库，可以重新生成。
 - `docs/handoff.md`：交接说明，包括当前进度、下一步和文献笔记。
 - `code/experiments/`：以前做决定时用的一次性检查脚本（存档），每个脚本的结论见里面的 README。
-- `kamiak/`：在 Kamiak 上跑 VLM 的任务脚本和步骤。
+- `kamiak/`：在 Kamiak 上跑 VLM 的任务脚本和步骤；还有下载、提取 Waymo 训练集 + 验证集并算 SSM 的脚本（`waymo_*.sbatch`、`waymo_submit.sh`）。
 
 ## 数据（不进仓库）
 - 只用 Waymo Open Dataset Perception **v1.4.3**（带地图），不混用 v2.0.1。除了地图，两个版本内容相同。
@@ -43,16 +43,22 @@
   - `14486517341017504003_3406_349_3426_349`：凤凰城，白天，约 15 m/s
   - `13184115878756336167_1354_000_1374_000`：夜间
 - 办公室电脑：原始文件在 `F:\benchmark\waymo perception\v1.4.3_tfrecord\validation\`，提取结果在 `F:\benchmark\waymo perception\extracted\validation\`（F 盘是 U 盘，可以带走）。
+- Kamiak（2026-10-21 我定的，脚本写好了还没跑）：
+  - 训练集 798 段 + 验证集 202 段下到 scratch。scratch 2 周后连数据一起自动删，路径和到期时间写在 Kamiak 上的 `CLAUDE.local.md`。
+  - 表格副本和 SSM 结果放课题组目录 `/data/lab/cejli/sy/waymo_v143/`。
+  - 步骤见 `kamiak/README.md`"Waymo 训练集 + 验证集"。
 - 其他电脑把自己的数据路径写进本机的 `CLAUDE.local.md`（不进仓库）。
 
 ## 流程（`code/`，Windows 上用普通 Python 即可，不需要 TensorFlow）
 依赖：numpy、pandas、pyarrow、protobuf、scipy、matplotlib、Pillow。
 
-1. 提取：`python -I code/wod_v143_extract.py <tfrecord 文件夹> <提取输出文件夹>`
+1. 提取：`python -I code/wod_v143_extract.py <tfrecord 文件夹或单个 .tfrecord 文件> <提取输出文件夹>`
    每段输出 frames / objects / projected_boxes / camera_boxes / map 五个 parquet、context.json 和 5 个相机的图像；格式见脚本开头的说明。
 2. 检查：`python -I code/check_v143_extract.py <提取输出文件夹> <结果文件夹>/checks`
-3. 逐帧算 SSM：`python -I code/waymo_ssm_frames.py <提取输出文件夹> <结果文件夹> [--camera FRONT|all]`
-   输出 frame_ssm.csv（逐帧）、scene_summary.csv（逐段）、params.txt、TTC 对比图和快照图。
+3. 逐帧算 SSM：`python -I code/waymo_ssm_frames.py <提取输出文件夹> <结果文件夹> [--cameras FRONT,FRONT_LEFT,...|none] [--ego footprint|camera] [段名 ...]`
+   - 默认 5 个相机都算、自车按真实车身（footprint），demo 就是这样跑的；不写段名就算文件夹里所有段。
+   - 输出 frame_ssm.csv（逐帧）、scene_summary.csv（逐段）、params.txt、TTC 对比图和快照图。
+   - 分块算的结果用 `python -I code/merge_ssm_parts.py <各块的文件夹> <输出文件夹> <总段数>` 拼成和一次算完一样的文件（Kamiak 上用）。
 4. 点云检查（可选，要读原始 tfrecord）：`python -I code/check_lidar_points.py <tfrecord 文件夹> <提取输出文件夹> <结果文件夹>/frame_ssm.csv <结果文件夹>/lidar_check`
    做两件事：一是把前车车尾的点云和标注框车尾对比；二是用激光雷达的逐点语义标签给每辆车定车型。
 5. 场景标签：`python -I code/make_scene_labels.py <提取输出文件夹> labels/scene_labels.csv`

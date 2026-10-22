@@ -6,7 +6,7 @@ protos/vector.proto, checked against the waymo-research/waymo-open-dataset maste
 Fields not listed are skipped by the parser.
 
 Usage:
-    python -I wod_v143_extract.py <tfrecord_dir> <out_root> [--cameras FRONT,FRONT_LEFT,...]
+    python -I wod_v143_extract.py <tfrecord_dir or one .tfrecord file> <out_root> [--cameras FRONT,FRONT_LEFT,...]
 
 Writes one folder per segment, <out_root>/<segment>/:
     context.json            segment name, stats (time of day, location, weather), camera and lidar calibrations
@@ -180,6 +180,7 @@ def extract(path, out_root, cameras, Frame):
         if seg is None:
             seg = fr.context.name
             seg_dir = os.path.join(out_root, seg)
+            os.makedirs(seg_dir, exist_ok=True)          # also when no camera images are written
             for cam in cameras:
                 os.makedirs(os.path.join(seg_dir, 'images', cam), exist_ok=True)
             st = fr.context.stats
@@ -266,18 +267,21 @@ def extract(path, out_root, cameras, Frame):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('tfrecord_dir')
+    ap.add_argument('tfrecord_dir', help='folder whose .tfrecord files are all extracted, or one .tfrecord file')
     ap.add_argument('out_root')
     ap.add_argument('--cameras', default=','.join(CAMERAS.values()),
                     help='cameras whose JPEGs are written (comma separated); others are skipped')
     a = ap.parse_args()
     cameras = [c for c in a.cameras.split(',') if c]
     Frame = build_frame_class()
-    files = sorted(f for f in os.listdir(a.tfrecord_dir) if f.endswith('.tfrecord'))
+    if os.path.isdir(a.tfrecord_dir):
+        files = sorted(os.path.join(a.tfrecord_dir, f) for f in os.listdir(a.tfrecord_dir) if f.endswith('.tfrecord'))
+    else:
+        files = [a.tfrecord_dir] if a.tfrecord_dir.endswith('.tfrecord') and os.path.isfile(a.tfrecord_dir) else []
     if not files:
         sys.exit(f'no .tfrecord files in {a.tfrecord_dir}')
-    for fn in files:
-        extract(os.path.join(a.tfrecord_dir, fn), a.out_root, cameras, Frame)
+    for path in files:
+        extract(path, a.out_root, cameras, Frame)
 
 
 if __name__ == '__main__':
