@@ -155,7 +155,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - 任务中断（时限到了、被抢占）后，再提交一次就会从没做完的地方接着跑。报错的请求不写进结果，下次会重发；回答解析不出来的会写进去（`parsed` 为空），不重发。
 - 跑完把结果传回办公室电脑（在办公室电脑的仓库根目录下）：`scp -r <netid>@kamiak.wsu.edu:~/benchmark-claude-remote/results/vlm_scores ./results/`。
 
-## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好；gcloud 和 Python 环境当天装好，还没下载）
+## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好；当天验证集跑完，训练集在跑）
 用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。
 
 脚本：
@@ -181,6 +181,10 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 要多久（估计）：
 - 下载：dtn 上从 HuggingFace 下模型是每秒 53–113 MiB，按这个速度 1 TB 要 2.5–5.5 小时。
 - 提取和算 SSM：办公室电脑上每段约 6 s 提取（不算写图片）、11 s 算 SSM。
+- 实际（2026-10-21，验证集）：
+  - 下载（作业 31350122）用了 9 分 41 秒，平均每秒 342.8 MiB，内存最多 356 MB。202 个文件、205,619,283,313 字节，大小全部和存储桶一致。
+  - 21 块（作业 31350123）同时跑，每块 29 秒到 3 分 31 秒，内存最多 425 MB；合并（作业 31350124）4 秒。
+  - 结果：202 段、39,987 帧（每段 181–199 帧）。
 
 ### 一次性准备
 1. 看空间：
@@ -211,8 +215,9 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 3. 登录 Google。这一步你自己做，用在 waymo.com/open 注册过的那个 Google 账号：
    ```bash
    /data/lab/cejli/sy/google-cloud-sdk/bin/gcloud auth login --no-launch-browser
-   /data/lab/cejli/sy/google-cloud-sdk/bin/gcloud storage ls gs://waymo_open_dataset_v_1_4_3/individual_files/validation/ | head -3
+   /data/lab/cejli/sy/google-cloud-sdk/bin/gcloud storage ls "gs://waymo_open_dataset_v_1_4_3/individual_files/validation/*.tfrecord" | head -3
    ```
+   - 要写 `*.tfrecord`：只写到 `validation/` 的话，存储桶里有一个和文件夹同名的空条目，前 3 行是它和一行标题，看不到文件名（2026-10-21）。
    - 第一条会给一个网址：在自己电脑的浏览器里打开，登录、同意，再把页面上的验证码贴回终端。
    - 登录信息存在家目录的 `~/.config/gcloud`，dtn 和计算节点都能用。
    - 第二条能列出 3 个文件名，就说明有权限。这两条都很短，在登录节点上跑就行。
@@ -253,6 +258,10 @@ squeue -u $USER
   - 某一块失败：看 `logs/waymo-ssm_<作业号>_<块号>.out`。改好后只重交那一块：`sbatch --array=<块号> kamiak/waymo_ssm.sbatch "$WS" <split>`。再重交合并（命令就是 `waymo_submit.sh` 最后那条 `sbatch --wrap`）。还在等的合并作业会显示 `DependencyNeverSatisfied`，用 `scancel` 取消。
   - 下载中断（时限到了、网络断了）：再跑一次 `bash kamiak/waymo_submit.sh "$WS" <split>`。下好的文件、提取过的段都会跳过。
   - 下载作业因为内存不够被杀（日志里有 `oom`）：把 `waymo_download.sbatch` 里的 `CLOUDSDK_STORAGE_PROCESS_COUNT` 改成 1。
+- 日志里可以不管的警告（2026-10-21 验证集）：
+  - `check_v143_extract.py` 的 `RuntimeWarning: All-NaN slice encountered`：有一段的自车一帧都没对上地图车道，检查表里"离车道中心多远"那几格是空的。
+  - `waymo_ssm_frames.py` 的 pandas `FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated`：同一段的 `ego_lane` 一列全空。pandas 2.3.3 拼表时不看全空的列，所以结果不受影响；以后换 pandas 版本要再看一下。
+  - 这一段是 `5990032395956045002_6600_000_6620_000`：自车平均 1.25 m/s，199 帧都按设计退回"沿自车实际路线"找前车（`map_fallback`），每帧都找到了前车。
 
 ## 出问题时先看这里
 - 任务马上失败、没有日志：多半是没有先建 `logs` 文件夹。
