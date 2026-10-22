@@ -43,7 +43,7 @@
   - `14486517341017504003_3406_349_3426_349`：凤凰城，白天，约 15 m/s
   - `13184115878756336167_1354_000_1374_000`：夜间
 - 办公室电脑：原始文件在 `F:\benchmark\waymo perception\v1.4.3_tfrecord\validation\`，提取结果在 `F:\benchmark\waymo perception\extracted\validation\`（F 盘是 U 盘，可以带走）。
-- Kamiak（2026-10-21 我定的；gcloud 590.0.0 和 Python 环境 `/data/lab/cejli/sy/conda_envs/waymo` 当天装好；验证集 202 段当天算完，训练集在跑，进度见 `docs/handoff.md` 第 2 节最后）：
+- Kamiak（2026-10-21 我定的；gcloud 590.0.0 和 Python 环境 `/data/lab/cejli/sy/conda_envs/waymo` 当天装好；验证集 202 段、训练集 798 段当天都算完，共 198,068 帧，结果和检查见 `docs/handoff.md` 第 2 节最后）：
   - 训练集 798 段 + 验证集 202 段下到 scratch。scratch 2 周后连数据一起自动删，路径和到期时间写在 Kamiak 上的 `CLAUDE.local.md`。
   - 表格副本和 SSM 结果放课题组目录 `/data/lab/cejli/sy/waymo_v143/`。
   - 步骤见 `kamiak/README.md`"Waymo 训练集 + 验证集"。
