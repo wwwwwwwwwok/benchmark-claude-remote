@@ -34,6 +34,10 @@ SPEED_FRAME = 'global'               # frame of the labels' speed/accel (checked
 # (below it the direction of travel is noise, as in speed_and_accel). Frames where the ego or the lead does are flagged
 # and left out of the lead-vehicle SSMs, because those use speed magnitudes (decided by the user, 2026-10-21)
 REVERSING_MIN_SPEED = 0.5
+# a lead slower than this (m/s) at the frame stays the lead only if the ego-path pairing picks it too, or it moves in
+# the segment and the ego does not drive past it later; otherwise the frame has no lead and the next candidate is not
+# tried (slow_lead_facts; decided by the user, 2026-10-22: parked cars beside the path otherwise count as leads)
+LEAD_SLOW_SPEED = 0.5
 # ego speed and acceleration: Savitzky-Golay 1st/2nd derivative of the ego position in the world frame, the
 # same filter that reproduces Waymo's labelled object speeds and accelerations from the box centres
 # (19 frames = 1.9 s, quadratic; demo: speed RMSE 0.003 m/s, acceleration RMSE 0.006 m/s2)
@@ -308,6 +312,24 @@ def moving_backwards(v, heading, v_min=REVERSING_MIN_SPEED):
     heading in the same frame)."""
     v = np.asarray(v, float)[:2]
     return bool(np.hypot(*v) >= v_min and abs(wrap(np.arctan2(v[1], v[0]) - heading)) > np.pi / 2)
+
+
+def slow_lead_facts(seg):
+    """What the slow-lead rule (LEAD_SLOW_SPEED) needs per track of the segment:
+    moving      ids faster than LEAD_SLOW_SPEED in some frame at least KIN_WINDOW // 2 frames from both ends of the
+                track (the smoothed speeds at the ends are unreliable, the same frames as edge_lead); a track too short
+                to keep any frame counts as not moving;
+    last_behind id -> last frame in which the object lies wholly behind the ego's rear bumper (vehicle frame of that
+                frame): the ego drives past a lead of frame k when this is later than k.
+    Needs the ego geometry (set_ego_geometry)."""
+    o = seg.objects
+    half = KIN_WINDOW // 2
+    span = o.groupby('id')['frame_idx'].agg(['min', 'max'])
+    k, lo, hi = o['frame_idx'], o['id'].map(span['min']), o['id'].map(span['max'])
+    inner = (k - lo >= half) & (hi - k >= half)
+    moving = set(o.loc[inner & (np.hypot(o['speed_x'], o['speed_y']) > LEAD_SLOW_SPEED), 'id'])
+    last_behind = o[o['cx'] + o['length'] / 2 < EGO_X_REAR].groupby('id')['frame_idx'].max().to_dict()
+    return moving, last_behind
 
 
 def ego_centre_map(seg, k):
