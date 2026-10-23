@@ -579,7 +579,7 @@
   - 相机写法（`kamiak/checks/camera_variants.py`）：`main_hazard_camera` 有 60 次不是规定写法，全在网格图的两种输入里：grid 写成 `side left` 22 次、`side right` 2 次，ctrl_grid 写成 `side left` 36 次；分开图的 3 种输入 0 次；60 次都在主结果的 1,084 帧里（拿掉的 39 帧上 0 次）。
     - 原因（用户 2026-10-22）：拼图上的相机名写的是 side left（`make_vlm_inputs.py` 把 `SIDE_LEFT` 写成小写、下划线换空格），答案选项是 left-side。分析程序已经把它当 left-side 算（`analyze_vlm_ssm.py` 的 `CAMERA_FIX`）。
     - 用户定：原样留在结果文件里，不改；图和问题都不改，5 个模型必须一样。
-  - 压缩（作业 31367296）：459,023,326 → 85,761,240 字节，解压后逐字节一样（sha256 `9c518443522aa1f33dec9fba8a654a4d028a342823f9e5480a0dcde6029a2fa6`）；原文件挪到 `vlm_scores_to_delete/qwen3-vl-32b/`，用户来删。两份作业日志复制到 `vlm_scores/qwen3-vl-32b/logs/`。
+  - 压缩（作业 31367296）：459,023,326 → 85,761,240 字节，解压后逐字节一样（sha256 `9c518443522aa1f33dec9fba8a654a4d028a342823f9e5480a0dcde6029a2fa6`）；原文件挪到 `vlm_scores_to_delete/qwen3-vl-32b/`，用户来删（10-23 看时已经删了，文件夹 10-22 23:09 改过）。两份作业日志复制到 `vlm_scores/qwen3-vl-32b/logs/`。
   - 分析（`kamiak/main_run/analyze.sh`，作业 31367303，17 分 12 秒；主结果 1,004 s、敏感性 1,030 s，同时跑）：输出在 `/data/lab/cejli/sy/waymo_v143/analysis/after_qwen3-vl-32b/`，汇总表 `summary_main_vs_sensitivity.txt`、`summary_sensitivity.txt`（`kamiak/main_run/summarize.py`）。
   - 验收（`kamiak/main_run/main_run_accept.py`）：主结果 1,084 帧（238 段），敏感性 1,123 帧（241 段）；9 个 SSM 每帧都有值，不算 AUC，输出里没有 AUC 的列；3 种分组下 5 × 9 = 45 格都有 τ-b、区间、成对一致率（Spearman 只在"全部"那组算）；SSM 之间的差每种分组 180 行，都有区间，重抽 2,000 次。
   - 结果，主结果 1,084 帧，"全部"分组的 Kendall τ-b 和 95% 区间（按片段重抽 2,000 次）：
@@ -663,8 +663,8 @@
   - 大小：
     - 主实验文件比按试跑乘 11.01 估的 6.45 GB 大 18.5%：每行 272,283 字节，试跑 229,789；生成 token 中位 855，试跑 738。
     - InternVL3.5-38B 跑到 11,330 条时（10-23 15:24），每行 13,030 字节，和试跑（13,039）差不多。
-    - Qwen3.6-27B 主实验要是也像 Thinking 这样大 18.5%，不压缩加压缩版约 57 GB（按试跑估是 48.3 GB）。等它开始时，课题组目录约剩 73 GB（10-23 15:22 剩 76,273,348,608 字节，减去 InternVL 两种还要写的约 3 GB；前提是用户没删挪开的原文件，组里别人用量不变）。
-    - 挪开、等用户删的原文件一共约 11 GB：Instruct 0.46 GB、Thinking 7.65 GB，InternVL 两种跑完后约 0.37 GB、2.0–2.4 GB。
+    - Qwen3.6-27B 主实验要是也像 Thinking 这样大 18.5%，不压缩加压缩版约 57 GB（按试跑估是 48.3 GB）。等它开始时，课题组目录约剩 73 GB（10-23 15:22 剩 76,273,348,608 字节，减去 InternVL 两种还要写的约 3 GB；前提是用户不再删挪开的原文件，组里别人用量不变）。
+    - 挪开、等用户删的原文件：现在是 Thinking 的两份 7,646,258,586 字节；InternVL 两种跑完后另有约 0.37 GB、2.0–2.4 GB，一共约 10 GB（Instruct 的用户已经删了，已算在上面剩的空间里）。
     - 看进度要数结果文件的行数：作业日志 `qwen-vlm_<作业号>.out` 的进度行有缓冲，会落后（InternVL3.5-38B 的日志 15:24 还停在 14:35 写出的 8,200 条，结果文件已有 11,330 行）。
 
 ## 3. 下一步：在 Kamiak 上试跑
