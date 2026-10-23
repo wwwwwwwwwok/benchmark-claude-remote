@@ -677,6 +677,12 @@
     - Qwen3.6-27B 主实验要是也像 Thinking 这样大 18.5%，不压缩加压缩版约 57 GB（按试跑估是 48.3 GB）。等它开始时，课题组目录约剩 73 GB（10-23 15:22 剩 76,273,348,608 字节，减去 InternVL 两种还要写的约 3 GB；前提是用户不再删挪开的原文件，组里别人用量不变）。
     - 挪开、等用户删的原文件：现在是 Thinking 的两份 7,646,258,586 字节；InternVL 两种跑完后另有约 0.37 GB、2.0–2.4 GB，一共约 10 GB（Instruct 的用户已经删了，已算在上面剩的空间里）。
     - 看进度要数结果文件的行数：作业日志 `qwen-vlm_<作业号>.out` 的进度行有缓冲，会落后（InternVL3.5-38B 的日志 15:24 还停在 14:35 写出的 8,200 条，结果文件已有 11,330 行）。
+- **传回办公室电脑的文件**（用户 2026-10-23 要求）：下载文件夹 `/data/lab/cejli/sy/waymo_v143/to_office/`，只放符号链接，不复制、不解压：
+  - `vlm_scores_main/qwen3-vl-32b/main_qwen3-vl-32b.jsonl.gz`、`vlm_scores_main/qwen3-vl-32b-thinking/` 下的主实验和补答两个 `.gz`；
+  - `inputs/frame_ssm_validation_training.csv`（`results_lead_final_excl/` 下那个）、`inputs/scene_labels_waymo.csv`（都是 `analyze.sh` 用的）；
+  - `analysis/after_qwen3-vl-32b`（指向整个文件夹）。
+  - `to_office/sha256.txt`：链接背后每个真文件的 sha256 和字节数，分析文件夹里的 20 个文件也逐个列上（`kamiak/checks/to_office_sha256.sh`，作业 31376011，cn184）。一共 25 个文件，2,075,163,367 字节（1.93 GiB）：结果 3 个 1,985,953,545 字节，分析输入 2 个 72,857,679 字节，分析结果 20 个 16,352,143 字节。
+  - 下载时要跟随链接：`scp -r` 默认跟随，`rsync` 要加 `-L`。
 
 ## 3. 下一步：在 Kamiak 上试跑
 

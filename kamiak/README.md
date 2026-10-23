@@ -204,6 +204,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
   - `vlm_scores_to_delete/<模型>/`：压缩后挪开的原文件，等用户删（`compress.sh` 写死）。
   - `scene_labels_waymo.csv`：1,000 段 Waymo 自己的时段、地点、天气标签（`code/make_scene_labels.py` 生成，`weather` 列空着；`analyze.sh` 写死）。
   - `analysis/<名字>/`：正式实验的分析结果。
+  - `to_office/`：传回办公室电脑用的下载文件夹（用户 2026-10-23 定）。只放符号链接（不复制、不解压），指向上面的结果、分析输入和分析结果；另有 `sha256.txt`，列出链接背后每个真文件的 sha256 和字节数（`bash kamiak/checks/to_office_sha256.sh`，在计算节点上跑，已有就不覆盖）。下载时要跟随链接：`scp -r` 默认跟随，`rsync` 要加 `-L`。
 - `/data/lab/cejli/sy/tmp_checks/`：检查脚本的原件和它们的输出（表、图、日志）。仓库里的是原样复制的，以后改仓库里的。
 - `/scratch/user/<netid>/<工作区>`：scratch 工作区（原始文件、全部提取结果，2 周后连数据自动删），当参数给；这个账号的路径和到期日写在 Kamiak 的 `CLAUDE.local.md`。
 - `~/benchmark-claude-remote`：Kamiak 上的仓库。`kamiak/checks/` 里多数脚本用 `sys.path.insert(0, os.path.expanduser('~/benchmark-claude-remote/code'))` 导入 `code/` 里的程序（`wod_common.py` 等），所以在别的电脑上要先改这一行。`check_internvl_cut.py`、`check_parse_first.py`、`reparse_scores.py` 写死了 `/home/shuyi.wang/benchmark-claude-remote/` 下的 `code/` 和试跑结果 `results/vlm_scores/`；`input_checks.py` 读 `<仓库>/results/vlm_inputs*`（办公室电脑生成的试跑输入图）。
@@ -241,6 +242,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `check_internvl_cut.py` | InternVL 思考版写到上限的回答，补答时上下文够不够 |
 | `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
 | `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |
+| `to_office_sha256.sh` | `to_office/` 里链接背后每个真文件的 sha256 和字节数，写进 `to_office/sha256.txt` |
 | `first_lines.py` | 一个运行文件的前 N 行来自几帧、平均生成多少 token、每行多大，和整个文件比（`estimate_size.py` 为什么估偏） |
 | `check_presubmit.sh` | 正式实验剩下 4 个模型提交前和各自试跑的比对（问题文字、vLLM 参数、采样、模型和环境有没有改过）；写死了 `tmp_checks/presubmit/`，`check_pilot_settings.py` 也从那里调 |
 | `check_pilot_settings.py` | 试跑文件每行记下的采样设置和每个 token 的候选概率个数（`check_presubmit.sh` 调它） |
