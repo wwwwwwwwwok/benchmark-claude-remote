@@ -354,6 +354,11 @@
     - 接受这次运行。回答里的相机写成 `side left` 的（拼图上的相机名是 side left，答案选项是 left-side；分析程序当 left-side 算）原样留在结果文件里，不改；图和问题都不改，5 个模型必须一样。
     - 分析只要没出错、帧数是 1,084 和 1,123、5 种输入 × 9 个 SSM 都有结果，就把剩下 4 个直接排上，不用等我看数字；前一个跑完自动接下一个，出错也接着跑，Qwen3.6-27B 放最后。
     - 每个模型提交前，和它自己的试跑比问题文字、采样设置、vLLM 启动参数；排之前看课题组目录的空间够不够 4 个模型不压缩的结果再加压缩版，不够先告诉我。
+  - 我定的（2026-10-23）：
+    - 接受 Qwen3-VL-32B-Thinking 这次运行。
+    - `kamiak/checks/camera_variants.py`：排序按文字排；没读出答案（`parsed` 为空）和读出答案没写相机（没有 `main_hazard_camera` 或是 null）分开数，各列一行；合计只算写法不同的。以后用仓库里的这份。
+    - 补答的核对用 `kamiak/main_run/check_forced.py`（后面两个补答也用它）。
+    - InternVL3.5-38B 跑完，先把没读出答案的每一条报给我（条件、repeat、finish_reason、生成 token 数、回答原文，是被 max_tokens 截断还是写完了但解析规则读不出、卡在哪一步），不补发、不改。
   - Claude 的安排：
     - 输入图用复制到课题组目录的图生成（复制的图和 scratch 上的图生成出来逐字节一样，核过 6 段），放在 `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：`grid/`、`separate/` 各有 `targets.csv`（主实验 241 段的全部目标帧）和 `targets_main.csv`（主实验的 1,123 帧）；`segments/` 是指向 `tables/<split>/<段名>` 的链接，好让一次生成两个 split；`sha256_grid.txt`、`sha256_separate.txt` 是每张图的 sha256。
     - 结果文件：`/data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`。
@@ -362,12 +367,12 @@
 
 ## 下一步
 - 正式实验：Qwen3-VL-32B-Instruct 跑完、分析过（结果见 `docs/handoff.md` 第 2 节"正式实验"）。剩下 4 个和 3 个补答 2026-10-22 用 afterany 排成一串：31367826 Qwen3-VL-32B-Thinking → 31367904 它的补答 → 31367827 InternVL3.5-38B → 31367828 InternVL3.5-38B 思考版 → 31367905 它的补答 → 31367829 Qwen3.6-27B（时限 5 天）→ 31367906 它的补答；估计一共约 4.5 天。
-  - 2026-10-23：Qwen3-VL-32B-Thinking 主实验和补答跑完，核对、压缩过（14 条写到上限，全补出）；InternVL3.5-38B 12:24 开始。
-  - 等用户定：仓库里的 `kamiak/checks/camera_variants.py` 遇到没读出答案的回答（相机是 None）会报错退出，要不要改（`docs/handoff.md` 第 2 节"Qwen3-VL-32B-Thinking 主实验和补答跑完"）。
+  - 2026-10-23：Qwen3-VL-32B-Thinking 主实验和补答跑完，核对、压缩过（14 条写到上限，全补出），我接受了；InternVL3.5-38B 12:24 开始。
+  - InternVL3.5-38B 跑完：没读出答案的每一条先报给我，不补发、不改（上面"正式实验怎么跑"2026-10-23；脚本见 `docs/handoff.md` 第 2 节"剩下 4 个模型排队"）。
   - 跑完之前不要改 `code/run_vlm.py`、`code/force_answer.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图（作业开始时才读）。
   - 补答（我 2026-10-22 定的）：只是让脚本读写主实验的文件，做法、提示文字和设置都和试跑一样，就直接补，做完报给我；做法上有任何不同先问我。这次程序不用改，用提交脚本末尾的参数换成主实验的文件（`kamiak/README.md`）。
   - Qwen3.6-27B 开始跑以后：用开头几百条推算整个文件多大（`kamiak/main_run/estimate_size.py`，按估计值加 30% 判断），课题组目录可能不够就先告诉我，不要等写满。
-  - 每个跑完：看 `done:` 那行，`check_run.py` 和自己的试跑比，补答跑完以后 `compress.sh`（主实验文件和补答文件都压缩），复制主实验和补答的作业日志（`kamiak/README.md`"正式实验的主实验"第 4 步）。
+  - 每个跑完：看 `done:` 那行，`check_run.py` 和自己的试跑比，`camera_variants.py` 数相机写法，补答跑完以后先 `check_forced.py` 核对、再 `compress.sh`（主实验文件和补答文件都压缩），复制主实验和补答的作业日志（`kamiak/README.md`"正式实验的主实验"第 4 步）。
   - 5 个都跑完、补答完，再用 `analyze.sh` 一起分析。
 - 定天气分组（用 Waymo 的标签还是自己标、分几类）。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。

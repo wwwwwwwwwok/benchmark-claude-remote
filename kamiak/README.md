@@ -171,6 +171,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
    - 用户定的顺序（2026-10-22）：先单独跑 Qwen3-VL-32B-Instruct，跑完分析走一遍；分析没出错、帧数是 1,084 和 1,123、5 种输入 × 9 个 SSM 都有结果（第 4 步的验收），剩下 4 个就一次排好，不等用户看数字。
    - 排法：每个加 `--dependency=afterany:<前一个的作业号>`（前一个不管成功还是出错，结束了就接着跑），`sbatch --parsable` 拿作业号；Qwen3.6-27B 放最后，加 `--time=5-00:00:00`（试跑乘 11 约 70 小时，超过脚本默认的 2 天）。思考的 3 个模型后面各插一个补答作业（第 4 步第 2 条），下一个模型接在补答后面（排好以后改依赖：`scontrol update JobId=<作业号> Dependency=afterany:<补答的作业号>`）。2026-10-22 排的作业号见 `docs/handoff.md`。
    - Qwen3.6-27B 开始跑以后（用户 2026-10-22 要求）：用开头几百条的平均大小推算整个文件，和课题组目录剩的空间比，可能不够就先告诉用户，不要等写满：`python -I kamiak/main_run/estimate_size.py /data/lab/cejli/sy/waymo_v143/vlm_scores/qwen3.6-27b/main_qwen3.6-27b.jsonl`（默认用前 300 条、推算 28,075 条，另给压缩版的估计和剩余空间）。在试跑文件上验证过，前 300、500 条推算的大小和实际差 −16% 到 +29%，所以按估计值加 30% 来判断；跑到约十分之一（`--lines 3000`）再估一次。
+     - 2026-10-23 又在 Qwen3-VL-32B-Thinking 的主实验文件上验证（用户要求从 `.gz` 直接读，不另存解压文件：`python -I kamiak/main_run/estimate_size.py <(zcat <文件>.gz) --lines N`；读管道时"现在多大"和"剩多少空间"两项显示 0，不用看）：前 300 条估 10,795,390,110 字节，比实际 7,644,342,017 大 41.2%；前 3,000 条估 7,321,934,592，小 4.2%。压缩率估的是 24.7%、24.9%，实际 24.9%。
+     - 偏差的原因：请求按清单里帧的顺序发（每帧 5 种输入 × 5 次），所以前 300 条差不多就是前 13 帧，估计主要看这几帧想得长不长（Thinking 在这 13 帧平均生成 1,756 token，全部 1,249；前 3,000 条来自 121 帧，1,197；`kamiak/checks/first_lines.py`）。5 个模型的顺序一样，Qwen3.6-27B 的前 300 条也差不多是这几帧。只用前 300 条，往两个方向都可能差很多。
    - 每个模型提交前，和它自己的试跑比问题文字、采样设置、vLLM 启动参数（`bash kamiak/checks/check_presubmit.sh`：几个版本的 `run_vlm.py` 不发送地组装请求、逐字节比；提交脚本现在会发的参数和试跑服务日志里的 `non-default args` 比；试跑文件每行记下的采样；模型文件夹和 vLLM 环境在试跑后有没有改过）。
    - 排上以后到跑完之前，不要改 `code/run_vlm.py`、`code/force_answer.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图：作业开始时才读它们（提交脚本本身在提交时已经存进 Slurm，之后改了不影响）。
 4. 跑完以后：
@@ -184,7 +186,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
           --pilot $S/<MODEL>/main_<MODEL>.jsonl --grid_targets $V/grid/targets_main.csv \
           --sep_targets $V/separate/targets_main.csv --out $S/<MODEL>/main_<MODEL>_forced_answers.jsonl
       ```
-   3. 核对：`python -I kamiak/main_run/check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。
+      - 补答跑完、压缩之前核对（用户 2026-10-23 定用这个脚本）：`python -I kamiak/main_run/check_forced.py <main jsonl> <main forced jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>_forced_answers.jsonl`。看补的是不是正好是主实验里写到上限、没读出答案的那些条；接回去的思考和记下的原用量和主实验那条一样不一样；字段、采样、`max_tokens`、收尾文字和试跑补答比；finish_reason、解析、提示和回答的 token、相机写法。它只读不压缩的文件。
+   3. 核对：`python -I kamiak/main_run/check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。相机写法：`python -I kamiak/checks/camera_variants.py <main jsonl[.gz]> vlm_frames/main_all9_targets.csv`（用户 2026-10-23 定：以后用仓库里的这份）。
    4. 压缩（补答跑完以后）：`bash kamiak/main_run/compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。补答文件 `main_<MODEL>_forced_answers.jsonl` 也同样压缩。
    5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。验收（帧数、每种分组 5 × 9 格的 τ-b、区间、成对一致率、SSM 之间差的区间都有值，没有 AUC）：`python -I kamiak/main_run/main_run_accept.py <名字>/main_1084 1084`，`sensitivity_1123` 那份给 1123。Spearman 只在"全部"那组算，分组的那几行空着是设计如此。
    6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`；补答作业的 `logs/force-answer_<任务号>.out`、`logs/vllm_<任务号>.log` 也复制过去。
@@ -237,11 +240,12 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `reparse_scores.py` | 按新解析办法重算一个结果文件的 `parsed`（先备份，有一条结果会变就不写） |
 | `check_internvl_cut.py` | InternVL 思考版写到上限的回答，补答时上下文够不够 |
 | `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
-| `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上 |
+| `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |
+| `first_lines.py` | 一个运行文件的前 N 行来自几帧、平均生成多少 token、每行多大，和整个文件比（`estimate_size.py` 为什么估偏） |
 | `check_presubmit.sh` | 正式实验剩下 4 个模型提交前和各自试跑的比对（问题文字、vLLM 参数、采样、模型和环境有没有改过）；写死了 `tmp_checks/presubmit/`，`check_pilot_settings.py` 也从那里调 |
 | `check_pilot_settings.py` | 试跑文件每行记下的采样设置和每个 token 的候选概率个数（`check_presubmit.sh` 调它） |
 
-没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`；`compress.sh`、`analyze.sh` 修正后的测试 `script_fix_tests/`。
+没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`；`compress.sh`、`analyze.sh` 修正后的测试 `script_fix_tests/`；`camera_variants.py` 2026-10-23 改后在造的 7 行上的测试 `main_checks/camera_test/`。
 
 ## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好，当天两部分都跑完）
 用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。
