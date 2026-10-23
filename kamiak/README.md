@@ -162,18 +162,22 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 2. 生成输入图（只做一次；2026-10-22 做过，作业 31366325，16 个 CPU 4 分 44 秒）：
    `python -I kamiak/main_run/make_main_inputs.py ~/benchmark-claude-remote /data/lab/cejli/sy/waymo_v143`
    - 写出两个 split 合起来的 `results_lead_final_excl/frame_ssm_validation_training.csv`（已经有就报错退出，不覆盖）、`vlm_inputs/segments/` 的链接、`vlm_inputs/{grid,separate}/` 的图和 `targets.csv`（主实验 241 段的全部目标帧）、`targets_main.csv`（主实验的 1,123 帧）、每张图的 sha256（`vlm_inputs/sha256_{grid,separate}.txt`）。
-3. 提交，每个模型一次（按用户定的顺序，一个跑完分析过、用户同意了再交下一个）。末尾的参数覆盖脚本里试跑的输入和输出，所以日志第一行打印的 `OUT=` 还是试跑的路径，实际以 `--out` 为准：
+3. 提交。末尾的参数覆盖脚本里试跑的输入和输出，所以日志第一行打印的 `OUT=` 还是试跑的路径，实际以 `--out` 为准：
    ```bash
    V=/data/lab/cejli/sy/waymo_v143/vlm_inputs
    sbatch --export=ALL,MODEL=<MODEL> kamiak/qwen_vlm.sbatch --grid_targets $V/grid/targets_main.csv \
        --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/main_<MODEL>.jsonl
    ```
+   - 用户定的顺序（2026-10-22）：先单独跑 Qwen3-VL-32B-Instruct，跑完分析走一遍；分析没出错、帧数是 1,084 和 1,123、5 种输入 × 9 个 SSM 都有结果（第 4 步的验收），剩下 4 个就一次排好，不等用户看数字。
+   - 排法：每个加 `--dependency=afterany:<前一个的作业号>`（前一个不管成功还是出错，结束了就接着跑），`sbatch --parsable` 拿作业号；Qwen3.6-27B 放最后，加 `--time=5-00:00:00`（试跑乘 11 约 70 小时，超过脚本默认的 2 天）。2026-10-22 排的作业号见 `docs/handoff.md`。
+   - 每个模型提交前，和它自己的试跑比问题文字、采样设置、vLLM 启动参数（`bash kamiak/checks/check_presubmit.sh`：几个版本的 `run_vlm.py` 不发送地组装请求、逐字节比；提交脚本现在会发的参数和试跑服务日志里的 `non-default args` 比；试跑文件每行记下的采样；模型文件夹和 vLLM 环境在试跑后有没有改过）。
+   - 排上以后到跑完之前，不要改 `code/run_vlm.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图：作业开始时才读它们（提交脚本本身在提交时已经存进 Slurm，之后改了不影响）。
 4. 跑完以后：
    1. 看日志最后一行 `done: N ok (M unparsable), K errors`；K 不是 0 就用同样的命令再交一次，只补发没做完的。
    2. 思考的模型还要补答；`kamiak/force_answer.sbatch` 现在只认 `pilot_` 的文件名，用之前要改，改之前先问用户。
    3. 核对：`python -I kamiak/main_run/check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。
    4. 压缩：`bash kamiak/main_run/compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。
-   5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。
+   5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。验收（帧数、每种分组 5 × 9 格的 τ-b、区间、成对一致率、SSM 之间差的区间都有值，没有 AUC）：`python -I kamiak/main_run/main_run_accept.py <名字>/main_1084 1084`，`sensitivity_1123` 那份给 1123。Spearman 只在"全部"那组算，分组的那几行空着是设计如此。
    6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`。
 
 ## 脚本用到的路径（`kamiak/main_run/`、`kamiak/checks/`）
@@ -224,8 +228,11 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `reparse_scores.py` | 按新解析办法重算一个结果文件的 `parsed`（先备份，有一条结果会变就不写） |
 | `check_internvl_cut.py` | InternVL 思考版写到上限的回答，补答时上下文够不够 |
 | `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
+| `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上 |
+| `check_presubmit.sh` | 正式实验剩下 4 个模型提交前和各自试跑的比对（问题文字、vLLM 参数、采样、模型和环境有没有改过）；写死了 `tmp_checks/presubmit/`，`check_pilot_settings.py` 也从那里调 |
+| `check_pilot_settings.py` | 试跑文件每行记下的采样设置和每个 token 的候选概率个数（`check_presubmit.sh` 调它） |
 
-没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`。
+没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`；`compress.sh`、`analyze.sh` 修正后的测试 `script_fix_tests/`。
 
 ## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好，当天两部分都跑完）
 用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。

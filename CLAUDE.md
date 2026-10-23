@@ -36,7 +36,7 @@
 - `vlm_frames/`：正式 VLM 实验问哪些帧的两份清单（`code/make_vlm_frame_lists.py` 生成，文件开头的 `#` 行写着来源和日期，读的时候用 `comment='#'`）。
 - `fonts/`：网格图上写相机名用的 DejaVu Sans Bold 和它的许可证（2026-10-22 我定的，见下面"VLM 打分"）。
 - `kamiak/`：在 Kamiak 上跑 VLM 的任务脚本和步骤；还有下载、提取 Waymo 训练集 + 验证集并算 SSM 的脚本（`waymo_*.sbatch`、`waymo_submit.sh`）。
-  - `kamiak/main_run/`：正式实验的脚本（复制图、生成输入图、核对运行、压缩、分析和汇总）；`kamiak/checks/`：算出过写进 `docs/handoff.md` 的数的检查脚本。2026-10-22 我定的：两处都只放脚本，数据和图留在课题组目录；脚本是从课题组目录的 `tmp_checks/` 原样复制的，以后改仓库里的；用到的课题组目录路径写在 `kamiak/README.md`"脚本用到的路径"。
+  - `kamiak/main_run/`：正式实验的脚本（复制图、生成输入图、核对运行、压缩、分析、汇总和分析的验收）；`kamiak/checks/`：算出过写进 `docs/handoff.md` 的数的检查脚本。2026-10-22 我定的：两处都只放脚本，数据和图留在课题组目录；脚本是从课题组目录的 `tmp_checks/` 原样复制的，以后改仓库里的；用到的课题组目录路径写在 `kamiak/README.md`"脚本用到的路径"。
 
 ## 数据（不进仓库）
 - 只用 Waymo Open Dataset Perception **v1.4.3**（带地图），不混用 v2.0.1。除了地图，两个版本内容相同。
@@ -350,6 +350,10 @@
   - 我定的顺序：先跑 Qwen3-VL-32B-Instruct（最快）；跑完先把分析从头到尾走一遍，确认输入、解析、结果都没问题，报给我，我同意了再跑别的；Qwen3.6-27B 放最后（最慢）。
   - 我定的：结果文件写到课题组目录（home 放不下：试跑 Qwen3.6-27B 2,550 次请求就有 3.5 GB，主实验估计约 39 GB），记录的内容和试跑一样，不改；每个模型跑完后把 jsonl 压缩成 `.jsonl.gz`（不丢信息），分析程序直接读 `.gz`。
   - 我定的：天气分组先放着，以后再定，不影响跑模型。
+  - 我定的（2026-10-22 晚，Qwen3-VL-32B-Instruct 跑完以后）：
+    - 接受这次运行。回答里的相机写成 `side left` 的（拼图上的相机名是 side left，答案选项是 left-side；分析程序当 left-side 算）原样留在结果文件里，不改；图和问题都不改，5 个模型必须一样。
+    - 分析只要没出错、帧数是 1,084 和 1,123、5 种输入 × 9 个 SSM 都有结果，就把剩下 4 个直接排上，不用等我看数字；前一个跑完自动接下一个，出错也接着跑，Qwen3.6-27B 放最后。
+    - 每个模型提交前，和它自己的试跑比问题文字、采样设置、vLLM 启动参数；排之前看课题组目录的空间够不够 4 个模型不压缩的结果再加压缩版，不够先告诉我。
   - Claude 的安排：
     - 输入图用复制到课题组目录的图生成（复制的图和 scratch 上的图生成出来逐字节一样，核过 6 段），放在 `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：`grid/`、`separate/` 各有 `targets.csv`（主实验 241 段的全部目标帧）和 `targets_main.csv`（主实验的 1,123 帧）；`segments/` 是指向 `tables/<split>/<段名>` 的链接，好让一次生成两个 split；`sha256_grid.txt`、`sha256_separate.txt` 是每张图的 sha256。
     - 结果文件：`/data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`。
@@ -357,7 +361,10 @@
 - 还没定：天气分组；以后要不要再加一个闭源模型对比。
 
 ## 下一步
-- 正式实验：Qwen3-VL-32B-Instruct 在跑（2026-10-22 提交，作业 31366393）；跑完分析从头到尾走一遍，等我同意再跑其他模型（Qwen3.6-27B 最后）。
+- 正式实验：Qwen3-VL-32B-Instruct 跑完、分析过（结果见 `docs/handoff.md` 第 2 节"正式实验"）。剩下 4 个 2026-10-22 23:29 用 afterany 排成一串：31367826 Qwen3-VL-32B-Thinking → 31367827 InternVL3.5-38B → 31367828 InternVL3.5-38B 思考版 → 31367829 Qwen3.6-27B（时限 5 天），估计一共约 4.5 天。
+  - 跑完之前不要改 `code/run_vlm.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图（作业开始时才读）。
+  - 每个跑完：看 `done:` 那行，`check_run.py` 和自己的试跑比，`compress.sh`，复制作业日志（`kamiak/README.md`"正式实验的主实验"第 4 步）。思考的模型写到上限的要补答，`kamiak/force_answer.sbatch` 只认 `pilot_` 文件名，改之前先问我。
+  - 5 个都跑完、补答完，再用 `analyze.sh` 一起分析。
 - 定天气分组（用 Waymo 的标签还是自己标、分几类）。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。
 - 家里电脑：用另一个数据集测试。只要写一个转换脚本，输出和上面相同格式的每段文件，`wod_common.py` 和 `waymo_ssm_frames.py` 就能直接用。
