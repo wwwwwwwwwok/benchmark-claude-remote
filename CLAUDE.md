@@ -361,9 +361,11 @@
 - 还没定：天气分组；以后要不要再加一个闭源模型对比。
 
 ## 下一步
-- 正式实验：Qwen3-VL-32B-Instruct 跑完、分析过（结果见 `docs/handoff.md` 第 2 节"正式实验"）。剩下 4 个 2026-10-22 23:29 用 afterany 排成一串：31367826 Qwen3-VL-32B-Thinking → 31367827 InternVL3.5-38B → 31367828 InternVL3.5-38B 思考版 → 31367829 Qwen3.6-27B（时限 5 天），估计一共约 4.5 天。
-  - 跑完之前不要改 `code/run_vlm.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图（作业开始时才读）。
-  - 每个跑完：看 `done:` 那行，`check_run.py` 和自己的试跑比，`compress.sh`，复制作业日志（`kamiak/README.md`"正式实验的主实验"第 4 步）。思考的模型写到上限的要补答，`kamiak/force_answer.sbatch` 只认 `pilot_` 文件名，改之前先问我。
+- 正式实验：Qwen3-VL-32B-Instruct 跑完、分析过（结果见 `docs/handoff.md` 第 2 节"正式实验"）。剩下 4 个和 3 个补答 2026-10-22 用 afterany 排成一串：31367826 Qwen3-VL-32B-Thinking → 31367904 它的补答 → 31367827 InternVL3.5-38B → 31367828 InternVL3.5-38B 思考版 → 31367905 它的补答 → 31367829 Qwen3.6-27B（时限 5 天）→ 31367906 它的补答；估计一共约 4.5 天。
+  - 跑完之前不要改 `code/run_vlm.py`、`code/force_answer.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图（作业开始时才读）。
+  - 补答（我 2026-10-22 定的）：只是让脚本读写主实验的文件，做法、提示文字和设置都和试跑一样，就直接补，做完报给我；做法上有任何不同先问我。这次程序不用改，用提交脚本末尾的参数换成主实验的文件（`kamiak/README.md`）。
+  - Qwen3.6-27B 开始跑以后：用开头几百条推算整个文件多大（`kamiak/main_run/estimate_size.py`，按估计值加 30% 判断），课题组目录可能不够就先告诉我，不要等写满。
+  - 每个跑完：看 `done:` 那行，`check_run.py` 和自己的试跑比，补答跑完以后 `compress.sh`（主实验文件和补答文件都压缩），复制主实验和补答的作业日志（`kamiak/README.md`"正式实验的主实验"第 4 步）。
   - 5 个都跑完、补答完，再用 `analyze.sh` 一起分析。
 - 定天气分组（用 Waymo 的标签还是自己标、分几类）。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。

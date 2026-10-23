@@ -169,16 +169,25 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
        --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/main_<MODEL>.jsonl
    ```
    - 用户定的顺序（2026-10-22）：先单独跑 Qwen3-VL-32B-Instruct，跑完分析走一遍；分析没出错、帧数是 1,084 和 1,123、5 种输入 × 9 个 SSM 都有结果（第 4 步的验收），剩下 4 个就一次排好，不等用户看数字。
-   - 排法：每个加 `--dependency=afterany:<前一个的作业号>`（前一个不管成功还是出错，结束了就接着跑），`sbatch --parsable` 拿作业号；Qwen3.6-27B 放最后，加 `--time=5-00:00:00`（试跑乘 11 约 70 小时，超过脚本默认的 2 天）。2026-10-22 排的作业号见 `docs/handoff.md`。
+   - 排法：每个加 `--dependency=afterany:<前一个的作业号>`（前一个不管成功还是出错，结束了就接着跑），`sbatch --parsable` 拿作业号；Qwen3.6-27B 放最后，加 `--time=5-00:00:00`（试跑乘 11 约 70 小时，超过脚本默认的 2 天）。思考的 3 个模型后面各插一个补答作业（第 4 步第 2 条），下一个模型接在补答后面（排好以后改依赖：`scontrol update JobId=<作业号> Dependency=afterany:<补答的作业号>`）。2026-10-22 排的作业号见 `docs/handoff.md`。
+   - Qwen3.6-27B 开始跑以后（用户 2026-10-22 要求）：用开头几百条的平均大小推算整个文件，和课题组目录剩的空间比，可能不够就先告诉用户，不要等写满：`python -I kamiak/main_run/estimate_size.py /data/lab/cejli/sy/waymo_v143/vlm_scores/qwen3.6-27b/main_qwen3.6-27b.jsonl`（默认用前 300 条、推算 28,075 条，另给压缩版的估计和剩余空间）。在试跑文件上验证过，前 300、500 条推算的大小和实际差 −16% 到 +29%，所以按估计值加 30% 来判断；跑到约十分之一（`--lines 3000`）再估一次。
    - 每个模型提交前，和它自己的试跑比问题文字、采样设置、vLLM 启动参数（`bash kamiak/checks/check_presubmit.sh`：几个版本的 `run_vlm.py` 不发送地组装请求、逐字节比；提交脚本现在会发的参数和试跑服务日志里的 `non-default args` 比；试跑文件每行记下的采样；模型文件夹和 vLLM 环境在试跑后有没有改过）。
-   - 排上以后到跑完之前，不要改 `code/run_vlm.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图：作业开始时才读它们（提交脚本本身在提交时已经存进 Slurm，之后改了不影响）。
+   - 排上以后到跑完之前，不要改 `code/run_vlm.py`、`code/force_answer.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图：作业开始时才读它们（提交脚本本身在提交时已经存进 Slurm，之后改了不影响）。
 4. 跑完以后：
    1. 看日志最后一行 `done: N ok (M unparsable), K errors`；K 不是 0 就用同样的命令再交一次，只补发没做完的。
-   2. 思考的模型还要补答；`kamiak/force_answer.sbatch` 现在只认 `pilot_` 的文件名，用之前要改，改之前先问用户。
+   2. 思考的 3 个模型还要补答：写到上限、没读出答案的回答，做法、收尾文字和设置都和试跑一样。用户 2026-10-22 定：只是让脚本读写主实验的文件就直接补，做法上有任何不同先问用户。
+      - 程序和提交脚本都不用改：`kamiak/force_answer.sbatch` 末尾的参数传给 `code/force_answer.py`，覆盖试跑的文件名和路径。日志第一行打印的 `PILOT=`、`OUT=` 还是试跑的，实际以末尾的参数为准，`force_answer.py` 的第一行会打印它读的文件。
+      - `force_answer.py` 只读不压缩的 jsonl，所以要排在压缩之前。
+      ```bash
+      S=/data/lab/cejli/sy/waymo_v143/vlm_scores
+      sbatch --dependency=afterany:<这个模型主实验的作业号> --time=06:00:00 --export=ALL,MODEL=<MODEL> kamiak/force_answer.sbatch \
+          --pilot $S/<MODEL>/main_<MODEL>.jsonl --grid_targets $V/grid/targets_main.csv \
+          --sep_targets $V/separate/targets_main.csv --out $S/<MODEL>/main_<MODEL>_forced_answers.jsonl
+      ```
    3. 核对：`python -I kamiak/main_run/check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。
-   4. 压缩：`bash kamiak/main_run/compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。
+   4. 压缩（补答跑完以后）：`bash kamiak/main_run/compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。补答文件 `main_<MODEL>_forced_answers.jsonl` 也同样压缩。
    5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。验收（帧数、每种分组 5 × 9 格的 τ-b、区间、成对一致率、SSM 之间差的区间都有值，没有 AUC）：`python -I kamiak/main_run/main_run_accept.py <名字>/main_1084 1084`，`sensitivity_1123` 那份给 1123。Spearman 只在"全部"那组算，分组的那几行空着是设计如此。
-   6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`。
+   6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`；补答作业的 `logs/force-answer_<任务号>.out`、`logs/vllm_<任务号>.log` 也复制过去。
 
 ## 脚本用到的路径（`kamiak/main_run/`、`kamiak/checks/`）
 脚本里写死的、或者要当参数给的路径（用户 2026-10-22 要求写在这里）：
