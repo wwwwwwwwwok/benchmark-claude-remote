@@ -362,6 +362,8 @@
 
 ## 下一步
 - 正式实验：Qwen3-VL-32B-Instruct 跑完、分析过（结果见 `docs/handoff.md` 第 2 节"正式实验"）。剩下 4 个和 3 个补答 2026-10-22 用 afterany 排成一串：31367826 Qwen3-VL-32B-Thinking → 31367904 它的补答 → 31367827 InternVL3.5-38B → 31367828 InternVL3.5-38B 思考版 → 31367905 它的补答 → 31367829 Qwen3.6-27B（时限 5 天）→ 31367906 它的补答；估计一共约 4.5 天。
+  - 2026-10-23：Qwen3-VL-32B-Thinking 主实验和补答跑完，核对、压缩过（14 条写到上限，全补出）；InternVL3.5-38B 12:24 开始。
+  - 等用户定：仓库里的 `kamiak/checks/camera_variants.py` 遇到没读出答案的回答（相机是 None）会报错退出，要不要改（`docs/handoff.md` 第 2 节"Qwen3-VL-32B-Thinking 主实验和补答跑完"）。
   - 跑完之前不要改 `code/run_vlm.py`、`code/force_answer.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图（作业开始时才读）。
   - 补答（我 2026-10-22 定的）：只是让脚本读写主实验的文件，做法、提示文字和设置都和试跑一样，就直接补，做完报给我；做法上有任何不同先问我。这次程序不用改，用提交脚本末尾的参数换成主实验的文件（`kamiak/README.md`）。
   - Qwen3.6-27B 开始跑以后：用开头几百条推算整个文件多大（`kamiak/main_run/estimate_size.py`，按估计值加 30% 判断），课题组目录可能不够就先告诉我，不要等写满。
