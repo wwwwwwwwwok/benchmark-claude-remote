@@ -479,7 +479,7 @@
   - 接近速度低于 0.1 m/s 时 TTC、DRAC 当作没有数值（理由和误差见 CLAUDE.md），在分析里处理，`frame_ssm.csv` 不动；敏感性分析只报"不设这条"。已写进 `analyze_vlm_ssm.py`（`--closing_min`，默认 0.1；0 = 不设）。回归检查（demo，bootstrap 20 次，`tmp_checks/analyze_regression/`）：`--closing_min 0` 和改之前逐字节一样；默认 0.1 时 demo 也不变（demo 目标帧里没有接近速度在 0–0.1 之间的帧）；人为把 6 帧的接近速度改成 0.05，只有 TTC、DRAC 变（有数值的帧 28 → 22），其余 7 个指标一个数没变。
   - VLM 问哪些帧：主实验 = 9 个都有数值的目标帧（不设门槛，1,123 帧），主结果分析时再去掉接近速度低于 0.1 m/s 的；对比实验（前车类 7 个都有数值的目标帧，1,873 帧）先留着不跑，以后只补问多出来的；以后补跑时模型、问题、采样、输入方式、软件版本都要和主实验完全一样（CLAUDE.md "VLM 打分"）。
   - 两份清单已生成（`code/make_vlm_frame_lists.py`，进了仓库 `vlm_frames/`）：`main_all9_targets.csv` 1,123 帧、241 段，`closing_below_0_1` 标出 39 帧；`comparison_lead7_targets.csv` 1,873 帧、303 段，`in_main` 标出主实验的 1,123 帧，接近速度低于 0.1 的 102 帧。
-  - 图：对比实验那 303 段（验证集 56、训练集 247）的每 0.5 s 一帧、5 个相机全部复制到课题组目录，一次够两份用。大小：60,505 个文件，21,641,864,485 字节（20.16 GiB），每段 47.0–102.1 MB；课题组目录现在剩 117 GB。打算放进 `/data/lab/cejli/sy/waymo_v143/tables/<split>/<段名>/images/<相机>/`（和提取结果同样的布局，scratch 删了以后 `make_vlm_inputs.py` 也能直接在 tables 上跑）。**等用户同意再复制。**
+  - 图：对比实验那 303 段（验证集 56、训练集 247）的每 0.5 s 一帧、5 个相机全部复制到课题组目录，一次够两份用。大小：60,505 个文件，21,641,864,485 字节（20.16 GiB），每段 47.0–102.1 MB；课题组目录现在剩 117 GB。打算放进 `/data/lab/cejli/sy/waymo_v143/tables/<split>/<段名>/images/<相机>/`（和提取结果同样的布局，scratch 删了以后 `make_vlm_inputs.py` 也能直接在 tables 上跑）。用户 2026-10-22 同意，已复制（见下面"正式实验"）。
   - 按接近速度规则重报那张表（`results_lead_final_excl/value_frames_closing01/`；不设这条的数见上面 `results_lead_final_excl` 那张表）：
 
     | | 1,000 段 | 验证集 202 段 | 训练集 798 段 |
@@ -513,13 +513,53 @@
     | 5 个模型合计 | 45.4 | 43.1 | 45.8 | 49.9 | 43.6 | 227.8 |
 
     - 全做（5 个模型 × 5 种输入 × 5 次，140,375 次请求）约 228 GPU 小时；每人同时最多 2 块 GPU，排队顺利也要约 114 小时（4.7 天）。对比实验以后补 750 帧，全做约 152 GPU 小时。
-    - 计划等用户定，先不提交。
+    - 用户 2026-10-22 定：全做，先跑 Qwen3-VL-32B-Instruct（见下面"正式实验"）。
 - R07、R10、R02 查出来的（2026-10-22；`tmp_checks/followup_sheets.py`；拼图在 `results_lead_slow/acceptance/followup/`，每秒一格，每格优先用 FRONT，FRONT 看不到就换成那辆车框最大的相机并写明；Claude 没打开）：
   - R07（验证集 `447576862407975570_4360_000_4380_000` 第 159 帧，car 5.58 × 2.03 m）：FRONT 里一直看不到它，所以原来的拼图没有框。这一段里只有 FRONT_RIGHT（第 123–197 帧）和 SIDE_RIGHT（第 123–185 帧）看得到，第 159 帧只有 SIDE_RIGHT。整段速度 0；离路沿 0.07 m，是停在路边的车；地图车道路线往右转，它在转过去那条路的路边，离路线中心线 1.679 m（那里车道按地图边线宽 5.431 m）。到片段结束自车也没开到它跟前。拼图 `R07_44757686_f159.jpg`（第 149–189 帧）。
   - R10（训练集 `12365808668068790137_2920_000_2940_000` 第 14 帧，6.67 × 2.48 m，点云定的车型 car，30 帧有语义标签、一致）：整条轨迹（第 0–196 帧，含头尾）最快 0.012 m/s，一直没动。自车 +12.8 s（第 142 帧）才从它左边开过去；+9.7 s（第 111 帧）两车框最近 0.531 m，并排的第 97–141 帧里最小间隙也是 0.531 m。第 14 帧它离车道中心线 0.585 m，离右侧路沿 2.363 m：在车道里，不是靠路边（这条车道按地图边线算的宽度 117.6 m 不可信，左边线那个要素离这里 114 m；右路沿离车道中心线 3.186 m）。拼图 `R10_12365808_f014.jpg`（第 4–152 帧，16 格）。
   - R02（训练集 `8822503619482926605_1080_000_1100_000` 第 72 帧，car 4.19 × 2.01 m）：从 5.389 m/s（第 0 帧）减速，第 0–71 帧都快于 0.5 m/s，第 72 帧 0.488 m/s；轨迹中段最快 5.371 m/s，所以改回去以后算"动过"，是前车。自车 +5.7 s（第 129 帧）从它左边开过去，并排时最小间隙 1.180 m。第 72 帧 FRONT 里没有它的框，只有 FRONT_LEFT。拼图 `R02_88225036_f072.jpg`（第 62–139 帧）。
 - 比对脚本按新标准重写：`tmp_checks/compare_frame_ssm.py`（数值：相对差 ≤ 1e-6 或绝对差 < 1e-9；先后：一遍排序加树状数组数出顺序相反的帧对，再去掉任一边相差不到 1e-9 的）。demo 办公室对 Kamiak：通过。上次训练集两次在不同节点上算的（临时版对 `results_lead_slow`，去掉慢车规则去掉的帧）：先后全部一样；数值上 TTC 类各 63 行、MTTC 78 行、2D-TTC 61 行、CI 1 行超出（绝对差最大 6.6 s、32.6 s，相对差约 1e-5）。
 - 交 1,000 段之前，新规则先在两段路边停车多的段上试过：验证集 `16204463896543764114_5340_000_5360_000` 前车去掉 126 帧、换车 48 帧；训练集 `16801666784196221098_2480_000_2500_000` 199 帧都去掉。原来的前车在新判断下没有一辆和自车横向重叠（间隙 0.035–1.266 m），换上来的都重叠；原来这些帧的 TTC 中位 1.1 s，前车速度中位 0.016 m/s。
+- **正式实验（用户 2026-10-22 定的；做法写在 CLAUDE.md "VLM 打分"最后的"正式实验怎么跑"）**：
+  - 用户定的：复制图；主实验全做（5 个模型设置 × 5 种输入 × 5 次），先跑 Qwen3-VL-32B-Instruct，跑完分析走一遍、报给用户、同意了再跑别的，Qwen3.6-27B 最后；提示词、采样、模型和软件版本和试跑一样（模板改成定稿）；分析的主结果用 1,084 帧（接近速度 0–0.1 m/s 的 39 帧整帧拿掉，不是只让 TTC、DRAC 没值），敏感性分析用 1,123 帧、不设这条；所有帧都有值，AUC 不报，只报排名；网格图改用 DejaVu Sans Bold 22 号；`analyze_vlm_ssm.py` 加 `--run`（默认 pilot）；结果写课题组目录，每个模型跑完压缩成 `.gz`，分析程序直接读；天气分组先放着。
+  - 复制图（作业 31364138，3 分 08 秒）：303 段、60,505 个文件、21,641,864,485 字节，和 scratch 上的源文件一样（验证集 11,170 个 / 3,983,625,320 字节，训练集 49,335 个 / 17,658,239,165 字节）。课题组目录复制后剩 89 GB。
+  - 发现的问题：`make_vlm_inputs.py` 原来按顺序找 `C:/Windows/Fonts/arialbd.ttf`、`/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf`，都没有就悄悄用 Pillow 自带的 10 号字。Kamiak 上两个都没有（DejaVu 在 `/usr/share/fonts/dejavu-sans-fonts/`），所以直接在 Kamiak 上生成的网格图会和试跑（办公室电脑，Arial Bold 22 号）不一样。用户定改用 DejaVu Sans Bold，放进仓库 `fonts/`（连同许可证），找不到就报错。Claude 另外把排字方式固定成 Pillow 的 BASIC（原因和验证见下）。
+  - 核对输入图（作业 31365063，1 分 13 秒；`tmp_checks/font_check/input_checks.py`，输出在 `tmp_checks/font_check/out/`）：
+    - Kamiak 计算节点上的 Pillow 12.0.0：FreeType 2.14.1、libjpeg-turbo 3.1.2、raqm 0.10.3 可用（系统装了 fribidi-1.0.10），harfbuzz 12.1.0。
+    - demo 3 段在 Kamiak 上用新程序重新生成：不写字的分开图 570 张（64,615,744 字节）和试跑的逐字节一样，`targets.csv` 102 行一样；网格图 114 张全部不同（换了字体），解码后每张有 21,098–22,868 个像素不同，全部在 5 个相机名所在的角上（每块面板左上角 176 × 64 像素以内，`label_regions.py`），角外 0 个。
+    - 同样的字体，用 Pillow 默认的排法（Kamiak 上是 libraqm）画，114 张和 BASIC 排法的全部不同。Windows 版 Pillow 要另装 FriBiDi 才会用 libraqm，一般没有，所以不固定的话两台机器很可能对不上。
+    - 复制的图和 scratch 上的图：主实验清单里按种子 20261022 各抽 3 段（验证集 `11450298750351730790_1431_750_1451_750`、`14739149465358076158_4740_000_4760_000`、`9231652062943496183_1740_000_1760_000`；训练集 `12856053589272984699_1020_000_1040_000`、`1473681173028010305_1780_000_1800_000`、`5614471637960666943_6955_675_6975_675`），两边各生成网格图和分开图：验证集 99 个目标帧、训练集 101 个，所有文件（含 `targets.csv`）逐字节一样（网格图 114 + 115 个文件，分开图 566 + 571 个文件）。
+    - 给用户看的网格图：`~/benchmark-claude-remote/results/font_check/14486517341017504003_step_100_dejavu.jpg`（凤凰城那段第 100 帧，Claude 没打开）；试跑的同一张是 `results/vlm_inputs/14486517341017504003_3406_349_3426_349/step_100.jpg`。demo 全部 114 张在 `tmp_checks/font_check/out/demo_grid/`。
+  - 办公室电脑上的跨机器核对（**等用户做**）：`git pull` 以后，用 demo 的提取结果生成网格图，再和 Kamiak 的 sha256 比：
+
+    ```
+    python -I code/make_vlm_inputs.py "F:\benchmark\waymo perception\extracted\validation" results\waymo_demo\frame_ssm.csv results\vlm_inputs_dejavu 13184115878756336167_1354_000_1374_000 14486517341017504003_3406_349_3426_349 16229547658178627464_380_000_400_000
+    python -I -c "import hashlib,pathlib,sys; r=pathlib.Path(sys.argv[1]); ref=dict(reversed(l.split('  ',1)) for l in pathlib.Path(sys.argv[2]).read_text().splitlines()); mine={p.relative_to(r).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in r.rglob('*.jpg')}; bad=[k for k in ref if mine.get(k)!=ref[k]]; print(len(ref),'in the list,',len(mine),'made here,',len(ref)-len(bad),'identical,',len(bad),'different or missing',bad[:5])" results\vlm_inputs_dejavu docs\demo_grid_dejavu_sha256.txt
+    ```
+
+    - frame_ssm.csv 用 demo 的任何一版都行：目标帧只看 `edge_frame`，各版一样（Kamiak 最终版生成的 `targets.csv` 和试跑的 102 行一样）。
+    - 应该打印 `114 in the list, 114 made here, 114 identical, 0 different or missing`。对不上的话，先看办公室电脑的 `python -c "import PIL; from PIL import features as f; print(PIL.__version__, f.version('freetype2'), f.version('libjpeg_turbo'))"` 是不是 12.0.0、2.14.1、3.1.2。
+  - 主实验的输入图（作业 31366325，4 分 44 秒；`tmp_checks/main_inputs/make_main_inputs.py`）：
+    - 两个 split 合成一个 frame_ssm：`results_lead_final_excl/frame_ssm_validation_training.csv`，198,068 行（验证集 39,987 + 训练集 158,081），1,000 段，(段, 帧) 没有重复。
+    - `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：主实验清单 241 段（验证集 46、训练集 195）的全部目标帧 8,100 个；网格图 9,134 张、2,584,163,801 字节，分开图 45,670 张、5,128,889,331 字节。`targets_main.csv` 1,123 帧，时间和清单一致，用到网格图 2,493 张、分开图 12,465 张，一张不缺。
+  - 分析程序的改动和回归测试（作业 31366331，5 分 56 秒；`tmp_checks/analyze_regression2/`，bootstrap 200 次）：
+    - 试跑 5 个模型：`--closing_min 0` 时，改前改后 6 个输出文件逐字节一样；只有 `ssm_target_frames.csv` 不同，是因为 `slow_closing` 列换成了 `closing` 列，其余 41 列一样；默认 0.1 和 0 一样（试跑的帧里没有接近速度在 0–0.1 之间的）。
+    - 读 `.gz`：2 个模型（其中一个有补答文件）压缩和不压缩，输出逐字节一样；两份都在、或者 `--run main` 找不到文件时，报错退出。
+    - 主实验的 1,123 帧，用**造的分数**（`make_synthetic.py`，不是模型的回答）跑：`--closing_min 0.1` 时问了 1,123 帧、去掉 39 帧、剩 1,084 帧（238 段）；`--closing_min 0` 时 1,123 帧（241 段）。两种都：9 个指标 1,084（或 1,123）帧都有值、没有"没值"的帧；输出里没有 AUC 的列和行；τ-b、成对一致率、区间都有数；总 τ-b 和冲突帧内 τ-b 完全相同。0.1 跑全部 1,123 帧，和 0 跑去掉 39 帧的文件，7 个输出文件逐字节一样。
+    - 用时：1 个模型、bootstrap 200 次 111 s；正式的 2,000 次估计每个模型约 15–20 分钟。
+  - 提交前核对（Qwen3-VL-32B-Instruct，和它的试跑比；试跑是 2026-10-19 23:50 起的作业 31318509，2,550 条全部解析成功）：
+    - `run_vlm.py` 之后改过的：加了 `--system_prefix_file`（这个模型不用，消息完全一样）；解析改成取第一份 JSON（只影响 `parsed`，以前的回答结果一样）。问题文字没变。
+    - `qwen_vlm.sbatch` 的 qwen3-vl-32b 一段没变（`--max-model-len 32768`；温度 0.7、top_p 0.8、top_k 20、`--max_tokens 1024`），vLLM 启动命令没变；之后只加了别的模型和打印 GPU 型号的一行。
+    - vLLM 0.32.0（试跑日志也是 0.32.0）；环境里的包和模型目录在试跑以后都没改过；模型的 25 个文件都是 0cfaf48183f594c314753d30a4c4974bc75f3ccb 版。
+    - 不发送试跑一遍 `run_vlm.py`：28,075 次请求（1,123 × 5 × 5）；每种输入的图片 token 估计和试跑一样（grid 6,910、sep 13,250、ctrl_grid 1,382、ctrl_sep 2,650），合计约 210,236,830。
+  - 还没提交，等用户看了网格图、确认相机名清楚。提交命令（从仓库根目录；末尾的参数覆盖脚本里试跑的输入和输出路径，所以日志第一行打印的 `OUT=` 还是试跑的路径，实际以 `--out` 为准）：
+
+    ```
+    V=/data/lab/cejli/sy/waymo_v143/vlm_inputs
+    sbatch --export=ALL,MODEL=qwen3-vl-32b kamiak/qwen_vlm.sbatch --grid_targets $V/grid/targets_main.csv --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/qwen3-vl-32b/main_qwen3-vl-32b.jsonl
+    ```
+
+  - 主实验清单里有 3 帧来自 demo 段 `14486517341017504003_3406_349_3426_349`，试跑问过（只记一下，不改）。
 
 ## 3. 下一步：在 Kamiak 上试跑
 
@@ -708,8 +748,9 @@
 ## 5. 还没定的事（要问用户）
 - demo 用的模型（2026-10-19 定）：Qwen3.6-27B（保留 thinking）、Qwen3-VL-32B-Instruct（不思考）、Qwen3-VL-32B-Thinking（思考）三个都跑。以后要不要再加一个闭源模型对比，还没定。
 - InternVL3.5-38B 已经加上（2026-10-20 用户定，不思考、思考两种都跑），设置见第 3 节。
-- 问题措辞的细节：模板还标着 DRAFT。
-- 采样：试跑用各个模型自己推荐的值（Qwen3.6 温度 1.0、top_p 0.95、top_k 20；Qwen3-VL-32B-Instruct 温度 0.7、top_p 0.8、top_k 20；Qwen3-VL-32B-Thinking 温度 0.8、top_p 0.95、top_k 20），还没最终定。每帧问几次已经定了：5 次（2026-10-19）。思考的模型 `--max_tokens` 按小试结果定为 24576。
+- 问题措辞：2026-10-22 定稿（用户定），就用试跑那版。
+- 采样：试跑用各个模型自己推荐的值（Qwen3.6 温度 1.0、top_p 0.95、top_k 20；Qwen3-VL-32B-Instruct 温度 0.7、top_p 0.8、top_k 20；Qwen3-VL-32B-Thinking 温度 0.8、top_p 0.95、top_k 20）；2026-10-22 用户定正式实验和试跑一样。
+- 天气分组：用 Waymo 的标签还是自己标、分几类（2026-10-22 用户说先放着，不影响跑模型）。每帧问几次已经定了：5 次（2026-10-19）。思考的模型 `--max_tokens` 按小试结果定为 24576。
 - 敏感性分析做哪些。已经列了备选值：反应时间 0.7、1.5、2.2 s；减速度 3.4、8.5 m/s²。
 - 分析时要不要对时间类指标统一截断（比如 10 s）。如果截断，所有时间类指标要一起截。
 - 77 m 以外的前车按"没有前车"处理，但 VLM 可能看得到它。论文里要说明。
@@ -735,6 +776,7 @@
 | 10-21 | 写 `analyze_vlm_ssm.py`（AUC + 冲突帧内 τ-b + 总 τ-b，bootstrap）；用户定比较分组：混在一起、同天气、同时段（另算同一段）；查了 Waymo 天气标签（只有 sunny/rain，几乎全是 sunny）；用户定在 Kamiak 上下训练集 + 验证集、先算全部 SSM；写下载、分块提取和算 SSM、合并的脚本，在办公室电脑上用 demo 3 段测过 |
 | 10-21（续，Kamiak 会话） | 装 gcloud 和 Python 环境；在 Kamiak 上下载、提取验证集 202 段 + 训练集 798 段并算完 SSM（共 198,068 帧）；demo 3 段和办公室电脑的结果比对，用户定两台机器比对的标准（相对差 1e-6、先后和并列一样）；查 9 个指标都有数值的帧；发现 TTC 很小的帧大多是路边停着的车被算成前车，以及倒车的帧，等用户决定 |
 | 10-22 | 前车规则改了两次（用户定）：自车的横向区间用车框中心 ± 半个车宽；慢于 0.5 m/s 的前车只有沿路线法也选了它、或者动过而且没被自车开过去，才算；1,000 段按最终规则重算（`results_lead_slow/`）、重报表和 τ-b、点云检查；两批验收图；发现换节点算最后几位会变 |
+| 10-22（续） | 用户定正式实验：全做，先跑 Qwen3-VL-32B-Instruct；分析时接近速度 0–0.1 m/s 的 39 帧整帧拿掉、AUC 不报；网格图改用仓库里的 DejaVu Sans Bold（Claude 另把排字固定成 BASIC）；`--run` 和 `.gz`；复制 303 段的图到课题组目录并核对；生成主实验输入图；分析程序回归测试；提交前核对（还没提交，等用户看网格图） |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 

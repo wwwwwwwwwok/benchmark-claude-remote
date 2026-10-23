@@ -34,6 +34,7 @@
 - `docs/handoff.md`：交接说明，包括当前进度、下一步和文献笔记。
 - `code/experiments/`：以前做决定时用的一次性检查脚本（存档），每个脚本的结论见里面的 README。
 - `vlm_frames/`：正式 VLM 实验问哪些帧的两份清单（`code/make_vlm_frame_lists.py` 生成，文件开头的 `#` 行写着来源和日期，读的时候用 `comment='#'`）。
+- `fonts/`：网格图上写相机名用的 DejaVu Sans Bold 和它的许可证（2026-10-22 我定的，见下面"VLM 打分"）。
 - `kamiak/`：在 Kamiak 上跑 VLM 的任务脚本和步骤；还有下载、提取 Waymo 训练集 + 验证集并算 SSM 的脚本（`waymo_*.sbatch`、`waymo_submit.sh`）。
 
 ## 数据（不进仓库）
@@ -66,8 +67,9 @@
    - 每段一行，从 context.json 抄 Waymo 的时段、地点、天气，并留一列 `weather` 给人看图填；
    - 已有的行不覆盖，新片段追加在后面。
 6. 正式实验的目标帧清单：`python -I code/make_vlm_frame_lists.py <结果文件夹（含 <split>/ssm/frame_ssm.csv）> vlm_frames`，写出主实验和对比实验两份清单。
-7. VLM 分数和 SSM 比较：`python -I code/analyze_vlm_ssm.py <结果文件夹>/vlm_scores <结果文件夹>/frame_ssm.csv <输出文件夹> --scene_labels labels/scene_labels.csv [--group_by weather,time_of_day] [--n_boot 2000] [--resample frame|segment]`
-   - 读每个模型文件夹里的 `pilot_<模型>.jsonl` 和补答文件，不读 smoke 和超时重试的文件；
+7. VLM 分数和 SSM 比较：`python -I code/analyze_vlm_ssm.py <vlm_scores 文件夹> <frame_ssm.csv> <输出文件夹> [--run pilot|main] [--closing_min 0.1] --scene_labels labels/scene_labels.csv [--group_by weather,time_of_day] [--n_boot 2000] [--resample frame|segment]`
+   - 读每个模型文件夹里的 `<run>_<模型>.jsonl` 或 `.jsonl.gz` 和补答文件（`--run` 默认 pilot，正式实验用 main；2026-10-22 我同意加的），不读 smoke 和超时重试的文件；同一个文件压缩和没压缩的两份都在时报错；
+   - 正式实验的 frame_ssm 用两个 split 合在一起的 `/data/lab/cejli/sy/waymo_v143/results_lead_final_excl/frame_ssm_validation_training.csv`（两个原文件的行原样接在一起，表头只留一行；段名在两个 split 之间不重复）；
    - 输出：
      - `agreement.csv`：每个模型 × 组 × SSM × 比较分组的各项统计和 95% 区间；
      - `ssm_differences.csv`：SSM 两两之差；
@@ -79,21 +81,23 @@
 
 ## 已经定下来的做法
 - 比较方式：VLM 分数和 SSM 都转成排名 / 百分位。主指标用 Kendall τ-b，另报 Spearman（并列取平均秩）和 NHTSA 的成对一致率（arXiv 2306.14657），用配对 bootstrap 判断哪个 SSM 更接近。
-- 并列多的 SSM（比如 TTC 为无穷大）用两步法：先看 VLM 能不能分出有无冲突（AUC），再只在有值的帧里比排名。
+- 并列多的 SSM（比如 TTC 为无穷大）用两步法：先看 VLM 能不能分出有无冲突（AUC），再只在有值的帧里比排名。正式实验的帧每个指标都有数值，只比排名（见下面"第一步"）。
 - 具体算法（2026-10-21 我同意，程序 `code/analyze_vlm_ssm.py`）：
   - 每帧的分数：问 5 次的平均；思考写到上限、没读出答案的，用强制收尾补出的答案；完全没有答案的那次不算。
   - 方向：TTC、THW、MTTC、PICUD、PSD、2D-TTC、ACT 反过来排，DRAC、CI 不动，统一成"越大越危险"。
   - "有冲突"：TTC、MTTC、2D-TTC、ACT、THW、PICUD、PSD 有数值（没有前车就没有数值），DRAC、CI 大于 0。
   - 自车或前车倒车的帧，前车类 7 个指标不算（2026-10-21 我定的），2D-TTC、ACT 照常算。
-  - 接近速度（自车速度 − 前车速度）低于 0.1 m/s 时，TTC 和 DRAC 当作没有数值（2026-10-22 我定的）。MTTC、CI 不动，它们还考虑了加速度。
-    - 理由和 THW 一样（自车慢于 0.1 m/s 时 THW 当作没有数值）：除以一个比测量误差还小的速度，算出来只是噪声。
+  - 接近速度（自车速度 − 前车速度）大于 0、小于 0.1 m/s 的帧，整帧拿掉，9 个指标都不算（2026-10-22 我定的。当天先定的是"只让 TTC 和 DRAC 当作没有数值"，后来改成整帧拿掉，好让 9 个指标都在同一批帧上算）。
+    - 理由：TTC、DRAC 在这些帧上除以一个比测量误差还小的速度，算出来只是噪声（和自车慢于 0.1 m/s 时 THW 当作没有数值同理）。
     - 0.1 m/s 和量出来的误差同一量级：自车平滑速度和 Waymo 报的自车速度，差的绝对值中位 0.019 m/s、95% 0.120 m/s（不算段头尾）；整段没动过的车，标注速度 95% 0.028 m/s、最大 0.212 m/s（不算轨迹头尾）。
-    - 像倒车帧那样在分析里处理（`analyze_vlm_ssm.py --closing_min`，默认 0.1），`frame_ssm.csv` 里的数不动。
-    - 敏感性分析只报一种：不设这条（`--closing_min 0`）。
+    - 在分析里处理（`analyze_vlm_ssm.py --closing_min`，默认 0.1），`frame_ssm.csv` 里的数不动；拿掉了哪些帧写在输出的 `params.txt` 里。
+    - 正式实验的主结果用 1,084 帧（主实验 1,123 帧去掉这样的 39 帧）；敏感性分析只报一种：1,123 帧、不设这条（`--closing_min 0`）。
   - 第一步：用全部目标帧算 AUC（有冲突的帧分数高于没冲突的帧的概率，分数一样算一半）。
+    - 正式实验的帧（主结果 1,084 帧、敏感性分析 1,123 帧）每个指标都有数值，没有"没冲突"的帧可比，这一步没有意义，不报，只报排名（2026-10-22 我定的）。
+    - 程序这时不算 AUC：输出文件里没有 AUC 的列和行（去掉之前先核对它们全是空的），`params.txt` 写一行说明。
   - 第二步：只在有冲突的帧里算 Kendall τ-b（主）、Spearman、成对一致率（两边先后判断相同的帧对占比，两边都并列也算相同）。
-  - 总的 τ-b：全部目标帧一起算，没冲突的帧并列在最安全一头；所有 SSM 用同一批帧，所以判断"最像哪个 SSM"用它。
-  - 误差范围：bootstrap 2,000 次，95% 区间；SSM 之间的差也用同一批重抽样算区间。试跑按帧重抽，正式的 202 段按片段重抽。
+  - 总的 τ-b：全部目标帧一起算，没冲突的帧并列在最安全一头；所有 SSM 用同一批帧，所以判断"最像哪个 SSM"用它。正式实验每帧都有数值，它和第二步的 τ-b 相同。
+  - 误差范围：bootstrap 2,000 次，95% 区间；SSM 之间的差也用同一批重抽样算区间。试跑按帧重抽，正式实验按片段重抽（`--resample segment`）。
   - 核对：去掉补出来的答案、用中位数代替平均，各算一遍点估计。
   - 稳定性：同一帧 5 次分数的标准差（除以 5）、5 次之间两两的 τ-b、ICC。
 - 比较分组（2026-10-21 我定的）：
@@ -311,8 +315,15 @@
   - RiskCueBench（2026）发现打乱帧的顺序，模型表现只变 1–3%，所以要加"只给当前一帧"的对照，看 2 s 的画面有没有用。
 - 目标帧：每 0.5 s 一个，至少在片段开始 2 s 之后，并且不是 `edge_frame`。demo 每段 34 个，共 102 个；202 段约 7,000 个。
 - 程序：`python -I code/make_vlm_inputs.py <提取输出文件夹> <结果文件夹>/frame_ssm.csv <输出文件夹>`，输出每段的 `step_<帧>.jpg`（1920 × 722，约 280 KB）和 `targets.csv`（每个目标帧的 5 张图、时间、自车速度）。demo 输出在 `results/vlm_inputs`。
+- 网格图上的相机名用仓库里的 `fonts/DejaVuSans-Bold.ttf`，22 号（2026-10-22 我定的）：
+  - 试跑的网格图是在办公室电脑上用 Windows 自带的 Arial Bold 生成的。Windows 字体的授权一般只能在装了这套 Windows 的电脑上用，不能拷到别的机器，也不能放进公开仓库，所以改用 DejaVu（许可证允许分发，在 `fonts/LICENSE`）。
+  - 所以正式实验的网格图和试跑的不同，只差在 5 个相机名所在的角上：demo 114 张逐像素比过，每块面板左上角 176 × 64 像素以外没有一个像素不同。不写字的分开图不受影响：Kamiak 上重新生成的 demo 570 张和试跑的逐字节一样。
+  - 程序只用这个文件，找不到就报错退出，不再换别的字体（以前两个路径都找不到时，会悄悄换成 Pillow 自带的 10 号字，Kamiak 上就是这样）。
+  - 排字方式固定用 Pillow 的 BASIC：Pillow 在装了 FriBiDi 的机器上（Kamiak 是）会自动换成 libraqm 排字，字母位置会变。Kamiak 上同样的字体，两种排法画出来的 114 张全部不同。Windows 上一般没装 FriBiDi。
+  - 字体文件取自 Kamiak 的 `/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf`（软件包 dejavu-sans-fonts-2.37-18.el9），sha256 `53356866bbb6c2be40b3181ca902cb958cf9db15139f011a4e624f732bba1465`。
+  - 跨机器核对：Kamiak 上生成的 demo 网格图 114 张的 sha256 在 `docs/demo_grid_dejavu_sha256.txt`；办公室电脑上用同一个字体文件生成一份来比，步骤见 `docs/handoff.md` 第 2 节最后。
 - 不给 VLM 任何数字，连自车速度也不给，只看图（2026-10-17 我定的）。`targets.csv` 里的自车速度（Waymo 直接给的）只留作分析用。
-- 问题模板初稿：`code/vlm_prompt_template.txt`（英文）。角色是"正在开这辆车的有经验的司机"；不定义"风险"，只给刻度两端（0 = 完全没有风险，100 = 马上要撞上）；输出 JSON：分数、主要危险来自哪个相机、是什么、危险类型、一句话理由。还没定稿。
+- 问题模板：`code/vlm_prompt_template.txt`（英文），2026-10-22 定稿（我定的）：就用试跑那版，正式实验不改；确切的文字以 `code/run_vlm.py` 组装出来的为准。角色是"正在开这辆车的有经验的司机"；不定义"风险"，只给刻度两端（0 = 完全没有风险，100 = 马上要撞上）；输出 JSON：分数、主要危险来自哪个相机、是什么、危险类型、一句话理由。
 - demo 试验的比较组（2026-10-17 定），同一批目标帧、同一个模型：
   - 拼图，2 s（每次 5 张）：`--layout grid`；
   - 单独给图、按时刻排，2 s（每次 25 张，每个时刻依次给 5 个相机）：`--layout separate` 的 `images_by_time`；
@@ -332,10 +343,19 @@
   - 主实验：9 个指标都有数值的目标帧，按不设接近速度门槛的版本取，1,123 帧（241 段），清单 `vlm_frames/main_all9_targets.csv`；主结果分析时再去掉接近速度低于 0.1 m/s 的 39 帧（清单里 `closing_below_0_1` 标着）。
   - 对比实验先留着不跑：前车类 7 个都有数值的目标帧，1,873 帧（303 段，主实验的 1,123 帧包含在里面），清单 `vlm_frames/comparison_lead7_targets.csv`（`in_main` 标着）；以后要跑只补问多出来的 750 帧。
   - 以后补跑对比实验时，模型、问题、采样设置、输入方式、软件版本都要和主实验完全一样，结果才能合在一起。
-- 还没定：问题措辞的细节；以后要不要再加一个闭源模型对比。
+- 正式实验怎么跑（2026-10-22）：
+  - 我定的：5 个模型设置（Qwen3.6-27B、Qwen3-VL-32B-Instruct、Qwen3-VL-32B-Thinking、InternVL3.5-38B 不思考和思考）× 5 种输入方式 × 每帧问 5 次，全做，每个模型 28,075 次请求。提示词、采样设置、模型和软件版本都和试跑一样，这就是最终版。
+  - 我定的顺序：先跑 Qwen3-VL-32B-Instruct（最快）；跑完先把分析从头到尾走一遍，确认输入、解析、结果都没问题，报给我，我同意了再跑别的；Qwen3.6-27B 放最后（最慢）。
+  - 我定的：结果文件写到课题组目录（home 放不下：试跑 Qwen3.6-27B 2,550 次请求就有 3.5 GB，主实验估计约 39 GB），记录的内容和试跑一样，不改；每个模型跑完后把 jsonl 压缩成 `.jsonl.gz`（不丢信息），分析程序直接读 `.gz`。
+  - 我定的：天气分组先放着，以后再定，不影响跑模型。
+  - Claude 的安排：
+    - 输入图用复制到课题组目录的图生成（复制的图和 scratch 上的图生成出来逐字节一样，核过 6 段），放在 `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：`grid/`、`separate/` 各有 `targets.csv`（主实验 241 段的全部目标帧）和 `targets_main.csv`（主实验的 1,123 帧）；`segments/` 是指向 `tables/<split>/<段名>` 的链接，好让一次生成两个 split；`sha256_grid.txt`、`sha256_separate.txt` 是每张图的 sha256。
+    - 结果文件：`/data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`。
+    - 压缩：先另存一份 `.gz`，核对解压出来和原文件逐字节一样，再把原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<模型>/`，由我删（Claude 不删文件；分析程序见到压缩和没压缩的两份会报错，所以挪开）。
+- 还没定：天气分组；以后要不要再加一个闭源模型对比。
 
 ## 下一步
-- 在 Kamiak 上试跑 VLM（`docs/handoff.md` 第 3 节），分析试跑结果（第 4 节），定最终的输入方式。
-- 扩到验证集 202 段：边下载边提取，原始文件不存。
-- VLM 打分，然后和 SSM 做排名比较。
+- 正式实验：先跑 Qwen3-VL-32B-Instruct，分析从头到尾走一遍，等我同意再跑其他模型（Qwen3.6-27B 最后）。
+- 定天气分组（用 Waymo 的标签还是自己标、分几类）。
+- 对比实验（多出来的 750 帧）以后再定跑不跑。
 - 家里电脑：用另一个数据集测试。只要写一个转换脚本，输出和上面相同格式的每段文件，`wod_common.py` 和 `waymo_ssm_frames.py` 就能直接用。

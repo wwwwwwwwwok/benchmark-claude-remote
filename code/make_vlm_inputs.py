@@ -42,14 +42,17 @@ N_STEPS = 5         # t-2.0 ... t
 TOP = ['FRONT_LEFT', 'FRONT', 'FRONT_RIGHT']
 BOTTOM = ['SIDE_LEFT', None, 'SIDE_RIGHT']
 CAMERA_ORDER = ['FRONT_LEFT', 'FRONT', 'FRONT_RIGHT', 'SIDE_LEFT', 'SIDE_RIGHT']   # 'separate' layout, left to right
-FONT_FILES = ['C:/Windows/Fonts/arialbd.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf']
+# DejaVu Sans Bold from the repository (user's decision, 2026-10-22). The pilot's grid images used Windows' Arial Bold,
+# which may not be copied off that machine, so the formal experiment's grid images differ from the pilot's in the font.
+FONT_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'fonts', 'DejaVuSans-Bold.ttf')
 
 
 def font(size):
-    for f in FONT_FILES:
-        if os.path.exists(f):
-            return ImageFont.truetype(f, size)
-    return ImageFont.load_default()
+    """No other font as a fallback: it would change the images. BASIC layout: Pillow would otherwise use libraqm where
+    FriBiDi happens to be installed (Kamiak: yes; Windows: normally no) and place the letters differently."""
+    if not os.path.exists(FONT_FILE):
+        sys.exit(f'font file not found: {FONT_FILE}')
+    return ImageFont.truetype(FONT_FILE, size, layout_engine=ImageFont.Layout.BASIC)
 
 
 def label(draw, xy, text, fnt):

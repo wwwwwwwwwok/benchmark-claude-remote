@@ -1,4 +1,5 @@
-# VLM prompt templates (DRAFT, 2026-10-17; not final)
+# VLM prompt templates (FINAL, 2026-10-22, user's decision: the pilot's prompt, used unchanged in the formal experiment;
+# the exact text is the one code/run_vlm.py builds)
 # One request per target frame (targets.csv from make_vlm_inputs.py). Images are sent in the order listed in
 # targets.csv, each preceded by its caption (interleaved text and images). The question comes after the images.
 # No numbers are given, not even the ego speed (decided 2026-10-17): the model judges from the images alone.

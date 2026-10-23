@@ -1,4 +1,4 @@
-"""Compare the VLM risk scores with the SSMs on the VLM target frames (pilot analysis).
+"""Compare the VLM risk scores with the SSMs on the VLM target frames (pilot and formal experiment).
 
 Method (agreed with the user 2026-10-21, see CLAUDE.md "VLM 打分"):
  0. Frame score = mean of the answered repeats (normally 5) per model x condition x frame. Where a reply has no
@@ -11,12 +11,15 @@ Method (agreed with the user 2026-10-21, see CLAUDE.md "VLM 打分"):
     Frames where the ego or the lead moves backwards (frame_ssm.csv columns reversing_ego, reversing_lead) are left
     out of the seven lead-vehicle SSMs (they use speed magnitudes), like edge frames; TTC2D and ACT keep them
     (user's decision, 2026-10-21). So the lead-vehicle SSMs can use slightly fewer frames than TTC2D and ACT.
-    Below a closing speed of --closing_min (default 0.1 m/s) TTC and DRAC count as having no value, as THW has none
-    when the ego is slower than 0.1 m/s: dividing by a speed smaller than its measurement error gives noise (user's
-    decision, 2026-10-22; the ego speed estimates differ by 0.120 m/s at the 95th percentile). MTTC and CI keep their
-    values (they use the accelerations too). frame_ssm.csv is not changed; --closing_min 0 is the sensitivity run.
+    Frames closing in more slowly than --closing_min (closing speed above 0 but below it; default 0.1 m/s) are left
+    out entirely, for every SSM and every output, so that all SSMs use the same frames (user's decision,
+    2026-10-22): TTC and DRAC divide by a speed smaller than its measurement error there (the ego speed estimates
+    differ by 0.120 m/s at the 95th percentile). frame_ssm.csv is not changed; --closing_min 0 is the sensitivity
+    run (no such rule).
  1. Step 1: AUC of the frame score for conflict vs no-conflict frames
-    (= P(score of a conflict frame > score of a no-conflict frame), ties count one half).
+    (= P(score of a conflict frame > score of a no-conflict frame), ties count one half). Not computed when every frame
+    has a value for every SSM (the formal experiment's frames): it would have nothing to compare, so the AUC columns
+    and rows are left out of the outputs and only the rankings are reported (user's decision, 2026-10-22).
  2. Step 2, conflict frames only: Kendall tau-b (main), Spearman rho, and the pairwise agreement
     (share of frame pairs on which both give the same order: riskier, equal or safer; the agreement index of
     Singh et al. 2023, arXiv 2306.14657).
@@ -31,21 +34,23 @@ Method (agreed with the user 2026-10-21, see CLAUDE.md "VLM 打分"):
     Spearman is only given for 'all'. agreement_by_segment.csv has every segment on its own.
  5. Bootstrap: 95 % intervals of every statistic, and of the differences between SSMs in the overall tau-b and the
     AUC per grouping (paired: one resample serves all SSMs). --resample frame (pilot) resamples frames within each
-    segment; --resample segment (202 segments) resamples whole segments.
+    segment; --resample segment (formal experiment) resamples whole segments.
  6. Checks: frame score without the forced answers; median instead of mean (point estimates).
  Also per model x condition: answers, repeat stability (SD over repeats, test-retest tau-b, ICC), time and tokens.
 
-Inputs: <vlm_scores>/<model>/pilot_<model>.jsonl (+ pilot_<model>_forced_answers.jsonl if present) for every model
-folder; smoke_* and *_timeout_retried files are not used. <frame_ssm.csv> from waymo_ssm_frames.py.
+Inputs: <vlm_scores>/<model>/<run>_<model>.jsonl or .jsonl.gz (--run: pilot, the default, or main; + the
+<run>_<model>_forced_answers file if present) for every model folder; smoke_* and *_timeout_retried files are not
+used. <frame_ssm.csv> from waymo_ssm_frames.py (for the formal experiment both splits in one file).
 <scene_labels.csv> (code/make_scene_labels.py makes the template): one row per segment with the label columns named
 in --group_by; an empty label is an error.
 
-usage: python -I analyze_vlm_ssm.py <results/vlm_scores> <frame_ssm.csv> <out_dir>
+usage: python -I analyze_vlm_ssm.py <vlm_scores> <frame_ssm.csv> <out_dir> [--run pilot|main] [--closing_min 0.1]
                                     [--scene_labels labels/scene_labels.csv] [--group_by weather,time_of_day]
                                     [--n_boot 2000] [--seed 20261021] [--resample frame|segment]
 """
 import argparse
 import glob
+import gzip
 import itertools
 import json
 import os
@@ -64,8 +69,7 @@ SSMS = ['TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD', 'PSD', 'TTC2D', 'ACT']
 LEAD_SSMS = {'TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD', 'PSD'}  # left out where the ego or the lead reverses
 SMALLER_RISKIER = {'TTC', 'THW', 'MTTC', 'PICUD', 'PSD', 'TTC2D', 'ACT'}
 POSITIVE_IS_CONFLICT = {'DRAC', 'CI'}                          # 0 = not closing in
-CLOSING_MIN = 0.1                    # m/s: below it TTC and DRAC have no value (user, 2026-10-22; see the docstring)
-CLOSING_SSMS = {'TTC', 'DRAC'}
+CLOSING_MIN = 0.1                    # m/s: frames closing in more slowly are left out (user, 2026-10-22; see the docstring)
 CONDITIONS = ['grid', 'sep_time', 'sep_camera', 'ctrl_grid', 'ctrl_sep']
 CAMERAS = ['front-left', 'front', 'front-right', 'left-side', 'right-side', 'none']
 CAMERA_FIX = {'side left': 'left-side', 'side-left': 'left-side', 'left side': 'left-side',
@@ -113,12 +117,25 @@ def norm_hazard(h):
     return HAZARD_FIX.get(h0, h0), True
 
 
-def read_model(model_dir):
+def jsonl_file(model_dir, stem):
+    """<stem>.jsonl or <stem>.jsonl.gz (a finished run is compressed, user's decision 2026-10-22); None if neither."""
+    p = os.path.join(model_dir, stem + '.jsonl')
+    have = [q for q in (p, p + '.gz') if os.path.exists(q)]
+    if len(have) == 2:
+        raise ValueError(f'both {p} and {p}.gz exist: keep one of them')
+    return have[0] if have else None
+
+
+def open_jsonl(path):
+    return gzip.open(path, 'rb') if path.endswith('.gz') else open(path, 'rb')
+
+
+def read_model(model_dir, run):
     name = os.path.basename(model_dir.rstrip('/\\'))
-    main = os.path.join(model_dir, f'pilot_{name}.jsonl')
-    forced_path = os.path.join(model_dir, f'pilot_{name}_forced_answers.jsonl')
+    main = jsonl_file(model_dir, f'{run}_{name}')
+    forced_path = jsonl_file(model_dir, f'{run}_{name}_forced_answers')
     rows, seen = [], set()
-    with open(main, 'rb') as f:
+    with open_jsonl(main) as f:
         for raw in f:
             d = load_light(raw)
             k = tuple(d[c] for c in KEY)
@@ -141,9 +158,9 @@ def read_model(model_dir):
                              reasoning_tokens=num(det.get('reasoning_tokens'))))
     req = pd.DataFrame(rows)
     n_forced_used = 0
-    if os.path.exists(forced_path):
+    if forced_path:
         idx = req.set_index(KEY).index
-        with open(forced_path, 'rb') as f:
+        with open_jsonl(forced_path) as f:
             for raw in f:
                 d = load_light(raw)
                 k = tuple(d[c] for c in KEY)
@@ -165,12 +182,12 @@ def read_model(model_dir):
     req['camera'], req['camera_fixed'] = cams.str[0], cams.str[1]
     haz = req['hazard_type_raw'].map(norm_hazard)
     req['hazard_type'], req['hazard_type_fixed'] = haz.str[0], haz.str[1]
-    return req, dict(model=name, file=main, lines=len(req), forced_file=os.path.exists(forced_path),
+    return req, dict(model=name, file=main, lines=len(req), forced_file=forced_path is not None,
                      forced_used=n_forced_used)
 
 
 # ------------------------------------------------------------------ SSMs on the target frames
-def ssm_table(frame_ssm_csv, frames, closing_min=CLOSING_MIN):
+def ssm_table(frame_ssm_csv, frames):
     f = pd.read_csv(frame_ssm_csv)
     t = frames.merge(f, on=['segment', 'frame_idx'], how='left', validate='one_to_one', indicator=True)
     if (t['_merge'] != 'both').any():
@@ -182,16 +199,12 @@ def ssm_table(frame_ssm_csv, frames, closing_min=CLOSING_MIN):
     if missing:
         raise ValueError(f'{frame_ssm_csv} has no {missing} columns: recompute it with the current waymo_ssm_frames.py')
     reversing = t['reversing_ego'].astype(bool).to_numpy() | t['reversing_lead'].astype(bool).to_numpy()
-    closing = t['closing'].to_numpy(float)
-    slow_closing = (closing > 0) & (closing < closing_min)          # where TTC / DRAC would have a value; NaN -> False
     out = t[['segment', 'frame_idx']].copy()
     out['reversing'] = reversing
-    out['slow_closing'] = slow_closing
+    out['closing'] = t['closing'].to_numpy(float)
     for s in SSMS:
         v = t[s].to_numpy(float)
         conflict = (np.nan_to_num(v, nan=0.0) > 0) if s in POSITIVE_IS_CONFLICT else np.isfinite(v)
-        if s in CLOSING_SSMS:
-            conflict &= ~slow_closing                                # no value below closing_min
         r = np.where(conflict, -v if s in SMALLER_RISKIER else v, np.nan)
         out[s] = v
         out[s + '_conflict'] = conflict
@@ -392,6 +405,23 @@ def repeat_stability(req_mc):
                 icc_single=icc1, icc_mean_of_k=icck, k_repeats=k, frames_all_k=n)
 
 
+def without_auc(df, report_auc):
+    """When every frame has a value for every SSM the AUC is undefined: its columns (or, in the SSM differences, its
+    rows) are checked to hold no number and left out, so that no AUC is reported (user's decision, 2026-10-22)."""
+    if report_auc:
+        return df
+    if 'stat' in df.columns:
+        rows = df['stat'] == 'auc'
+        if df.loc[rows, ['diff', 'diff_lo', 'diff_hi']].notna().any().any() or (df.loc[rows, 'nboot'] > 0).any():
+            raise RuntimeError('an AUC difference has a value although every frame has a value for every SSM')
+        return df[~rows]
+    cols = [c for c in df.columns if c == 'auc' or c.startswith('auc_')]
+    counts = [c for c in cols if c.endswith('_nboot')]
+    if df[[c for c in cols if c not in counts]].notna().any().any() or (df[counts] > 0).any().any():
+        raise RuntimeError('an AUC has a value although every frame has a value for every SSM')
+    return df.drop(columns=cols)
+
+
 # ------------------------------------------------------------------ main
 def main():
     ap = argparse.ArgumentParser()
@@ -405,7 +435,9 @@ def main():
     ap.add_argument('--seed', type=int, default=20261021)
     ap.add_argument('--resample', choices=['frame', 'segment'], default='frame')
     ap.add_argument('--closing_min', type=float, default=CLOSING_MIN,
-                    help='m/s: TTC and DRAC have no value below this closing speed; 0 = off (sensitivity run)')
+                    help='m/s: frames closing in more slowly (closing speed above 0) are left out entirely; '
+                         '0 = no such rule (sensitivity run)')
+    ap.add_argument('--run', default='pilot', help='which replies: <run>_<model>.jsonl(.gz), pilot or main')
     a = ap.parse_args()
     group_by = [c for c in a.group_by.split(',') if c] if a.scene_labels else []
     os.makedirs(a.out_dir, exist_ok=True)
@@ -415,15 +447,16 @@ def main():
     reqs, info = [], []
     for d in sorted(glob.glob(os.path.join(a.vlm_scores, '*', ''))):
         name = os.path.basename(d.rstrip('/\\'))
-        if not os.path.exists(os.path.join(d, f'pilot_{name}.jsonl')):
+        if not jsonl_file(d, f'{a.run}_{name}'):
             continue
-        r, i = read_model(d)
+        r, i = read_model(d, a.run)
         reqs.append(r)
         info.append(i)
         print(f"read {name}: {i['lines']} requests, forced answers used {i['forced_used']} ({time.time() - t0:.0f} s)")
+    if not reqs:
+        sys.exit(f'no {a.run}_<model>.jsonl(.gz) in the model folders of {a.vlm_scores}')
     req = pd.concat(reqs, ignore_index=True)
     models = [i['model'] for i in info]
-    req.to_csv(os.path.join(a.out_dir, 'vlm_requests_tidy.csv'), index=False)
 
     # every model must have asked about the same frames
     frames = req[['segment', 'frame_idx']].drop_duplicates().sort_values(['segment', 'frame_idx']).reset_index(drop=True)
@@ -431,6 +464,17 @@ def main():
         fm = req.loc[req.model == m, ['segment', 'frame_idx']].drop_duplicates()
         if len(fm) != len(frames):
             raise ValueError(f'{m} asked about {len(fm)} frames, the union is {len(frames)}')
+
+    # --- SSMs; frames closing in more slowly than --closing_min are left out of everything below (user, 2026-10-22)
+    n_asked = len(frames)
+    ssm_df = ssm_table(a.frame_ssm, frames)
+    closing = ssm_df['closing'].to_numpy(float)
+    slow = (closing > 0) & (closing < a.closing_min)                  # NaN -> False
+    left_out = ssm_df.loc[slow, ['segment', 'frame_idx', 'closing']]
+    frames, ssm_df = frames[~slow].reset_index(drop=True), ssm_df[~slow].reset_index(drop=True)
+    req = req[pd.MultiIndex.from_frame(req[['segment', 'frame_idx']]).isin(pd.MultiIndex.from_frame(frames))] \
+        .reset_index(drop=True)
+    req.to_csv(os.path.join(a.out_dir, 'vlm_requests_tidy.csv'), index=False)
 
     # --- frame scores
     g = req.groupby(['model', 'condition', 'segment', 'frame_idx'])
@@ -442,8 +486,7 @@ def main():
     fs = fs.merge(nf, on=['model', 'condition', 'segment', 'frame_idx'], how='left')
     fs.to_csv(os.path.join(a.out_dir, 'vlm_frame_scores.csv'), index=False)
 
-    # --- SSMs and scene groupings
-    ssm_df = ssm_table(a.frame_ssm, frames, a.closing_min)
+    # --- scene groupings
     groupings, labels_used = scene_groupings(frames, a.scene_labels, group_by)
     for gname in group_by:
         ssm_df[gname] = groupings[gname]
@@ -451,6 +494,8 @@ def main():
     gnames = list(groupings)
     ssm = {c: ssm_df[c].to_numpy() for c in ssm_df.columns if c.endswith(('_conflict', '_risk', '_use'))}
     ssm = {k: (v.astype(float) if k.endswith('_risk') else v.astype(bool)) for k, v in ssm.items()}
+    # every frame has a value for every SSM (the formal experiment): no AUC (user, 2026-10-22)
+    report_auc = any((~ssm[s + '_conflict'] & ssm[s + '_use']).any() for s in SSMS)
     n_frames = len(frames)
     ids = np.arange(n_frames)
     seg_of = frames['segment'].to_numpy()
@@ -483,7 +528,8 @@ def main():
                                      score_mean=float(np.nanmean(x[fi])),
                                      **{gname: seg_label[gname][sg] for gname in group_by}))
     est = pd.DataFrame(rows)
-    pd.DataFrame(seg_rows).to_csv(os.path.join(a.out_dir, 'agreement_by_segment.csv'), index=False)
+    without_auc(pd.DataFrame(seg_rows), report_auc).to_csv(os.path.join(a.out_dir, 'agreement_by_segment.csv'),
+                                                           index=False)
 
     # --- bootstrap (main variant). 'frame': frames resampled within each segment, so every segment keeps its
     # number of target frames; 'segment': whole segments resampled, every drawn copy is its own segment group
@@ -529,7 +575,7 @@ def main():
                                                     columns='variant', values=STATS)
     checks.columns = [f'{s}_{v}' for s, v in checks.columns]
     agreement = main_rows.merge(checks.reset_index(), on=['model', 'condition', 'ssm', 'grouping'], how='left')
-    agreement.to_csv(os.path.join(a.out_dir, 'agreement.csv'), index=False)
+    without_auc(agreement, report_auc).to_csv(os.path.join(a.out_dir, 'agreement.csv'), index=False)
 
     # --- differences between SSMs (overall tau-b and AUC, per grouping), paired over the same resamples
     drows = []
@@ -544,7 +590,7 @@ def main():
                     drows.append(dict(model=m, condition=c, grouping=gname, stat=stat, ssm_1=s1, ssm_2=s2,
                                       diff=pe.at[s1, stat] - pe.at[s2, stat], diff_lo=lo, diff_hi=hi, nboot=nv,
                                       clear=bool(lo > 0 or hi < 0) if not np.isnan(lo) else False))
-    pd.DataFrame(drows).to_csv(os.path.join(a.out_dir, 'ssm_differences.csv'), index=False)
+    without_auc(pd.DataFrame(drows), report_auc).to_csv(os.path.join(a.out_dir, 'ssm_differences.csv'), index=False)
 
     # --- per model x condition: answers, stability, time
     crow = []
@@ -579,7 +625,16 @@ def main():
         f.write(f'scene_labels = {os.path.abspath(a.scene_labels) if a.scene_labels else "(none)"}\n')
         how = 'frames resampled within each segment' if a.resample == 'frame' else 'segments resampled'
         f.write(f'bootstrap: {a.n_boot} resamples ({how}), seed {a.seed}, 95 % percentile intervals\n')
+        f.write(f'run: {a.run}; frames asked: {n_asked}\n')
+        f.write(f'closing in more slowly than {a.closing_min} m/s (closing speed above 0): {len(left_out)} frames, left '
+                f'out entirely (user, 2026-10-22)' + ('' if a.closing_min > 0 else '; rule off') + '\n')
+        for r in left_out.itertuples():
+            f.write(f'  {r.segment} {r.frame_idx}: closing {r.closing:.4f} m/s\n')
         f.write(f'target frames: {n_frames} ({", ".join(f"{s[:6]} {len(v)}" for s, v in seg_frames.items())})\n')
+        if not report_auc:
+            f.write('AUC (step 1) not computed: every target frame has a value for every SSM, so there is nothing to '
+                    'compare it with; only the rankings are reported (user, 2026-10-22). tau_b_all is then the same as '
+                    'tau_b_conflict.\n')
         f.write('groupings (statistics counted over frame pairs in the same group):\n')
         for gname in gnames:
             vals, cnt = np.unique(groupings[gname], return_counts=True)
@@ -594,8 +649,6 @@ def main():
             f.write(f"model {i['model']}: {i['lines']} requests ({os.path.basename(i['file'])}), "
                     f"forced answers used {i['forced_used']}\n")
         rev = ssm_df['reversing'].to_numpy(bool)
-        f.write(f'closing speed below {a.closing_min} m/s, TTC and DRAC without a value there: '
-                f'{int(ssm_df["slow_closing"].sum())} target frames\n')
         f.write(f'frames where the ego or the lead moves backwards, left out of the lead-vehicle SSMs: {int(rev.sum())}'
                 + (f' ({", ".join(f"{s[:6]} {k}" for s, k in ssm_df.loc[rev, ["segment", "frame_idx"]].values)})'
                    if rev.any() else '') + '\n')
@@ -611,9 +664,12 @@ def main():
 
     # --- console summary
     pd.set_option('display.width', 200)
-    print(f'\ntarget frames {n_frames} ({int(ssm_df["reversing"].sum())} with the ego or the lead reversing, left out '
+    print(f'\nframes asked {n_asked}, left out as closing in more slowly than {a.closing_min} m/s: {len(left_out)}')
+    print(f'target frames {n_frames} ({int(ssm_df["reversing"].sum())} with the ego or the lead reversing, left out '
           f'of the lead-vehicle SSMs); frames with a value per SSM: ' +
           ', '.join(f'{s} {int((ssm[s + "_conflict"] & ssm[s + "_use"]).sum())}' for s in SSMS))
+    if not report_auc:
+        print('every frame has a value for every SSM: AUC not computed, rankings only')
     print('\nrepeat stability and cost (main points):')
     print(cond[['model', 'condition', 'answered', 'forced_answers', 'no_answer', 'sd_repeats_mean',
                 'retest_tau_b_mean', 'icc_mean_of_k', 'latency_median_s']].round(3).to_string(index=False))

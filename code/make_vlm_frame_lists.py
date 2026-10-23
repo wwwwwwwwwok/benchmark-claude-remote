@@ -20,7 +20,7 @@ import pandas as pd
 sys.stdout.reconfigure(encoding='utf-8')
 LEAD = ['TTC', 'THW', 'DRAC', 'MTTC', 'CI', 'PICUD', 'PSD']
 ALL9 = LEAD + ['TTC2D', 'ACT']
-CLOSING_MIN = 0.1        # m/s, the main analysis's threshold for TTC and DRAC (analyze_vlm_ssm.CLOSING_MIN)
+CLOSING_MIN = 0.1        # m/s: the main analysis leaves out frames closing in more slowly (analyze_vlm_ssm.CLOSING_MIN)
 COLS = ['split', 'segment', 'frame_idx', 't_s', 'lead_map', 'gap', 'v_ego', 'v_lead', 'closing'] + ALL9
 
 
@@ -62,7 +62,7 @@ def main():
     write(main_df, os.path.join(out, 'main_all9_targets.csv'), src + [
         f'rows: {len(main_df)} target frames (frame_idx % 5 == 0, >= 20, not edge) where all 9 SSMs have a value, no '
         f'closing-speed threshold; closing_below_0_1 marks {int(main_df.closing_below_0_1.sum())} frames with '
-        f'0 < closing < {CLOSING_MIN} m/s, left out of the main analysis (TTC and DRAC have no value there)'])
+        f'0 < closing < {CLOSING_MIN} m/s, left out of the main analysis entirely (every SSM; user, 2026-10-22)'])
     write(comp_df, os.path.join(out, 'comparison_lead7_targets.csv'), src + [
         f'rows: {len(comp_df)} target frames where the 7 lead-vehicle SSMs have a value, no closing-speed threshold; '
         f'in_main marks the {int(comp_df.in_main.sum())} frames of main_all9_targets.csv '

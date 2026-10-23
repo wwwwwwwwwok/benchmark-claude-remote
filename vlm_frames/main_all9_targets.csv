@@ -4,7 +4,7 @@
 # lead rule (params.txt): slow lead (map, < 0.5 m/s) = kept only if the path pairing picks it too, or it moves in the segment (away from its track ends); else no lead
 # lead rule (params.txt): lead exclusions (manual, lead_exclusions.csv) = 1 rows: 8822503619482926605_1080_000_1100_000 g6_UwxnRLj9vb7fyRo3ZCg frames 72-100 (2026-10-22)
 # lead rule (params.txt): reversing = speed >= 0.5 m/s and travelling more than 90 deg from the heading
-# rows: 1123 target frames (frame_idx % 5 == 0, >= 20, not edge) where all 9 SSMs have a value, no closing-speed threshold; closing_below_0_1 marks 39 frames with 0 < closing < 0.1 m/s, left out of the main analysis (TTC and DRAC have no value there)
+# rows: 1123 target frames (frame_idx % 5 == 0, >= 20, not edge) where all 9 SSMs have a value, no closing-speed threshold; closing_below_0_1 marks 39 frames with 0 < closing < 0.1 m/s, left out of the main analysis entirely (every SSM; user, 2026-10-22)
 split,segment,frame_idx,t_s,lead_map,gap,v_ego,v_lead,closing,TTC,THW,DRAC,MTTC,CI,PICUD,PSD,TTC2D,ACT,closing_below_0_1
 validation,10289507859301986274_4200_000_4220_000,125,12.5,CuxwwfqW4FO6Rx_cO55odw,39.54925972262748,5.704299114761268,0.0061870737092777,5.69811204105199,6.940765544393519,6.933237357817389,0.4104815243078412,4.907461924302551,10.947313995248749,29.93355999393985,16.286905494548424,6.925774118009585,4.10287784260134,False
 validation,10289507859301986274_4200_000_4220_000,130,13.0,CuxwwfqW4FO6Rx_cO55odw,36.556532225810166,6.108506163118378,0.0106378207335918,6.0978683423847855,5.994969089725124,5.984528991151602,0.5085821337124176,4.718023130436094,9.322782655571736,26.07520741687614,13.128035945288016,5.974580573816537,5.9725299586205125,False
