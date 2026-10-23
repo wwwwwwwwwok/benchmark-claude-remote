@@ -156,20 +156,76 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - 跑完把结果传回办公室电脑（在办公室电脑的仓库根目录下）：`scp -r <netid>@kamiak.wsu.edu:~/benchmark-claude-remote/results/vlm_scores ./results/`。
 
 ## 正式实验的主实验（2026-10-22 用户定的；做法和理由见 CLAUDE.md "VLM 打分"最后）
-- 输入：`/data/lab/cejli/sy/waymo_v143/vlm_inputs/{grid,separate}/targets_main.csv`（1,123 帧，怎么生成的见 `docs/handoff.md` 第 2 节最后）。
-- 提交，每个模型一次（按用户定的顺序，一个跑完分析过、用户同意了再交下一个）。末尾的参数覆盖脚本里试跑的输入和输出，所以日志第一行打印的 `OUT=` 还是试跑的路径，实际以 `--out` 为准：
-  ```bash
-  V=/data/lab/cejli/sy/waymo_v143/vlm_inputs
-  sbatch --export=ALL,MODEL=<MODEL> kamiak/qwen_vlm.sbatch --grid_targets $V/grid/targets_main.csv \
-      --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/main_<MODEL>.jsonl
-  ```
-- 跑完以后（下面的脚本现在放在课题组目录的 `tmp_checks/main_run/`，都在计算节点上跑）：
-  1. 看日志最后一行 `done: N ok (M unparsable), K errors`；K 不是 0 就用同样的命令再交一次，只补发没做完的。
-  2. 思考的模型还要补答；`kamiak/force_answer.sbatch` 现在只认 `pilot_` 的文件名，用之前要改，改之前先问用户。
-  3. 核对：`python -I .../check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。
-  4. 压缩：`bash .../compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。
-  5. 分析：`bash .../analyze.sh <输出文件夹>`（在仓库根目录下）：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（`/data/lab/cejli/sy/waymo_v143/scene_labels_waymo.csv`，Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I .../summarize.py <输出文件夹>/main_1084 <输出文件夹>/sensitivity_1123`。
-  6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`。
+脚本在 `kamiak/main_run/`（用户 2026-10-22 定的：仓库里只放脚本，数据和图在课题组目录，路径见下面"脚本用到的路径"）。都从仓库根目录、在计算节点上跑（`srun` 或 `sbatch`）。
+1. 复制图（只做一次；2026-10-22 做过，作业 31364138）：对比实验清单 303 段每 0.5 s 一帧、5 个相机，从 scratch 的提取结果复制到课题组目录的表格副本里（已经有、大小一样的跳过）：
+   `python -I kamiak/main_run/copy_images.py <scratch 工作区> vlm_frames/comparison_lead7_targets.csv /data/lab/cejli/sy/waymo_v143/tables`
+2. 生成输入图（只做一次；2026-10-22 做过，作业 31366325，16 个 CPU 4 分 44 秒）：
+   `python -I kamiak/main_run/make_main_inputs.py ~/benchmark-claude-remote /data/lab/cejli/sy/waymo_v143`
+   - 写出两个 split 合起来的 `results_lead_final_excl/frame_ssm_validation_training.csv`（已经有就报错退出，不覆盖）、`vlm_inputs/segments/` 的链接、`vlm_inputs/{grid,separate}/` 的图和 `targets.csv`（主实验 241 段的全部目标帧）、`targets_main.csv`（主实验的 1,123 帧）、每张图的 sha256（`vlm_inputs/sha256_{grid,separate}.txt`）。
+3. 提交，每个模型一次（按用户定的顺序，一个跑完分析过、用户同意了再交下一个）。末尾的参数覆盖脚本里试跑的输入和输出，所以日志第一行打印的 `OUT=` 还是试跑的路径，实际以 `--out` 为准：
+   ```bash
+   V=/data/lab/cejli/sy/waymo_v143/vlm_inputs
+   sbatch --export=ALL,MODEL=<MODEL> kamiak/qwen_vlm.sbatch --grid_targets $V/grid/targets_main.csv \
+       --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/main_<MODEL>.jsonl
+   ```
+4. 跑完以后：
+   1. 看日志最后一行 `done: N ok (M unparsable), K errors`；K 不是 0 就用同样的命令再交一次，只补发没做完的。
+   2. 思考的模型还要补答；`kamiak/force_answer.sbatch` 现在只认 `pilot_` 的文件名，用之前要改，改之前先问用户。
+   3. 核对：`python -I kamiak/main_run/check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。
+   4. 压缩：`bash kamiak/main_run/compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。
+   5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。
+   6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`。
+
+## 脚本用到的路径（`kamiak/main_run/`、`kamiak/checks/`）
+脚本里写死的、或者要当参数给的路径（用户 2026-10-22 要求写在这里）：
+- `/data/lab/cejli/sy/conda_envs/waymo/bin/python`：处理 Waymo 数据和做分析用的 Python（`analyze.sh` 里写死）。vLLM 环境 `/data/lab/cejli/sy/conda_envs/vllm_cu129/` 只有 `kamiak/qwen_vlm.sbatch` 用。
+- `/data/lab/cejli/sy/models/<模型>/`：下载的模型。`check_internvl_cut.py` 写死了 InternVL3_5-38B 的分词器；`verify_hf_snapshot.py` 的模型文件夹当参数给。
+- `/data/lab/cejli/sy/waymo_v143/`（课题组目录，不会自动删）：
+  - `tables/<split>/<段名>/`：每段的表格副本；对比实验那 303 段还有 `images/<相机>/`（每 0.5 s 一帧）。
+  - `results*/<split>/ssm/`：各版 SSM 结果，现在用 `results_lead_final_excl/`；它下面的 `frame_ssm_validation_training.csv` 是两个 split 合起来的（`make_main_inputs.py` 生成，`analyze.sh` 写死）。`input_checks.py` 也读 `results_lead_final_excl/<split>/ssm/frame_ssm.csv`。
+  - `vlm_inputs/`：正式实验的输入图（`make_main_inputs.py` 生成）。
+  - `vlm_scores/<模型>/`：正式实验的回答 `main_<模型>.jsonl`，跑完压缩成 `.jsonl.gz`（`analyze.sh` 写死这个文件夹）。
+  - `vlm_scores_to_delete/<模型>/`：压缩后挪开的原文件，等用户删（`compress.sh` 写死）。
+  - `scene_labels_waymo.csv`：1,000 段 Waymo 自己的时段、地点、天气标签（`code/make_scene_labels.py` 生成，`weather` 列空着；`analyze.sh` 写死）。
+  - `analysis/<名字>/`：正式实验的分析结果。
+- `/data/lab/cejli/sy/tmp_checks/`：检查脚本的原件和它们的输出（表、图、日志）。仓库里的是原样复制的，以后改仓库里的。
+- `/scratch/user/<netid>/<工作区>`：scratch 工作区（原始文件、全部提取结果，2 周后连数据自动删），当参数给；这个账号的路径和到期日写在 Kamiak 的 `CLAUDE.local.md`。
+- `~/benchmark-claude-remote`：Kamiak 上的仓库。`kamiak/checks/` 里多数脚本用 `sys.path.insert(0, os.path.expanduser('~/benchmark-claude-remote/code'))` 导入 `code/` 里的程序（`wod_common.py` 等），所以在别的电脑上要先改这一行。`check_internvl_cut.py`、`check_parse_first.py`、`reparse_scores.py` 写死了 `/home/shuyi.wang/benchmark-claude-remote/` 下的 `code/` 和试跑结果 `results/vlm_scores/`；`input_checks.py` 读 `<仓库>/results/vlm_inputs*`（办公室电脑生成的试跑输入图）。
+- 用 `python -I` 跑时，脚本所在的文件夹不在 `sys.path` 里；`acceptance2.py`、`followup_sheets.py` 自己把 `kamiak/checks/` 加进去，好导入 `front_sequence.py`、`lead_conditions.py`。
+
+`kamiak/checks/`：算出过写进 `docs/handoff.md`、CLAUDE.md 的数的检查脚本（用户 2026-10-22 定的；handoff 里每个数旁边写着是哪个脚本）：
+
+| 脚本 | 算了什么 |
+|---|---|
+| `split_checks.py` | 每个 split 合并后：段数、帧数、77 m 标注范围、自车一直对不上车道的段、整段为空的列 |
+| `compare_demo_office.py` | 两台机器算的 `frame_ssm.csv` 比对，旧标准（2026-10-21，demo 3 段办公室电脑对 Kamiak） |
+| `compare_frame_ssm.py` | 同上，新标准（2026-10-22 加了 1e-9 的绝对下限；先后用树状数组一遍数完） |
+| `ego_lane_check.py` | 自车为什么对不上地图车道 |
+| `reversing_check.py` | 自车、前车倒车的帧 |
+| `small_ttc_check.py` | TTC 很小的帧：前车是不是路边停着、后来被自车开过去的车 |
+| `lead_change_reasons.py` | 加横向重叠以后前车变了的帧和原因 |
+| `lead_compare_counts.py` | 加横向重叠以后前车变化的帧数 |
+| `overlap_details.py` | 还剩的 TTC < 3 s 的帧，两车横向重叠的细节 |
+| `acceptance_snapshots.py` | 第一批验收图（A、B 两组） |
+| `acceptance2.py` | 第二批验收图（R、S、T 三组） |
+| `front_sequence.py` | 一辆车前后几秒的 FRONT 相机拼图（验收用；`acceptance2.py`、`followup_sheets.py` 导入它） |
+| `lead_conditions.py` | 某辆车在某帧为什么是 / 不是前车（B18、A08） |
+| `followup_sheets.py` | R02、R07、R10 的追查和拼图 |
+| `trial_slow_rule.py` | 慢车规则的试算 |
+| `slow_rule_breakdown.py` | 慢车规则在正式结果里去掉了哪些帧、为什么 |
+| `merge_lidar_parts.py` | 点云检查分块结果的合并和汇总 |
+| `ssm_value_frames.py` | 9 个、前车类 7 个指标都有数值的帧：帧数、段数、前车、TTC 范围、指标之间的 τ-b |
+| `speed_noise.py` | 接近速度很小的帧、TTC 很大的帧、速度的测量误差 |
+| `da_probe.py` | Waymo 域适应部分第一帧里有什么 |
+| `input_checks.py` | 输入图：换字体后 demo 和试跑比、两种排字方式比、复制的图和 scratch 的图生成出来比 |
+| `label_regions.py` | 换字体后网格图和试跑不同的像素，是不是都在相机名的角上 |
+| `summarize_scores.py` | 试跑每个模型的回答概况（解析、思考长度、用时、同一帧 5 次的标准差） |
+| `check_parse_first.py` | 解析改成取第一份 JSON 以后，以前的回答结果变没变 |
+| `reparse_scores.py` | 按新解析办法重算一个结果文件的 `parsed`（先备份，有一条结果会变就不写） |
+| `check_internvl_cut.py` | InternVL 思考版写到上限的回答，补答时上下文够不够 |
+| `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
+
+没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`。
 
 ## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好，当天两部分都跑完）
 用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。
@@ -277,7 +333,7 @@ squeue -u $USER
   sbatch --array=0-20%20 --export=ALL,RUN=lead_overlap kamiak/waymo_lidar_check.sbatch "$WS" validation
   sbatch --array=0-79%20 --export=ALL,RUN=lead_overlap kamiak/waymo_lidar_check.sbatch "$WS" training
   ```
-  - 每段约 20 s，每块最多 3 分 11 秒，内存 8G 足够。合并和汇总用 `/data/lab/cejli/sy/tmp_checks/merge_lidar_parts.py`（结果见 `docs/handoff.md` 第 2 节最后）。
+  - 每段约 20 s，每块最多 3 分 11 秒，内存 8G 足够。合并和汇总用 `kamiak/checks/merge_lidar_parts.py`（结果见 `docs/handoff.md` 第 2 节最后）。
 - 出问题：
   - 某一块失败：看 `logs/waymo-ssm_<作业号>_<块号>.out`。改好后只重交那一块：`sbatch --array=<块号> kamiak/waymo_ssm.sbatch "$WS" <split>`。再重交合并（命令就是 `waymo_submit.sh` 最后那条 `sbatch --wrap`）。还在等的合并作业会显示 `DependencyNeverSatisfied`，用 `scancel` 取消。
   - 下载中断（时限到了、网络断了）：再跑一次 `bash kamiak/waymo_submit.sh "$WS" <split>`。下好的文件、提取过的段都会跳过。

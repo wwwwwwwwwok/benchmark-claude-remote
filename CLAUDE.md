@@ -36,6 +36,7 @@
 - `vlm_frames/`：正式 VLM 实验问哪些帧的两份清单（`code/make_vlm_frame_lists.py` 生成，文件开头的 `#` 行写着来源和日期，读的时候用 `comment='#'`）。
 - `fonts/`：网格图上写相机名用的 DejaVu Sans Bold 和它的许可证（2026-10-22 我定的，见下面"VLM 打分"）。
 - `kamiak/`：在 Kamiak 上跑 VLM 的任务脚本和步骤；还有下载、提取 Waymo 训练集 + 验证集并算 SSM 的脚本（`waymo_*.sbatch`、`waymo_submit.sh`）。
+  - `kamiak/main_run/`：正式实验的脚本（复制图、生成输入图、核对运行、压缩、分析和汇总）；`kamiak/checks/`：算出过写进 `docs/handoff.md` 的数的检查脚本。2026-10-22 我定的：两处都只放脚本，数据和图留在课题组目录；脚本是从课题组目录的 `tmp_checks/` 原样复制的，以后改仓库里的；用到的课题组目录路径写在 `kamiak/README.md`"脚本用到的路径"。
 
 ## 数据（不进仓库）
 - 只用 Waymo Open Dataset Perception **v1.4.3**（带地图），不混用 v2.0.1。除了地图，两个版本内容相同。

@@ -85,15 +85,15 @@
 - Google 登录：用已有的登录（用户确认是自己的账号），在 dtn1 上能列出验证集的 202 个文件，demo 3 段都在里面。
 - scratch：`/scratch/user/shuyi.wang/waymo_20261021_205447`，2026-11-04 到期，写在 Kamiak 的 `CLAUDE.local.md`。
 - 验证集（2026-10-21 跑完）：下载 9 分 41 秒；21 块提取和算 SSM，每块 29 秒到 3 分 31 秒；合并 4 秒。
-  - 结果在 `/data/lab/cejli/sy/waymo_v143/results/validation/`：202 段、39,987 帧，每段 181–199 帧。
+  - 结果在 `/data/lab/cejli/sy/waymo_v143/results/validation/`：202 段、39,987 帧，每段 181–199 帧（段数、帧数、77 m、对不上车道的段、整段为空的列：`kamiak/checks/split_checks.py`，训练集也是）。
   - `params.txt`：没有一段超过 77 m。最远是 77.000 m，有 9 段正好 77.000 m。
   - 日志：没有 77 m 的 WARNING。只有第 15 块有 3 条 Python 警告（原文和影响见 `kamiak/README.md`"日志里可以不管的警告"），都来自自车一帧都没对上地图车道的一段 `5990032395956045002_6600_000_6620_000`，不影响 SSM 的数。
-  - 自车没对上地图车道的 3 段（对上的规则：车道中心线 2.5 m 以内、方向差 45° 以内；脚本 `/data/lab/cejli/sy/tmp_checks/ego_lane_check.py`），地图都不缺，没对上的帧都按设计改用"沿自车实际路线"找前车：
+  - 自车没对上地图车道的 3 段（对上的规则：车道中心线 2.5 m 以内、方向差 45° 以内；脚本 `kamiak/checks/ego_lane_check.py`），地图都不缺，没对上的帧都按设计改用"沿自车实际路线"找前车：
     - `5990032395956045002_6600_000_6620_000`（旧金山，白天）：199 / 199 帧没对上。地图有 135 条车道（地面道路 123、未定义 8、自行车道 4），另有 driveway 65、路沿 52、车道线 46、人行横道 20、停车标志 7。自车 19.8 s 只开了 24.9 m，平均 1.25 m/s，一直往前开，没倒车。最近的车道中心线在 10.684–10.884 m 外，方向相反（差 176.9–180.0°）；同方向最近的车道在 62–82 m 外。自车不在 driveway 或人行横道里，离最近的路沿约 8 m。鸟瞰图上自车路线在地图右侧路沿外，两边都是停着的车；前视相机里是一条画了车道线的路，左边紧挨着有轨电车，右边是斜停的车，前方有停车标志。所以是自车走的这条路地图里没有车道，不像停车场。
     - `1331771191699435763_440_000_460_000`（旧金山，黎明/黄昏）：前 88 帧没对上（检查表按 10 m 算是 74 帧）。这段在住宅区（driveway 98 个，没有车道线和人行横道），自车开始时在断头路尽头的回车圈掉头，其中 35 帧在倒车，车身和车道方向差 85–154°。掉头后沿街开，就对上了。
     - `933621182106051783_4160_000_4180_000`（旧金山，白天）：前 40 帧（4 s）没对上。这条街北段地图里只有路沿，车道中心线从路口前约 30 m 才开始；自车头 4 s 开在没画车道的那段（车速中位 7.1 m/s，最近的车道中心线 2.8–30.3 m，方向一致），之后进入有车道的部分。
-  - 倒车：前车类指标用的是速度大小（`wod_common.speed_and_accel`），自车倒车离开前车时接近速度仍是正的，会算出 TTC，前车倒车向自车靠近时反而没有。验证集里自车倒车只有上面掉头那段的 35 帧（速度 ≥ 0.5 m/s、行驶方向和车头方向差 90° 以上），这些帧都没有前车；前车倒车的帧是 0。所以验证集不受影响。训练集跑完再查一次（脚本 `/data/lab/cejli/sy/tmp_checks/reversing_check.py`）。
-  - demo 3 段和办公室电脑的 `results/waymo_demo/frame_ssm.csv` 比（用户要求；用户传到 Kamiak 的 `results/frame_ssm.csv`；脚本 `/data/lab/cejli/sy/tmp_checks/compare_demo_office.py`）：
+  - 倒车：前车类指标用的是速度大小（`wod_common.speed_and_accel`），自车倒车离开前车时接近速度仍是正的，会算出 TTC，前车倒车向自车靠近时反而没有。验证集里自车倒车只有上面掉头那段的 35 帧（速度 ≥ 0.5 m/s、行驶方向和车头方向差 90° 以上），这些帧都没有前车；前车倒车的帧是 0。所以验证集不受影响。训练集跑完再查一次（脚本 `kamiak/checks/reversing_check.py`）。
+  - demo 3 段和办公室电脑的 `results/waymo_demo/frame_ssm.csv` 比（用户要求；用户传到 Kamiak 的 `results/frame_ssm.csv`；脚本 `kamiak/checks/compare_demo_office.py`）：
     - 595 行一一对应。不是数值的 15 列（前车和最近物体的编号、车道、头尾帧标记、物体数、时间戳）完全一样。
     - 按当时定的标准（数值差在 1e-9 以内），数值列有 8 列的绝对差超过 1e-9：
 
@@ -125,7 +125,7 @@
     - pandas `FutureWarning`（第 5、12、47、58、76 块）：这几块各有一段 `ego_lane` 整列为空（按算 SSM 的 2.5 m 规则，训练集共 7 段，多了 `18286677872269962604_3520_000_3540_000`、`5083516879091912247_3600_000_3620_000`），同一块里还有别的段 `ego_lane` 部分为空。第 38、40 块也各有一段整列为空，但另外 9 段每帧都对上了车道，pandas 这时直接把这一列当成 object 类型，不发警告（2026-10-21 用小例子试过）。三种情况数值都一样。
   - 自车没对上车道：训练集 7 段全段没对上，76 段部分帧没对上，一共 3,178 帧；验证集是 1 段、22 段、549 帧。都按设计改用"沿自车实际路线"找前车。
   - scratch 上：原始文件 206 GB（验证集）+ 817 GB（训练集），提取结果 75 GB + 292 GB。课题组目录：表格副本 2.5 GB，结果 1.3 GB，课题组目录还剩 123 GB。
-- 9 个指标都有数值的帧（用户 2026-10-21 要的那几个数；脚本 `/data/lab/cejli/sy/tmp_checks/ssm_value_frames.py`，先用 demo 3 段核对过，和下面第 3 节记的 demo 数字完全一样；结果和帧列表在 `/data/lab/cejli/sy/waymo_v143/results/value_frames/`）。都不算头尾帧；"有数值"和 `analyze_vlm_ssm.py` 一样；目标帧是每 0.5 s 一个（帧号是 5 的倍数、≥ 20、不是头尾帧）；连续小段 = 同一段里帧号连着的一串（目标帧按隔 5 帧算连着）；前车按段 + 编号数。
+- 9 个指标都有数值的帧（用户 2026-10-21 要的那几个数；脚本 `kamiak/checks/ssm_value_frames.py`，先用 demo 3 段核对过，和下面第 3 节记的 demo 数字完全一样；结果和帧列表在 `/data/lab/cejli/sy/waymo_v143/results/value_frames/`）。都不算头尾帧；"有数值"和 `analyze_vlm_ssm.py` 一样；目标帧是每 0.5 s 一个（帧号是 5 的倍数、≥ 20、不是头尾帧）；连续小段 = 同一段里帧号连着的一串（目标帧按隔 5 帧算连着）；前车按段 + 编号数。
 
   | | 1,000 段 | 验证集 202 段 | 训练集 798 段 |
   |---|---|---|---|
@@ -161,7 +161,7 @@
     | TTC2D | | | | | | | | 1 | 0.743 |
 
     - 和 demo 不一样：demo 18 帧里 TTC、2D-TTC、ACT 两两都是 1.00，9 个指标只剩 4 种排名；1,000 段上最高的是 TTC–DRAC 0.810、TTC2D–ACT 0.743，其余都在 0.69 以下。
-  - **TTC 很小的帧大多是停在路边的车被算成了前车**（脚本 `/data/lab/cejli/sy/tmp_checks/small_ttc_check.py`）。9 个都有数值、TTC < 3 s 的 1,309 帧（58 段）里：
+  - **TTC 很小的帧大多是停在路边的车被算成了前车**（脚本 `kamiak/checks/small_ttc_check.py`）。9 个都有数值、TTC < 3 s 的 1,309 帧（58 段）里：
     - 1,289 帧前车几乎停着（< 0.5 m/s），自车速度中位 5.954 m/s，前车在自车右边（横向位置中位 −2.735 m）；
     - 893 帧里自车后来从这辆车旁边开过去了（它整个落到自车后保险杠后面），开过去时的横向间隙中位 0.957 m；
     - 只有 67 帧（5%）"沿自车实际路线"找前车也找到同一辆车；同一帧的 2D-TTC 中位 3.937 s；
@@ -169,7 +169,7 @@
     - 原因：前车的定义是"车身中心离车道中心线 < 1.75 m"，没看自车自己在车道里的横向位置；车道宽、路边停车的街上，停着的车离车道中心线不到 1.75 m，自车从旁边绕过去，一维 TTC 就会很小。前车停在本车道、自车换道超过去的情况也算在"开过去"里，那种按经典 TTC 是真的冲突，所以上面的数只说明问题有多大，分不出两种情况。
     - 不限 TTC：9 个都有数值的 8,816 帧里，"前车停着、后来被自车开过去"的有 1,834 帧（49 段）；前车类 7 个都有数值的 15,201 帧里有 3,270 帧（62 段）。
     - 怎么处理还没定，要问用户（改的是前车的配对规则）。
-  - 倒车（用户 2026-10-21 要的，先不改程序；脚本 `/data/lab/cejli/sy/tmp_checks/reversing_check.py`，倒车 = 速度 ≥ 0.5 m/s、行驶方向和车头方向差 90° 以上；逐帧列表 `/data/lab/cejli/sy/waymo_v143/results/reversing_frames.csv`）：
+  - 倒车（用户 2026-10-21 要的，先不改程序；脚本 `kamiak/checks/reversing_check.py`，倒车 = 速度 ≥ 0.5 m/s、行驶方向和车头方向差 90° 以上；逐帧列表 `/data/lab/cejli/sy/waymo_v143/results/reversing_frames.csv`）：
 
     | | 帧 | 段 | 有前车 | 有 TTC / MTTC / DRAC | 目标帧 | 目标帧里有前车 | 目标帧里有 TTC / MTTC / DRAC |
     |---|---|---|---|---|---|---|---|
@@ -197,12 +197,12 @@
   - `analyze_vlm_ssm.py`：每个 SSM 用自己的帧，前车类 7 个去掉倒车帧；`frame_ssm.csv` 没有这两列就报错（旧结果要用新程序重算）。
   - `kamiak/waymo_ssm.sbatch`、`kamiak/waymo_submit.sh`：`RUN=<名字>` 把结果写到 `ssm_parts_<名字>/` 和 `results_<名字>/`；已经下载完的 split 不再交下载作业。
 - 第 3 步 demo 3 段（2026-10-21 做完）：结果在 Kamiak 仓库的 `results/waymo_demo/`（Kamiak 上原来没有这个文件夹）。
-  - 前车：地图法、沿路线法、直线法 595 帧**一帧都没变**；倒车 0 帧；其余各列和旧规则在同一台机器上算的完全一样（脚本 `/data/lab/cejli/sy/tmp_checks/lead_change_reasons.py`，`results/waymo_demo/lead_changes_vs_old_rule.csv` 是空的）。
+  - 前车：地图法、沿路线法、直线法 595 帧**一帧都没变**；倒车 0 帧；其余各列和旧规则在同一台机器上算的完全一样（脚本 `kamiak/checks/lead_change_reasons.py`，`results/waymo_demo/lead_changes_vs_old_rule.csv` 是空的）。
   - 人工标注重新打分：`score_lead_labels.py` 用的是 key 里记下的"每种方法选了几号车"，所以按 key 里的号码对照表，用新规则选的车重新填了一份 `results/waymo_demo/lead_key_overlap_rule.csv`（`labels/` 没动），再原样打分。结果**完全一样**：标注范围内地图法 41/43、50/50，估计 99.7%；沿路线法 95.5%；直线法 94.5%；严格算地图法 85.2%。93 个标注帧里没有一帧的选择变了。
   - 所以 demo 的试跑分析没有重跑（结果不会变）。改过的 `analyze_vlm_ssm.py` 做了回归检查（bootstrap 20 次，`/data/lab/cejli/sy/tmp_checks/analyze_regression/`）：没有倒车帧时和改之前的程序输出逐字节一样；人为标 10 帧倒车，只有前车类 7 个指标变（用 92 帧），2D-TTC、ACT 一个数没变（用 102 帧）。
   - 办公室电脑上的 `results/waymo_demo/` 以后用到时要换成新的（多了两列和 `params.txt` 两行，前车和数值都没变）：新的分析程序要求 `frame_ssm.csv` 有这两列，旧文件会报错。
 - 第 4 步：1,000 段用新规则重算（2026-10-21 晚，`RUN=lead_overlap`；验证集作业 31351410 → 合并 31351411，训练集 31351412 → 31351413，103 个作业全部 COMPLETED，警告和上次一样，在同样的 6 块）。结果在 `/data/lab/cejli/sy/waymo_v143/results_lead_overlap/<split>/`，旧结果 `results/` 没动；段数、帧数、77 m、对不上车道的段都和上次一样。
-  - 前车变化（`results_lead_overlap/lead_changes_vs_old_rule.txt`，脚本 `tmp_checks/lead_compare_counts.py`；括号里是不算头尾帧）：
+  - 前车变化（`results_lead_overlap/lead_changes_vs_old_rule.txt`，脚本 `kamiak/checks/lead_compare_counts.py`；括号里是不算头尾帧）：
 
     | | 没了 | 换成另一辆车 | 没变 |
     |---|---|---|---|
@@ -250,16 +250,16 @@
     | PSD | | | | | | | 1 | −0.073 | −0.081 |
     | TTC2D | | | | | | | | 1 | 0.713 |
 
-  - TTC < 3 s 还剩的帧（`results_lead_overlap/small_ttc_check.txt`、`small_ttc_overlap_details.csv`）：9 个都有数值的 391 帧（原来 1,309），其中前车几乎停着 371 帧；前车类 7 个都有数值的 578 帧（原来 2,449），前车停着 554 帧。不要求别的指标、只要 TTC < 3 s（不算头尾帧和倒车）的有 1,554 帧（84 段）。
+  - TTC < 3 s 还剩的帧（`results_lead_overlap/small_ttc_check.txt`、`small_ttc_overlap_details.csv`；脚本 `kamiak/checks/small_ttc_check.py`、`kamiak/checks/overlap_details.py`）：9 个都有数值的 391 帧（原来 1,309），其中前车几乎停着 371 帧；前车类 7 个都有数值的 578 帧（原来 2,449），前车停着 554 帧。不要求别的指标、只要 TTC < 3 s（不算头尾帧和倒车）的有 1,554 帧（84 段）。
     - 578 帧里：自车车头和路线方向差 10° 以上的 141 帧（20° 以上 36 帧）；两车横向只重叠不到 0.3 m 的 124 帧；如果把自车当成顺着路线（中心 ± 半个车宽，不用转过来的四个角），有 106 帧就不重叠了；沿自车实际路线法也选中同一辆车的只有 62 帧。
-- 第 5 步验收看图（2026-10-22；脚本 `tmp_checks/acceptance_snapshots.py`，随机种子 20261021，尽量每段一帧；图在 `/data/lab/cejli/sy/waymo_v143/results_lead_overlap/acceptance/`：`bev_only/` 只有鸟瞰图，`with_camera/` 带 FRONT 相机，`frames.csv` 是抽到的帧。Claude 只看了 `bev_only/`）：
+- 第 5 步验收看图（2026-10-22；脚本 `kamiak/checks/acceptance_snapshots.py`，随机种子 20261021，尽量每段一帧；图在 `/data/lab/cejli/sy/waymo_v143/results_lead_overlap/acceptance/`：`bev_only/` 只有鸟瞰图，`with_camera/` 带 FRONT 相机，`frames.csv` 是抽到的帧。Claude 只看了 `bev_only/`）：
   - A 组（新规则去掉的、原来 TTC < 3 s 的帧，池子 1,945 帧 / 48 段，抽 10 帧 / 10 段）：10 帧全部去对了，原来的"前车"都在自车路线旁边、多是停在路沿的车，自车从旁边开过去；按路线横向两车相隔 0.13–1.39 m。A07 换成了正前方真正的前车（三种方法一致），A03、A09 换成了更前面的车。
   - B 组（新规则下 TTC < 3 s，池子 1,554 帧 / 84 段；最小 5 帧 + 随机 5 帧，10 段）：
     - 最小的 5 帧（TTC 0.013–0.122 s）都不是真的快撞上：B11–B14 是自车正在转弯，车身和路线方向差得多，四个角投到路线横向上那一段被拉宽，和路边停着的车"重叠"；B15 是车头差 6.3°，和路边的车只重叠 5 cm。
     - 随机的 5 帧：B19（路口排队，三种方法一致）、B20（慢速跟着停着的车，三种方法一致）、B16（本车道前方 18 m 停着一辆车）看着是真冲突；B18 是前方停着一辆大车、自车往左绕过去，按"这一帧横向重叠"的定义也算；B17 前车在路边那一侧慢慢开（3.64 m/s），看图像擦边，按数字其实和自车横向重叠 1.23 m。
     - 如果自车按"顺着路线"算（中心 ± 半个车宽，不用转过来的四个角）：B11–B15 都不再重叠（−0.110 到 −0.644 m），B16、B17、B18 仍重叠（0.016、1.183、1.012 m）。
   - 结论：新规则把路边停车这类去掉了；剩下的小 TTC 里还有"自车转弯时车框斜着"和"擦边重叠"两类。规则是用户定的，没改；要不要再调整等用户决定。
-- 第 6 步点云检查（2026-10-22 跑完，赶在 scratch 11-04 到期前）：`kamiak/waymo_lidar_check.sbatch`，每块一个任务，用新规则下每块的 `frame_ssm.csv`（作业 31357633 验证集 21 块、31357634 训练集 80 块，101 个全部 COMPLETED，每块最多 3 分 11 秒）；`tmp_checks/merge_lidar_parts.py` 合并到 `results_lead_overlap/<split>/lidar_check/`，汇总在 `results_lead_overlap/lidar_check_summary.txt`。先在 demo 3 段上试过：结果和办公室电脑当初的一样（501 帧，车尾差中位 0.043 m、95% 0.107 m、最大 0.144 m；642 条车辆轨迹里 531 条能定车型；4 辆前车都是 car），每段约 20 s。
+- 第 6 步点云检查（2026-10-22 跑完，赶在 scratch 11-04 到期前）：`kamiak/waymo_lidar_check.sbatch`，每块一个任务，用新规则下每块的 `frame_ssm.csv`（作业 31357633 验证集 21 块、31357634 训练集 80 块，101 个全部 COMPLETED，每块最多 3 分 11 秒）；`kamiak/checks/merge_lidar_parts.py` 合并到 `results_lead_overlap/<split>/lidar_check/`，汇总在 `results_lead_overlap/lidar_check_summary.txt`。先在 demo 3 段上试过：结果和办公室电脑当初的一样（501 帧，车尾差中位 0.043 m、95% 0.107 m、最大 0.144 m；642 条车辆轨迹里 531 条能定车型；4 辆前车都是 car），每段约 20 s。
   - 前车车尾（点云从后往前第一处密的地方 − 框的车尾，= 按点云量的间距 − 按框量的间距）：80,343 帧、891 辆前车、587 段。绝对值中位 0.041 m，95% 在 0.153 m 以内；有正负号时中位 +0.039 m（框比点云略大，按框量的间距略小，和 demo 一样偏保守）。
     - 差得大的不多：超过 0.5 m 的 1,170 帧（1.46%，109 辆前车），超过 1 m 的 215 帧（0.27%），最大 8.433 m（一辆 bus）。按车型：car 中位 0.039、95% 0.137 m；truck 0.065 / 0.212 m；bus 0.065 / 0.452 m；other_vehicle 0.085 / 0.995 m。差得大的前车往往点很少、看得到的长度很短，像是被挡住一部分；大车车尾形状不规则。
   - 车型（激光雷达逐点语义标签，按轨迹推到整段）：59,014 条车辆轨迹里 47,678 条（80.8%）能定车型，占车辆框的 93.6%；car 45,229、truck 1,204、other_vehicle 438、bus 422、motorcycle 364、motorcyclist 14、bicycle 5、bicyclist 2。
@@ -271,15 +271,15 @@
   4. 1,000 段正式重算、上次那张表、τ-b、点云检查、下一批验收图，等规则定了一起做，赶在 11-04 前。
 - 第 1 条做完（2026-10-22）：`wod_common.lateral_overlap` 改成自车用 `ego_centre_map`（两个保险杠中点）± `EGO_HALF_W`；`params.txt` 的规则说明跟着改。demo 3 段和改之前**完全一样**（`frame_ssm.csv`、`scene_summary.csv`、所有图逐字节相同，只有 `params.txt` 那一行字不同；`results/waymo_demo/params.txt` 已换成新的）。
   - 为了试算，用新代码把 1,000 段临时算了一遍，放在 scratch：`$WS/ssm_parts_centre_trial/`、`$WS/results_centre_trial/`（不是正式结果，没进课题组目录）。和四个角版比：地图法前车没了 573 帧、换车 175 帧、多出 5 帧（弯道上四个角投出去不一定比中心 ± 半宽宽），共 748 帧、107 段。
-- B18 查出来的（`tmp_checks/lead_conditions.py`）：那辆车 10.32 × 2.98 m（大车），整段没动过：标注的第 69–198 帧（13 s）里最大速度 0.031 m/s。
+- B18 查出来的（`kamiak/checks/lead_conditions.py`）：那辆车 10.32 × 2.98 m（大车），整段没动过：标注的第 69–198 帧（13 s）里最大速度 0.031 m/s。
   - 自车没停，一直在开（最慢 3.92 m/s），从它左边开过去：+2.4 s（第 186 帧）两车车框最近，相距 0.851 m；到片段结束（第 198 帧）那辆车还在自车旁边。
   - 地图法在第 162 帧选它：离车道中心线 0.875 m，方向差 0.96°，间距 7.469 m，按车框中心算和自车横向重叠 1.012 m。这里的车道按地图边线宽 5.871 m（左边线 3.006 m、右路沿 2.865 m），自车在车道中心线左边 2.268 m。
   - 沿路线法、直线法没选它，没过的都是"离中心线 < 1.75 m"：它离自车实际路线 3.684 m，在直线走廊里横向 3.620 m（沿路线法的横向重叠也没过）。
-  - 前 1 秒、当前、后 1/2/3 秒的 FRONT 相机图拼成一张（红框是那辆车）：`/data/lab/cejli/sy/waymo_v143/results_lead_overlap/acceptance/B18_front_sequence.jpg`（`tmp_checks/front_sequence.py`；Claude 没打开）。
+  - 前 1 秒、当前、后 1/2/3 秒的 FRONT 相机图拼成一张（红框是那辆车）：`/data/lab/cejli/sy/waymo_v143/results_lead_overlap/acceptance/B18_front_sequence.jpg`（`kamiak/checks/front_sequence.py`；Claude 没打开）。
 - A08 查出来的：沿路线法、直线法选的那辆车（`Gz9i3nLbER8pCp3AX1Beng`，4.21 × 1.98 m）整段速度都是 0。
   - 地图法没过的条件：离车道路线中心线 11.516 m（要 < 1.75 m）、方向差 73.0°（要 < 30°），横向也不重叠。原因是地图的车道路线在前方 50–60 m 处右转 89°（车道 142 → 138 → 132 → 134），而这辆车在直行方向 64 m 外；沿路线法和直线法是往正前方直着延长，所以选到它。片段只剩 2 s，看不出自车之后往哪开。
   - 车道宽（按地图边线）：自车所在的车道 142 宽 4.697 m（左车道线 1.797 m、右路沿 2.901 m），自车离车道中心线 0.801 m；这辆车投到的车道 132 那里宽 7.330 m。
-- 试算"慢车"规则（只算，不改程序；`tmp_checks/trial_slow_rule.py`，用上面临时算的车框中心版前车）：前车慢于 0.5 m/s 时，要么它在这一段里某一帧快于 0.5 m/s，要么沿路线法也选了它，才算前车；都不满足，这一帧算没有前车，不往后找。
+- 试算"慢车"规则（只算，不改程序；`kamiak/checks/trial_slow_rule.py`，用上面临时算的车框中心版前车）：前车慢于 0.5 m/s 时，要么它在这一段里某一帧快于 0.5 m/s，要么沿路线法也选了它，才算前车；都不满足，这一帧算没有前车，不往后找。
   - 1,000 段：有前车的 82,589 帧里，前车慢于 0.5 m/s 的 28,317 帧；其中因为在这一段里动过而留下 17,546 帧，因为沿路线法也选了它而留下 7,823 帧；**去掉 2,948 帧**（不算头尾帧 2,454），来自 61 段、93 辆车；其中自车后来从它旁边开过去的 1,182 帧；没有一帧是地图法退回沿路线法的（退回时两种方法本来就选同一辆）。验证集去掉 464 帧（8 段），训练集 2,484 帧（53 段）。
   - 对"都有数值的帧"的影响（不算头尾帧）：9 个都有数值 7,050 → 5,958；前车类 7 个 11,838 → 10,012；其中 TTC < 3 s 479 → 114；9 个都有数值且 TTC < 3 s 320 → 110。
   - 20 帧验收图：A03（前车慢、整段没动、沿路线法没选）去掉；B11–B15 在车框中心版里已经没有前车；B16 去掉；B18 去掉（整段没动、沿路线法没选）；B17、B19、B20、A07、A09 的前车都留着（B19、B20 的前车这一帧慢，但这一段里动过，沿路线法也选了它）。A08 地图法本来就没有前车，这条规则不会补上。和用户预期的一致，B18 按查出的情况去掉。
@@ -290,7 +290,7 @@
   4. 然后一起做：1,000 段正式重算（新文件夹），先报比试算版多去掉多少帧（"自车后来开过去"和"轨迹头尾"分开报）；重报那张表和 τ-b；用最终的前车再跑点云检查（11-04 前）；下一批验收图（去掉的随机 10 帧，尽量包括"动过、但被自车开过去"的；留下的慢车前车随机 10 帧；TTC 最小的 5 帧；不同段、固定种子；每帧把前 1 秒、当前、后 1/2/3 秒的 FRONT 相机图拼成一张，红框标前车，去掉的那组标原来的前车；Claude 不打开带相机的图）。
 - 慢车规则写进程序（2026-10-22）：`wod_common.LEAD_SLOW_SPEED`、`slow_lead_facts`；`waymo_ssm_frames.process` 在选出地图法前车之后检查；`params.txt` 记一行。demo 3 段和之前**完全一样**（10 个文件逐字节相同，只有 `params.txt` 多了这一行）。
 - **慢车规则第一版的 1,000 段重算（2026-10-22）**：`RUN=lead_slow`（验证集作业 31361089 → 合并 31361090，训练集 31361091 → 31361092，103 个全部 COMPLETED，警告和以前一样）。结果在 `/data/lab/cejli/sy/waymo_v143/results_lead_slow/<split>/`（前车加横向重叠、自车用车框中心 ± 半宽、慢车规则、倒车标记）；以前的 `results/`、`results_lead_overlap/` 都没动。段数、帧数、77 m 和以前一样。（已被 `results_lead_final/` 取代：后来去掉了"自车后来没从它旁边开过去"那一条，见下面）
-  - 慢车规则去掉的帧（`results_lead_slow/slow_rule_breakdown.txt`、逐帧 `slow_rule_dropped.csv`；脚本 `tmp_checks/slow_rule_breakdown.py`，和车框中心版的临时结果比）：1,000 段去掉 3,065 帧（不算头尾帧 2,559），65 段、98 辆车；其中自车后来从它旁边开过去的 1,297 帧。
+  - 慢车规则去掉的帧（`results_lead_slow/slow_rule_breakdown.txt`、逐帧 `slow_rule_dropped.csv`；脚本 `kamiak/checks/slow_rule_breakdown.py`，和车框中心版的临时结果比）：1,000 段去掉 3,065 帧（不算头尾帧 2,559），65 段、98 辆车；其中自车后来从它旁边开过去的 1,297 帧。
     - 比试算版（2,948 帧）多去掉 117 帧（不算头尾帧 105）：动过、但被自车开过去 115 帧；只在轨迹头尾 9 帧里动过 2 帧；两样都占 0 帧。验证集多 30 帧（全是"被开过去"），训练集多 87 帧（85 + 2）。
     - 核对：除了这 3,065 帧，两个部分里前车编号、标记等不是数值的列一个都没变；验证集其余每一行和临时结果逐字相同。
   - **同一个程序在 Kamiak 不同节点上算，最后几位会不同**（核对时发现）：训练集有 27,211 行（140 段）的数值列和临时结果不一样，原因是两次同一块常被分到不同型号的节点（比如第 6–18 块临时版在 cn101/cn102，正式版在 cn169）。不是数值的列和 NaN/∞ 的位置都一样。按用户定的比对标准：
@@ -336,7 +336,7 @@
     | TTC2D | | | | | | | | 1 | 0.687 |
 
   - TTC < 3 s 还剩的帧（`results_lead_slow/small_ttc_check.txt`）：9 个都有数值的 97 帧（14 段），其中前车几乎停着 77 帧、沿路线法也选同一辆 58 帧；"前车停着、后来被自车开过去"的 0 帧。前车类 7 个都有数值的 101 帧（14 段），停着 78 帧。
-  - 第二批验收图（`tmp_checks/acceptance2.py`，随机种子 20261022；在 `results_lead_slow/acceptance/`，`frames.csv` 是抽到的帧和各项数；每帧一张 FRONT 相机拼图：前 1 秒、当前、后 1/2/3 秒，红框是前车，R 组是被去掉的那辆；Claude 没打开）：
+  - 第二批验收图（`kamiak/checks/acceptance2.py`，随机种子 20261022；在 `results_lead_slow/acceptance/`，`frames.csv` 是抽到的帧和各项数；每帧一张 FRONT 相机拼图：前 1 秒、当前、后 1/2/3 秒，红框是前车，R 组是被去掉的那辆；Claude 没打开）：
     - R 组（慢车规则去掉的，10 帧 / 10 段）：3 帧"动过、但被自车开过去"（这一类只在 3 段里有，不算头尾帧），7 帧"一直没动"。
     - S 组（留下的慢车前车，10 帧 / 10 段）：10 帧都是沿路线法也选了同一辆；8 帧自车几乎停着（停在一辆停着的车后面），S15、S18 自车在开（4.55、11.27 m/s，前车在 22.2、49.5 m 外）。
     - T 组（TTC 最小的 5 帧）：TTC 1.157、1.453、1.519、1.732、1.882 s；T24 的前车慢（0.068 m/s）、沿路线法没选它，是因为"动过、自车也没开过去"而留下的。
@@ -351,7 +351,7 @@
   4. 比对标准加 1e-9 的绝对下限，相差不到 1e-9 的两帧不比先后（写进 CLAUDE.md 和上面"比对标准"）。
 - 第 1 条写进程序（2026-10-22）：`wod_common.slow_lead_facts` 换成 `moving_tracks`（只剩"动过"），`waymo_ssm_frames.process` 去掉"开过去"那个条件；`params.txt` 的说明跟着改。demo 3 段和之前**完全一样**（10 个文件逐字节相同，只有 `params.txt` 那一行字不同）。
 - **慢车规则改回去以后的 1,000 段重算（2026-10-22，`RUN=lead_final`；已被下面的 `results_lead_final_excl` 取代）**，在 `/data/lab/cejli/sy/waymo_v143/results_lead_final/<split>/`（验证集作业 31362918 → 合并 31362919，训练集 31362920 → 31362921，103 个全部 COMPLETED，警告和以前一样；段数、帧数、77 m 和以前一样）。
-  - 比 `results_lead_slow` 多回来 115 帧（不算头尾帧 105；验证集 30、训练集 85），正好是上一版只因"自车后来从它旁边开过去"而去掉的那 115 帧，回来的都是原来那辆车；别的帧前车一帧没变。其余各行按新比对标准（下面）比，两个部分都通过（`tmp_checks/compare_frame_ssm.py`）。
+  - 比 `results_lead_slow` 多回来 115 帧（不算头尾帧 105；验证集 30、训练集 85），正好是上一版只因"自车后来从它旁边开过去"而去掉的那 115 帧，回来的都是原来那辆车；别的帧前车一帧没变。其余各行按新比对标准（下面）比，两个部分都通过（`kamiak/checks/compare_frame_ssm.py`）。
   - 慢车规则一共去掉 2,950 帧（3,065 − 115），都是"一直没动（不算轨迹头尾），沿路线法也没选它"。
   - 倒车：不算头尾帧自车 74 帧、前车 7 帧，合计 81 帧，目标帧 14 帧。
   - 那张表（`results_lead_final/value_frames/`；"同一辆" = 沿自车实际路线法也选中同一辆车）：
@@ -432,7 +432,7 @@
   - 点云检查也用这一版的前车重跑了（作业 31363651、31363652，101 个全部 COMPLETED；`results_lead_final_excl/<split>/lidar_check/`、`lidar_check_summary.txt`）：前车车尾 77,186 帧、803 辆前车、550 段，点云和框的车尾差中位 0.041 m，95% 在 0.145 m 以内；超过 0.5 m 的 892 帧（1.16%），超过 1 m 的 140 帧（0.18%）。前车 833 辆，788 辆有车型：car 724、truck 30、bus 27、other_vehicle 6、motorcyclist 1（R02 那辆车在快的那些帧里还是前车，所以前车辆数不变）。
   - τ-b（9 个都有数值的全部帧）和 `results_lead_final` 比变得最多的是 TTC–CI，−0.151 → −0.157；矩阵：TTC–DRAC 0.783、TTC–MTTC 0.413、TTC–2D-TTC 0.621、TTC–ACT 0.553、THW–PICUD 0.598、THW–PSD 0.634、DRAC–2D-TTC 0.533、DRAC–ACT 0.489、MTTC–CI 0.041、CI–PSD 0.277、PICUD–PSD 0.237、2D-TTC–ACT 0.687，其余在 −0.16 到 0.35 之间（完整的在 `results_lead_final_excl/value_frames/tau_b_9ssm_all.csv`）。
 - **用户 2026-10-22 定：前车规则就按 `results_lead_final_excl` 这一版。** 下一步定 VLM 问哪些帧。
-- 接近速度很小的帧，TTC"有值"是不是只是噪声（2026-10-22，用户要的几个数；`tmp_checks/speed_noise.py`，结果 `results_lead_final_excl/speed_noise.txt`；都不算头尾帧）：
+- 接近速度很小的帧，TTC"有值"是不是只是噪声（2026-10-22，用户要的几个数；`kamiak/checks/speed_noise.py`，结果 `results_lead_final_excl/speed_noise.txt`；都不算头尾帧）：
 
   | 9 个都有数值的帧 | 全部 5,929 帧 | 目标帧 1,123 帧 |
   |---|---|---|
@@ -456,7 +456,7 @@
   | `testing_location/` | 79 | 76,430,693,143 字节（71.18 GiB） |
 
   - 有没有 3D 标注、有没有地图，要读文件里的第一帧才能确定（地图只存在每段的第一帧里）；提议每个文件夹只读第一个文件的第一帧（几 MB），等用户同意。
-  - 用户同意只读 `training/`、`validation/` 各自第一个文件的第一帧（`unlabeled/`、`testing*` 没有公开标注，不读）。读法：先读 12 字节的帧头得到长度，再用 `gcloud storage cat --range` 只读这一帧；放在 scratch 的 `da_probe/`（`training_first_frame.tfrecord` 5,544,239 字节、`validation_first_frame.tfrecord` 5,105,845 字节）。用提取程序的同一套消息定义解析（`tmp_checks/da_probe.py`）。两段结果一样：
+  - 用户同意只读 `training/`、`validation/` 各自第一个文件的第一帧（`unlabeled/`、`testing*` 没有公开标注，不读）。读法：先读 12 字节的帧头得到长度，再用 `gcloud storage cat --range` 只读这一帧；放在 scratch 的 `da_probe/`（`training_first_frame.tfrecord` 5,544,239 字节、`validation_first_frame.tfrecord` 5,105,845 字节）。用提取程序的同一套消息定义解析（`kamiak/checks/da_probe.py`）。两段结果一样：
 
     | 项目 | `training/` 第一段 | `validation/` 第一段 |
     |---|---|---|
@@ -514,19 +514,19 @@
 
     - 全做（5 个模型 × 5 种输入 × 5 次，140,375 次请求）约 228 GPU 小时；每人同时最多 2 块 GPU，排队顺利也要约 114 小时（4.7 天）。对比实验以后补 750 帧，全做约 152 GPU 小时。
     - 用户 2026-10-22 定：全做，先跑 Qwen3-VL-32B-Instruct（见下面"正式实验"）。
-- R07、R10、R02 查出来的（2026-10-22；`tmp_checks/followup_sheets.py`；拼图在 `results_lead_slow/acceptance/followup/`，每秒一格，每格优先用 FRONT，FRONT 看不到就换成那辆车框最大的相机并写明；Claude 没打开）：
+- R07、R10、R02 查出来的（2026-10-22；`kamiak/checks/followup_sheets.py`；拼图在 `results_lead_slow/acceptance/followup/`，每秒一格，每格优先用 FRONT，FRONT 看不到就换成那辆车框最大的相机并写明；Claude 没打开）：
   - R07（验证集 `447576862407975570_4360_000_4380_000` 第 159 帧，car 5.58 × 2.03 m）：FRONT 里一直看不到它，所以原来的拼图没有框。这一段里只有 FRONT_RIGHT（第 123–197 帧）和 SIDE_RIGHT（第 123–185 帧）看得到，第 159 帧只有 SIDE_RIGHT。整段速度 0；离路沿 0.07 m，是停在路边的车；地图车道路线往右转，它在转过去那条路的路边，离路线中心线 1.679 m（那里车道按地图边线宽 5.431 m）。到片段结束自车也没开到它跟前。拼图 `R07_44757686_f159.jpg`（第 149–189 帧）。
   - R10（训练集 `12365808668068790137_2920_000_2940_000` 第 14 帧，6.67 × 2.48 m，点云定的车型 car，30 帧有语义标签、一致）：整条轨迹（第 0–196 帧，含头尾）最快 0.012 m/s，一直没动。自车 +12.8 s（第 142 帧）才从它左边开过去；+9.7 s（第 111 帧）两车框最近 0.531 m，并排的第 97–141 帧里最小间隙也是 0.531 m。第 14 帧它离车道中心线 0.585 m，离右侧路沿 2.363 m：在车道里，不是靠路边（这条车道按地图边线算的宽度 117.6 m 不可信，左边线那个要素离这里 114 m；右路沿离车道中心线 3.186 m）。拼图 `R10_12365808_f014.jpg`（第 4–152 帧，16 格）。
   - R02（训练集 `8822503619482926605_1080_000_1100_000` 第 72 帧，car 4.19 × 2.01 m）：从 5.389 m/s（第 0 帧）减速，第 0–71 帧都快于 0.5 m/s，第 72 帧 0.488 m/s；轨迹中段最快 5.371 m/s，所以改回去以后算"动过"，是前车。自车 +5.7 s（第 129 帧）从它左边开过去，并排时最小间隙 1.180 m。第 72 帧 FRONT 里没有它的框，只有 FRONT_LEFT。拼图 `R02_88225036_f072.jpg`（第 62–139 帧）。
-- 比对脚本按新标准重写：`tmp_checks/compare_frame_ssm.py`（数值：相对差 ≤ 1e-6 或绝对差 < 1e-9；先后：一遍排序加树状数组数出顺序相反的帧对，再去掉任一边相差不到 1e-9 的）。demo 办公室对 Kamiak：通过。上次训练集两次在不同节点上算的（临时版对 `results_lead_slow`，去掉慢车规则去掉的帧）：先后全部一样；数值上 TTC 类各 63 行、MTTC 78 行、2D-TTC 61 行、CI 1 行超出（绝对差最大 6.6 s、32.6 s，相对差约 1e-5）。
+- 比对脚本按新标准重写：`kamiak/checks/compare_frame_ssm.py`（数值：相对差 ≤ 1e-6 或绝对差 < 1e-9；先后：一遍排序加树状数组数出顺序相反的帧对，再去掉任一边相差不到 1e-9 的）。demo 办公室对 Kamiak：通过。上次训练集两次在不同节点上算的（临时版对 `results_lead_slow`，去掉慢车规则去掉的帧）：先后全部一样；数值上 TTC 类各 63 行、MTTC 78 行、2D-TTC 61 行、CI 1 行超出（绝对差最大 6.6 s、32.6 s，相对差约 1e-5）。
 - 交 1,000 段之前，新规则先在两段路边停车多的段上试过：验证集 `16204463896543764114_5340_000_5360_000` 前车去掉 126 帧、换车 48 帧；训练集 `16801666784196221098_2480_000_2500_000` 199 帧都去掉。原来的前车在新判断下没有一辆和自车横向重叠（间隙 0.035–1.266 m），换上来的都重叠；原来这些帧的 TTC 中位 1.1 s，前车速度中位 0.016 m/s。
 - **正式实验（用户 2026-10-22 定的；做法写在 CLAUDE.md "VLM 打分"最后的"正式实验怎么跑"）**：
   - 用户定的：复制图；主实验全做（5 个模型设置 × 5 种输入 × 5 次），先跑 Qwen3-VL-32B-Instruct，跑完分析走一遍、报给用户、同意了再跑别的，Qwen3.6-27B 最后；提示词、采样、模型和软件版本和试跑一样（模板改成定稿）；分析的主结果用 1,084 帧（接近速度 0–0.1 m/s 的 39 帧整帧拿掉，不是只让 TTC、DRAC 没值），敏感性分析用 1,123 帧、不设这条；所有帧都有值，AUC 不报，只报排名；网格图改用 DejaVu Sans Bold 22 号；`analyze_vlm_ssm.py` 加 `--run`（默认 pilot）；结果写课题组目录，每个模型跑完压缩成 `.gz`，分析程序直接读；天气分组先放着。
-  - 复制图（作业 31364138，3 分 08 秒）：303 段、60,505 个文件、21,641,864,485 字节，和 scratch 上的源文件一样（验证集 11,170 个 / 3,983,625,320 字节，训练集 49,335 个 / 17,658,239,165 字节）。课题组目录复制后剩 89 GB。
+  - 复制图（作业 31364138，3 分 08 秒；`kamiak/main_run/copy_images.py`）：303 段、60,505 个文件、21,641,864,485 字节，和 scratch 上的源文件一样（验证集 11,170 个 / 3,983,625,320 字节，训练集 49,335 个 / 17,658,239,165 字节）。课题组目录复制后剩 89 GB。
   - 发现的问题：`make_vlm_inputs.py` 原来按顺序找 `C:/Windows/Fonts/arialbd.ttf`、`/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf`，都没有就悄悄用 Pillow 自带的 10 号字。Kamiak 上两个都没有（DejaVu 在 `/usr/share/fonts/dejavu-sans-fonts/`），所以直接在 Kamiak 上生成的网格图会和试跑（办公室电脑，Arial Bold 22 号）不一样。用户定改用 DejaVu Sans Bold，放进仓库 `fonts/`（连同许可证），找不到就报错。Claude 另外把排字方式固定成 Pillow 的 BASIC（原因和验证见下）。
-  - 核对输入图（作业 31365063，1 分 13 秒；`tmp_checks/font_check/input_checks.py`，输出在 `tmp_checks/font_check/out/`）：
+  - 核对输入图（作业 31365063，1 分 13 秒；`kamiak/checks/input_checks.py`，输出在 `tmp_checks/font_check/out/`）：
     - Kamiak 计算节点上的 Pillow 12.0.0：FreeType 2.14.1、libjpeg-turbo 3.1.2、raqm 0.10.3 可用（系统装了 fribidi-1.0.10），harfbuzz 12.1.0。
-    - demo 3 段在 Kamiak 上用新程序重新生成：不写字的分开图 570 张（64,615,744 字节）和试跑的逐字节一样，`targets.csv` 102 行一样；网格图 114 张全部不同（换了字体），解码后每张有 21,098–22,868 个像素不同，全部在 5 个相机名所在的角上（每块面板左上角 176 × 64 像素以内，`label_regions.py`），角外 0 个。
+    - demo 3 段在 Kamiak 上用新程序重新生成：不写字的分开图 570 张（64,615,744 字节）和试跑的逐字节一样，`targets.csv` 102 行一样；网格图 114 张全部不同（换了字体），解码后每张有 21,098–22,868 个像素不同，全部在 5 个相机名所在的角上（每块面板左上角 176 × 64 像素以内，`kamiak/checks/label_regions.py`），角外 0 个。
     - 同样的字体，用 Pillow 默认的排法（Kamiak 上是 libraqm）画，114 张和 BASIC 排法的全部不同。Windows 版 Pillow 要另装 FriBiDi 才会用 libraqm，一般没有，所以不固定的话两台机器很可能对不上。
     - 复制的图和 scratch 上的图：主实验清单里按种子 20261022 各抽 3 段（验证集 `11450298750351730790_1431_750_1451_750`、`14739149465358076158_4740_000_4760_000`、`9231652062943496183_1740_000_1760_000`；训练集 `12856053589272984699_1020_000_1040_000`、`1473681173028010305_1780_000_1800_000`、`5614471637960666943_6955_675_6975_675`），两边各生成网格图和分开图：验证集 99 个目标帧、训练集 101 个，所有文件（含 `targets.csv`）逐字节一样（网格图 114 + 115 个文件，分开图 566 + 571 个文件）。
     - 给用户看的网格图：`~/benchmark-claude-remote/results/font_check/14486517341017504003_step_100_dejavu.jpg`（凤凰城那段第 100 帧，Claude 没打开）；试跑的同一张是 `results/vlm_inputs/14486517341017504003_3406_349_3426_349/step_100.jpg`。demo 全部 114 张在 `tmp_checks/font_check/out/demo_grid/`。
@@ -540,7 +540,7 @@
 
     - frame_ssm.csv 用 demo 的任何一版都行：目标帧只看 `edge_frame`，各版一样（Kamiak 最终版生成的 `targets.csv` 和试跑的 102 行一样）。
     - 应该打印 `114 in the list, 114 made here, 114 identical, 0 different or missing`。对不上的话，先看办公室电脑的 `python -c "import PIL; from PIL import features as f; print(PIL.__version__, f.version('freetype2'), f.version('libjpeg_turbo'))"` 是不是 12.0.0、2.14.1、3.1.2。
-  - 主实验的输入图（作业 31366325，4 分 44 秒；`tmp_checks/main_inputs/make_main_inputs.py`）：
+  - 主实验的输入图（作业 31366325，4 分 44 秒；`kamiak/main_run/make_main_inputs.py`）：
     - 两个 split 合成一个 frame_ssm：`results_lead_final_excl/frame_ssm_validation_training.csv`，198,068 行（验证集 39,987 + 训练集 158,081），1,000 段，(段, 帧) 没有重复。
     - `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：主实验清单 241 段（验证集 46、训练集 195）的全部目标帧 8,100 个；网格图 9,134 张、2,584,163,801 字节，分开图 45,670 张、5,128,889,331 字节。`targets_main.csv` 1,123 帧，时间和清单一致，用到网格图 2,493 张、分开图 12,465 张，一张不缺。
   - 分析程序的改动和回归测试（作业 31366331，5 分 56 秒；`tmp_checks/analyze_regression2/`，bootstrap 200 次）：
@@ -561,6 +561,7 @@
     ```
 
   - 主实验清单里有 3 帧来自 demo 段 `14486517341017504003_3406_349_3426_349`，试跑问过（只记一下，不改）。
+  - 脚本放进仓库（2026-10-22 用户定的：只放脚本，数据和图留在课题组目录）：`kamiak/main_run/` 6 个（复制图、生成输入图、核对运行、压缩、分析、汇总），`kamiak/checks/` 27 个（算出过写进这份文件的数的检查脚本），都从 `tmp_checks/` 原样复制、逐字节核对过；这份文件里的脚本路径都改成了仓库里的。每个脚本算什么、用到哪些课题组目录路径，见 `kamiak/README.md`"脚本用到的路径"。没放的：只调试环境、没记下数的 6 个，和分析程序的回归测试（`analyze_regression/`、`analyze_regression2/`），还在 `tmp_checks/`。
 
 ## 3. 下一步：在 Kamiak 上试跑
 
@@ -592,11 +593,11 @@
   - 用户决定重做：98 条移到 `pilot_qwen3.6-27b_timeout_retried.jsonl` 保存；原文件完整备份在 `/data/lab/cejli/sy/vlm_scores_backup/`；`run_vlm.py` 改成每个请求等 1 小时、不自动重试；再补跑这 101 次。
   - 2,550 条里 2,547 条解析正常。3 条思考到 24,576 token 的上限还没结束（`finish_reason` 是 length，`text` 为空），算作没回答：凤凰城那段（144865）第 100 帧 grid 第 3 次；旧金山那段（162295）第 120 帧 sep_camera 第 4 次、ctrl_grid 第 0 次。2026-10-20 补了答案，见下面"思考到上限的 4 条"。
   - 思考长度（token，中位 / 最长）：grid 5,286 / 24,576；sep_time 4,953 / 21,040；sep_camera 6,782 / 24,576；ctrl_grid 5,060 / 24,576；ctrl_sep 5,247 / 18,108。
-  - 同一帧问 5 次，分数的标准差平均（0–100 分）：grid 7.18，sep_time 7.71，sep_camera 9.54，ctrl_grid 5.89，ctrl_sep 7.06。
+  - 同一帧问 5 次，分数的标准差平均（0–100 分）：grid 7.18，sep_time 7.71，sep_camera 9.54，ctrl_grid 5.89，ctrl_sep 7.06。（各模型试跑的思考长度、用时和这个标准差用 `kamiak/checks/summarize_scores.py` 算，标准差除以 5。）
   - 没完全按格式回答的：`main_hazard_camera` 有 68 条写成 `side left`、`side right`、`side-left`、`side-right`、`front left`、`front right`；`hazard_type` 有 1 条写成 `lane change`。分析前要统一写法。
 
 - 第二个模型 Qwen3-VL-32B-Instruct（2026-10-19 晚用户决定）：
-  - 下载版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，66,726,519,322 字节，26 个文件逐个按官方校验值核对，全部一致。
+  - 下载版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，66,726,519,322 字节，26 个文件逐个按官方校验值核对，全部一致（`kamiak/checks/verify_hf_snapshot.py`，官方文件列表存在 `tmp_checks/qwen3vl32_tree.json`）。
   - 采样用它自己的推荐值：温度 0.7、top_p 0.8、top_k 20（用户定）。不思考，所以不加 `--reasoning-parser`；`--max_tokens 1024`；问题、比较组、每帧 5 次都和 Qwen3.6 一样。
   - 小试（作业 31318384，sn17，3 分 54 秒）：10 次全部解析成功，回答约 80 token，每个约 17 s。
   - 完整试跑（作业 31318509，sn17，14 分 34 秒）：结果在 `results/vlm_scores/qwen3-vl-32b/pilot_qwen3-vl-32b.jsonl`，2,550 行，每个（片段, 帧, 组, 第几次）正好一条，全部解析成功，`finish_reason` 都是 stop，0 报错。每个请求用时中位 8.4–10.7 s，最长 19.5 s。
@@ -642,14 +643,14 @@
   - 采样：模型的 `generation_config.json` 没写采样值。不思考版用模型页调用示例里的温度 0.8、top_p 0.8（用户选）；思考版用模型页对思考模式推荐的温度 0.6，不设 top_p、top_k。
   - 思考怎么开（用户定）：官方办法是把系统提示词换成 `R1_SYSTEM_PROMPT`。用户要所有模型的问题完全一样，所以改成和 Qwen 思考模型的模板一样，在回答开头放 `<think>` + 换行（`kamiak/internvl_thinking_chat_template.jinja`：官方模板只改这一处，核对过渲染结果只多这几个字；InternVL 用官方提示词思考时，自己写出的头两个 token 也正是 `<think>`、换行）。
   - 用官方提示词跑过一次小试作参照（作业 31327939，`smoke_internvl3.5-38b-thinking_official_r1_prompt.jsonl`）：10 条里 7 条把答案 JSON 写了两遍（中间夹一个 `</think>`），按当时的解析办法都算解析失败；思考大多 160–600 token。用新做法的小试（作业 31327962）：10 条里 1 条写两遍，思考 60–170 token。
-  - 解析办法改成取回答里第一份 JSON（2026-10-20 用户定，提交 c2a1813）。改之前核对过：以前所有结果文件（7,800 多条）按新办法解析，每一条都和原来一样。
+  - 解析办法改成取回答里第一份 JSON（2026-10-20 用户定，提交 c2a1813）。改之前核对过：以前所有结果文件（7,800 多条）按新办法解析，每一条都和原来一样（`kamiak/checks/check_parse_first.py`）。
   - 不思考版：小试作业 31327935（10 条全部成功）。完整试跑作业 31327948，sn18，41 分 03 秒：2,550 条全部解析成功，`finish_reason` 都是 stop，0 报错，最长 53.8 s。
     - 同一帧问 5 次的标准差平均：grid 6.41，sep_time 6.35，sep_camera 5.39，ctrl_grid 6.72，ctrl_sep 4.98。分数最低 10（和 Qwen3-VL-32B-Instruct 一样从不打 10 以下）。
     - 不合格式的：`main_hazard_camera` 49 条（`side left` 37、`side right` 10、`front left` 2）；`hazard_type` 4 条（`traffic flow` 2、`traffic congestion` 1、`intersection` 1）。
   - 思考版：完整试跑作业 31328458，sn18，1 小时 54 分 53 秒：2,550 条，0 报错。
-    - 这次作业比解析办法的修改早 45 s 启动，用的还是旧办法（当时 99 条读不出）。跑完后按新办法只重算了这个文件的 `parsed`（`/data/lab/cejli/sy/tmp_checks/reparse_scores.py`；原文件备份在 `/data/lab/cejli/sy/vlm_scores_backup/pilot_internvl3.5-38b-thinking.before_reparse.jsonl`）：92 条新读出，原来读出的没有一条变。
+    - 这次作业比解析办法的修改早 45 s 启动，用的还是旧办法（当时 99 条读不出）。跑完后按新办法只重算了这个文件的 `parsed`（`kamiak/checks/reparse_scores.py`；原文件备份在 `/data/lab/cejli/sy/vlm_scores_backup/pilot_internvl3.5-38b-thinking.before_reparse.jsonl`）：92 条新读出，原来读出的没有一条变。
     - 思考很短：各组中位 79–104 token，90% 在 142–268 以内。96 条把答案写了两遍（ctrl_grid 49、grid 29 最多）。
-    - 15 条写到上限（`finish_reason` length）：8 条答案已经写出，之后陷进"空格、换行"死循环；7 条没读出答案。
+    - 15 条写到上限（`finish_reason` length）：8 条答案已经写出，之后陷进"空格、换行"死循环；7 条没读出答案（`kamiak/checks/check_internvl_cut.py` 逐条列出：读没读出答案、思考多长、补答时上下文够不够）。
     - 同一帧问 5 次的标准差平均：grid 6.54，sep_time 8.25，sep_camera 7.54，ctrl_grid 7.15，ctrl_sep 5.60。分数最低 5。
   - 没读出答案的 7 条，照 Qwen 的做法强制收尾补答（`force_answer.py` 改成只挑写到上限而且没读出答案的条目）：作业 31329166 补出 5 条；162295 第 35 帧 sep_camera 第 4 次补不了：提示 35,036 + 原来的思考 5,923 token 已经到上下文上限，再接收尾话就是 40,983 > 40,960，vLLM 拒绝；162295 第 55 帧 sep_camera 第 1 次因为 vLLM 图片缓存出错（见 `kamiak/README.md`"出问题时先看这里"）没补上，关掉图片缓存后重补（作业 31329725，sn17）：这次有回答，但 JSON 的字段没加花括号（`"risk": 10, "main_hazard_camera": "front", ...`），还重复写到上限，所以按"完整 JSON"的规则仍然读不出（内容是 risk 10、front、pedestrian or cyclist）。
   - 补完的结果（`pilot_internvl3.5-38b-thinking_forced_answers.jsonl`）：5 条读出——131841 第 50 帧 sep_time 第 3 次 30、131841 第 50 帧 grid 第 0 次 30、162295 第 75 帧 ctrl_sep 第 1 次 10、162295 第 90 帧 grid 第 2 次 40、162295 第 100 帧 grid 第 0 次 40；2 条仍然没有答案（第 35 帧上下文满了，第 55 帧没有花括号）。所以思考版 2,550 条里有效答案 2,548 条（2,543 + 5）。
@@ -699,7 +700,7 @@
 - dtn 节点能分的内存很少：申请 8G 时作业预计要等一周，改成 900M 马上就排上了。dtn 上不能 `conda activate`，系统 Python 太旧，要用 conda 环境里 `hf` 的完整路径。
 - 用挂在 Claude 会话上的 `srun` 跑 GPU 测试，会话一结束作业就被取消了。GPU 任务都用 `sbatch`。
 - FlashInfer 的内核要现场编译，Kamiak 上它找不到 nvcc。sbatch 里用 `--gdn-prefill-backend triton` 和 `VLLM_USE_FLASHINFER_SAMPLER=0` 避开。
-- 留着没删、等用户决定的：`/data/lab/cejli/sy/conda_envs/vllm`（cu130 版，不能用）；`/data/lab/cejli/sy/tmp_checks/`（GPU 自检、结果统计、模型校验的脚本和日志）；`/data/lab/cejli/sy/vlm_scores_backup/`（Qwen3.6 重做前的完整结果，3.5 GB）。
+- 留着没删、等用户决定的：`/data/lab/cejli/sy/conda_envs/vllm`（cu130 版，不能用）；`/data/lab/cejli/sy/tmp_checks/`（检查脚本的原件和输出、GPU 自检的日志；算出过写进这里的数的脚本 2026-10-22 已原样复制进仓库 `kamiak/checks/`、`kamiak/main_run/`，以后改仓库里的，见 `kamiak/README.md`"脚本用到的路径"）；`/data/lab/cejli/sy/vlm_scores_backup/`（Qwen3.6 重做前的完整结果，3.5 GB）。
 
 注意：
 - 不要在登录节点上跑模型，都用 sbatch。
