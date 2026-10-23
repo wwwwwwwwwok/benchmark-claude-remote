@@ -6,7 +6,11 @@ set -euo pipefail
 F=$1
 M=$(basename "$(dirname "$F")")
 DEL=/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/$M
-[ -f "$F" ] && [ ! -e "$F.gz" ] && [ ! -e "$DEL/$(basename "$F")" ]
+# one check per line (user, 2026-10-22): set -e ignores a failed test that is not the last one of an && list, and
+# the next line would empty an existing .gz before gzip even starts
+[ -f "$F" ] || { echo "not found: $F" >&2; exit 1; }
+[ ! -e "$F.gz" ] || { echo "already exists: $F.gz" >&2; exit 1; }
+[ ! -e "$DEL/$(basename "$F")" ] || { echo "already exists: $DEL/$(basename "$F")" >&2; exit 1; }
 gzip -c "$F" > "$F.gz"
 gzip -t "$F.gz"
 cmp <(gzip -dc "$F.gz") "$F"
