@@ -155,6 +155,22 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - 任务中断（时限到了、被抢占）后，再提交一次就会从没做完的地方接着跑。报错的请求不写进结果，下次会重发；回答解析不出来的会写进去（`parsed` 为空），不重发。
 - 跑完把结果传回办公室电脑（在办公室电脑的仓库根目录下）：`scp -r <netid>@kamiak.wsu.edu:~/benchmark-claude-remote/results/vlm_scores ./results/`。
 
+## 正式实验的主实验（2026-10-22 用户定的；做法和理由见 CLAUDE.md "VLM 打分"最后）
+- 输入：`/data/lab/cejli/sy/waymo_v143/vlm_inputs/{grid,separate}/targets_main.csv`（1,123 帧，怎么生成的见 `docs/handoff.md` 第 2 节最后）。
+- 提交，每个模型一次（按用户定的顺序，一个跑完分析过、用户同意了再交下一个）。末尾的参数覆盖脚本里试跑的输入和输出，所以日志第一行打印的 `OUT=` 还是试跑的路径，实际以 `--out` 为准：
+  ```bash
+  V=/data/lab/cejli/sy/waymo_v143/vlm_inputs
+  sbatch --export=ALL,MODEL=<MODEL> kamiak/qwen_vlm.sbatch --grid_targets $V/grid/targets_main.csv \
+      --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/main_<MODEL>.jsonl
+  ```
+- 跑完以后（下面的脚本现在放在课题组目录的 `tmp_checks/main_run/`，都在计算节点上跑）：
+  1. 看日志最后一行 `done: N ok (M unparsable), K errors`；K 不是 0 就用同样的命令再交一次，只补发没做完的。
+  2. 思考的模型还要补答；`kamiak/force_answer.sbatch` 现在只认 `pilot_` 的文件名，用之前要改，改之前先问用户。
+  3. 核对：`python -I .../check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。
+  4. 压缩：`bash .../compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。
+  5. 分析：`bash .../analyze.sh <输出文件夹>`（在仓库根目录下）：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（`/data/lab/cejli/sy/waymo_v143/scene_labels_waymo.csv`，Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I .../summarize.py <输出文件夹>/main_1084 <输出文件夹>/sensitivity_1123`。
+  6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`。
+
 ## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好，当天两部分都跑完）
 用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。
 
