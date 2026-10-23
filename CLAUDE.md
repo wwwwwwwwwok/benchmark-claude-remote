@@ -319,9 +319,10 @@
   - 试跑的网格图是在办公室电脑上用 Windows 自带的 Arial Bold 生成的。Windows 字体的授权一般只能在装了这套 Windows 的电脑上用，不能拷到别的机器，也不能放进公开仓库，所以改用 DejaVu（许可证允许分发，在 `fonts/LICENSE`）。
   - 所以正式实验的网格图和试跑的不同，只差在 5 个相机名所在的角上：demo 114 张逐像素比过，每块面板左上角 176 × 64 像素以外没有一个像素不同。不写字的分开图不受影响：Kamiak 上重新生成的 demo 570 张和试跑的逐字节一样。
   - 程序只用这个文件，找不到就报错退出，不再换别的字体（以前两个路径都找不到时，会悄悄换成 Pillow 自带的 10 号字，Kamiak 上就是这样）。
-  - 排字方式固定用 Pillow 的 BASIC：Pillow 在装了 FriBiDi 的机器上（Kamiak 是）会自动换成 libraqm 排字，字母位置会变。Kamiak 上同样的字体，两种排法画出来的 114 张全部不同。Windows 上一般没装 FriBiDi。
+  - 排字方式固定用 Pillow 的 BASIC（Claude 加的，2026-10-22 我同意）：Pillow 在装了 FriBiDi 的机器上（Kamiak 是）会自动换成 libraqm 排字，字母位置会变。Kamiak 上同样的字体，两种排法画出来的 114 张全部不同。Windows 上一般没装 FriBiDi。
+  - 我看过 Kamiak 生成的网格图（2026-10-22）：字体和试跑不同（预期的），相机名清楚。
   - 字体文件取自 Kamiak 的 `/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf`（软件包 dejavu-sans-fonts-2.37-18.el9），sha256 `53356866bbb6c2be40b3181ca902cb958cf9db15139f011a4e624f732bba1465`。
-  - 跨机器核对：Kamiak 上生成的 demo 网格图 114 张的 sha256 在 `docs/demo_grid_dejavu_sha256.txt`；办公室电脑上用同一个字体文件生成一份来比，步骤见 `docs/handoff.md` 第 2 节最后。
+  - 跨机器核对（2026-10-22 做完，通过）：Kamiak 上生成的 demo 网格图 114 张的 sha256 在 `docs/demo_grid_dejavu_sha256.txt`；办公室电脑（Pillow 12.0.0、FreeType 2.14.1、libjpeg-turbo 3.1.2，没有 raqm）用同一个字体文件生成的 114 张全部一样。步骤见 `docs/handoff.md` 第 2 节最后。
 - 不给 VLM 任何数字，连自车速度也不给，只看图（2026-10-17 我定的）。`targets.csv` 里的自车速度（Waymo 直接给的）只留作分析用。
 - 问题模板：`code/vlm_prompt_template.txt`（英文），2026-10-22 定稿（我定的）：就用试跑那版，正式实验不改；确切的文字以 `code/run_vlm.py` 组装出来的为准。角色是"正在开这辆车的有经验的司机"；不定义"风险"，只给刻度两端（0 = 完全没有风险，100 = 马上要撞上）；输出 JSON：分数、主要危险来自哪个相机、是什么、危险类型、一句话理由。
 - demo 试验的比较组（2026-10-17 定），同一批目标帧、同一个模型：
@@ -355,7 +356,7 @@
 - 还没定：天气分组；以后要不要再加一个闭源模型对比。
 
 ## 下一步
-- 正式实验：先跑 Qwen3-VL-32B-Instruct，分析从头到尾走一遍，等我同意再跑其他模型（Qwen3.6-27B 最后）。
+- 正式实验：Qwen3-VL-32B-Instruct 在跑（2026-10-22 提交，作业 31366393）；跑完分析从头到尾走一遍，等我同意再跑其他模型（Qwen3.6-27B 最后）。
 - 定天气分组（用 Waymo 的标签还是自己标、分几类）。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。
 - 家里电脑：用另一个数据集测试。只要写一个转换脚本，输出和上面相同格式的每段文件，`wod_common.py` 和 `waymo_ssm_frames.py` 就能直接用。
