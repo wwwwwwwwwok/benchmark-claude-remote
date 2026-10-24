@@ -242,12 +242,13 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `check_internvl_cut.py` | InternVL 思考版写到上限的回答，补答时上下文够不够 |
 | `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
 | `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |
+| `unparsable_report.py` | 一个运行文件里没读出答案的每一条：条件、repeat、finish_reason、生成 token 数、回答原文；是写到 max_tokens、撑满上下文，还是写完了但解析规则读不出（照 `run_vlm.parse` 逐个试回答里的 `{`，写出每处为什么不算答案） |
 | `to_office_sha256.sh` | `to_office/` 里链接背后每个真文件的 sha256 和字节数，写进 `to_office/sha256.txt` |
 | `first_lines.py` | 一个运行文件的前 N 行来自几帧、平均生成多少 token、每行多大，和整个文件比（`estimate_size.py` 为什么估偏） |
 | `check_presubmit.sh` | 正式实验剩下 4 个模型提交前和各自试跑的比对（问题文字、vLLM 参数、采样、模型和环境有没有改过）；写死了 `tmp_checks/presubmit/`，`check_pilot_settings.py` 也从那里调 |
 | `check_pilot_settings.py` | 试跑文件每行记下的采样设置和每个 token 的候选概率个数（`check_presubmit.sh` 调它） |
 
-没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`；`compress.sh`、`analyze.sh` 修正后的测试 `script_fix_tests/`；`camera_variants.py` 2026-10-23 改后在造的 7 行上的测试 `main_checks/camera_test/`。
+没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`；`compress.sh`、`analyze.sh` 修正后的测试 `script_fix_tests/`；`camera_variants.py` 2026-10-23 改后在造的 7 行上的测试 `main_checks/camera_test/`；`unparsable_report.py` 在造的 6 条回答上的测试 `main_checks/unparsable_test/`。
 
 ## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好，当天两部分都跑完）
 用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。
