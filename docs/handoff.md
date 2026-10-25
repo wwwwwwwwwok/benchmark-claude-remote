@@ -732,6 +732,17 @@
   - 前 3,000 行：每行 1,438,870 字节，推算整个 40,396,283,532 字节（按试跑估是 38.75 GB），压缩版约 9,936,671,184；还要写 36,047,140,630 + 9,936,671,184 = 45,983,811,814 字节。
   - 那时课题组目录剩 77,529,079,808 字节。按 3,000 行的估计加 30% 约 59.8 GB，够，余约 17 GB。按 300 行的加 30% 约 80.8 GB，比剩的多约 3 GB；但前 300 行就是 Thinking 估大 41% 的那几帧（Thinking 用前 3,000 行只差 −4.2%）。已告诉用户。
   - 速度：18:47 写了 3,000 行，约每小时 540 行，照这样约 10-26 傍晚跑完（开头几帧思考长，后面可能快些）。
+- **用户 2026-10-24 想加 Qwen 的驾驶模型**（还没定，等用户回答下面几件事）：
+  - 查到的是 Qwen-Drive-1.0-4B（arXiv 2609.00111，2026-08-31；Hugging Face `Qwen/Qwen-Drive-1.0-4B`，版本 `28484089a7cc8c335cf5089fb0745cf7c49b6eaa`，Apache-2.0，不用申请）。底座 Qwen3.5-4B，另有 3D 感知和规划轨迹的部分；问答只用根目录的视觉语言模型。
+  - 根目录文件 9,101,605,825 字节（`model.safetensors` 9,078,630,512，BF16 约 45 亿参数）；`planner-sft/`、`planner-rl/` 各 2,079,740,463，`perception/` 500,369,838，`assets/` 18,020,036，问答用不上。
+  - `config.json` 是它自己的外壳（`QwenDriveForPlanning`，`model_type` `qwen_drive`），里面的 `vlm_config` 是 `Qwen3_5ForConditionalGeneration`（`qwen3_5`，32 层，每 4 层一层全注意力）。vLLM 0.32.0 注册了 `Qwen3_5ForConditionalGeneration`（Qwen3.6-27B 用的就是它），不认 `qwen_drive`。模型页和 GitHub 都没写 vLLM 怎么跑。
+  - `generation_config.json`：温度 0.6、top_p 0.95、top_k 20。模型页另写了评测用的解码（温度 0.01、top_p 0.001、top_k 1），说是为了直接反映能力，不是推荐值。
+  - 对话模板默认思考（不给 `enable_thinking` 就加 `<think>`）；上下文上限 32,768（其他思考模型用 40,960）。
+  - 等用户定的：下载（只下根目录）；思考开不开；采样；上下文 32,768 下分开图的思考最多约 1.9 万 token 行不行；用 vLLM（做一个只含视觉语言模型的文件夹，权重名要改的话另存一份并逐个张量核对）还是用官方代码。
+  - 课题组目录可删的候选（用户 2026-10-24 要的，Claude 只列不删；大小是 `du --apparent-size`，输出 `tmp_checks/lab_usage_20261024.out`）：
+    - 不是这个项目在用的，一共约 86.5 GB：`hf_cache/hub/` 里 Llama-3.2-11B-Vision-Instruct 21,349,807,643、Qwen2.5-VL-7B-Instruct 16,595,964,862、两个 CLIP 1,714,256,954 + 1,210,409,425（`hf_cache/` 本身要留，下载用的登录 token 在里面）；`pip_cache/` 9,260,909,238；`conda_envs/` 里 `vllm`（cu130 版，不能用）8,930,056,777、`benchmark`（2026-09-04 建）8,324,630,399、`gssm` 6,064,688,288、`vlm_env` 5,615,322,338、`gssm_perception` 2,881,065,723（这三个 2026-07 建）；`datasets/`（2026-07）3,854,747,735；`conda_pkgs/` 595,632,661；gcloud 安装包 94,021,891。
+    - 这个项目跑完的模型（以后补跑、对比实验要用就得按记下的版本重下）：Qwen3-VL-32B-Instruct 66,726,528,251、Qwen3-VL-32B-Thinking 66,726,528,141。InternVL3_5-38B（没有答案的那些条还没定）和 Qwen3.6-27B（正在跑）先留。
+    - 这个项目的备份和旧版：`vlm_scores_backup/` 3,637,254,511；`waymo_v143/` 里旧版 SSM 结果 `results`、`results_lead_final`、`results_lead_slow`、`results_lead_overlap` 一共 5,392,102,630；`tmp_checks/font_check` 471,668,368。
 
 ## 3. 下一步：在 Kamiak 上试跑
 
