@@ -359,6 +359,11 @@
     - `kamiak/checks/camera_variants.py`：排序按文字排；没读出答案（`parsed` 为空）和读出答案没写相机（没有 `main_hazard_camera` 或是 null）分开数，各列一行；合计只算写法不同的。以后用仓库里的这份。
     - 补答的核对用 `kamiak/main_run/check_forced.py`（后面两个补答也用它）。
     - InternVL3.5-38B 跑完，先把没读出答案的每一条报给我（条件、repeat、finish_reason、生成 token 数、回答原文，是被 max_tokens 截断还是写完了但解析规则读不出、卡在哪一步），不补发、不改。
+  - 我定的（2026-10-26）：
+    - 两个 InternVL 没有答案的照原来的规则当缺失，不补发、不改规则（InternVL3.5-38B 13 条，思考版 21 条）；这一帧这种输入用其余几次的平均。
+    - 压缩前先数每帧每种输入读出答案的次数，有一次都没有的格就先停下报我（`kamiak/checks/answer_counts.py`）。
+    - `.gz` 核对完设成只读（`chmod a-w`）。
+    - `check_forced.py` 数补答的相机照 `camera_variants.py` 的改法：只列不合规定的写法、按文字排，没读出答案和没写相机分开各列一行。
   - Claude 的安排：
     - 输入图用复制到课题组目录的图生成（复制的图和 scratch 上的图生成出来逐字节一样，核过 6 段），放在 `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：`grid/`、`separate/` 各有 `targets.csv`（主实验 241 段的全部目标帧）和 `targets_main.csv`（主实验的 1,123 帧）；`segments/` 是指向 `tables/<split>/<段名>` 的链接，好让一次生成两个 split；`sha256_grid.txt`、`sha256_separate.txt` 是每张图的 sha256。
     - 结果文件：`/data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`。
@@ -369,10 +374,11 @@
 - 正式实验：Qwen3-VL-32B-Instruct 跑完、分析过（结果见 `docs/handoff.md` 第 2 节"正式实验"）。剩下 4 个和 3 个补答 2026-10-22 用 afterany 排成一串：31367826 Qwen3-VL-32B-Thinking → 31367904 它的补答 → 31367827 InternVL3.5-38B → 31367828 InternVL3.5-38B 思考版 → 31367905 它的补答 → 31367829 Qwen3.6-27B（时限 5 天）→ 31367906 它的补答；估计一共约 4.5 天。
   - 2026-10-23：Qwen3-VL-32B-Thinking 主实验和补答跑完，核对、压缩过（14 条写到上限，全补出），我接受了；InternVL3.5-38B 12:24 开始。
   - InternVL3.5-38B 跑完：没读出答案的每一条先报给我，不补发、不改（上面"正式实验怎么跑"2026-10-23；脚本见 `docs/handoff.md` 第 2 节"剩下 4 个模型排队"）。
-    - 10-23 19:42 跑完，13 条没读出答案，都是写完了、`reason` 少了收尾引号（`docs/handoff.md` 第 2 节"InternVL3.5-38B 主实验跑完"），已报给我。压缩等我看过再做。
-  - InternVL3.5-38B 思考版（31367828）10-24 12:54 跑完，补答 31367905 13:09 跑完：没有答案 21 条（补不了 15、补了读不出 3、写完了读不出 3），已报给我；压缩等我看过再做。
-  - 等我定：`kamiak/main_run/check_forced.py` 最后一行遇到没读出答案的补答（相机是 None）会报错退出，要不要改（`docs/handoff.md` 第 2 节"InternVL3.5-38B 思考版主实验和补答跑完"）。
-  - Qwen3.6-27B（31367829）10-24 13:09 开始，按前 3,000 行估整个文件约 40.4 GB，空间够；估计 10-26 傍晚跑完，接着补答 31367906。
+    - 10-23 19:42 跑完，13 条没读出答案，都是写完了、`reason` 少了收尾引号（`docs/handoff.md` 第 2 节"InternVL3.5-38B 主实验跑完"），已报给我。
+  - InternVL3.5-38B 思考版（31367828）10-24 12:54 跑完，补答 31367905 13:09 跑完：没有答案 21 条（补不了 15、补了读不出 3、写完了读不出 3），已报给我。
+  - 10-26：两个 InternVL 按我定的当缺失；每格最少 3 次（不思考版）、4 次（思考版），没有 0 次的格；已压缩（作业 31428184），`.gz` 设成只读。`check_forced.py` 已改（20deeae）。
+  - Qwen3.6-27B（31367829）10-24 13:09 开始；10-26 09:46 写了 24,610 行，估计 10-26 16:00 左右跑完，接着补答 31367906。跑完照常核对（补答用改过的 `check_forced.py`）、数每格答案次数、压缩并把 `.gz` 设成只读。
+  - 我 10-24 想加 Qwen-Drive-1.0-4B：Claude 查过、列了要我定的 5 件事和可删的东西（`docs/handoff.md` 第 2 节"用户 2026-10-24 想加 Qwen 的驾驶模型"），还没回答。
   - 跑完之前不要改 `code/run_vlm.py`、`code/force_answer.py`、`kamiak/internvl_thinking_chat_template.jinja` 和课题组目录的输入图（作业开始时才读）。
   - 补答（我 2026-10-22 定的）：只是让脚本读写主实验的文件，做法、提示文字和设置都和试跑一样，就直接补，做完报给我；做法上有任何不同先问我。这次程序不用改，用提交脚本末尾的参数换成主实验的文件（`kamiak/README.md`）。
   - Qwen3.6-27B 开始跑以后：用开头几百条推算整个文件多大（`kamiak/main_run/estimate_size.py`，按估计值加 30% 判断），课题组目录可能不够就先告诉我，不要等写满。

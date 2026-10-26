@@ -188,7 +188,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
       ```
       - 补答跑完、压缩之前核对（用户 2026-10-23 定用这个脚本）：`python -I kamiak/main_run/check_forced.py <main jsonl> <main forced jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>_forced_answers.jsonl`。看补的是不是正好是主实验里写到上限、没读出答案的那些条；接回去的思考和记下的原用量和主实验那条一样不一样；字段、采样、`max_tokens`、收尾文字和试跑补答比；finish_reason、解析、提示和回答的 token、相机写法。它只读不压缩的文件。
    3. 核对：`python -I kamiak/main_run/check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。相机写法：`python -I kamiak/checks/camera_variants.py <main jsonl[.gz]> vlm_frames/main_all9_targets.csv`（用户 2026-10-23 定：以后用仓库里的这份）。
-   4. 压缩（补答跑完以后）：`bash kamiak/main_run/compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。补答文件 `main_<MODEL>_forced_answers.jsonl` 也同样压缩。
+   4. 压缩（补答跑完以后）：`bash kamiak/main_run/compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。补答文件 `main_<MODEL>_forced_answers.jsonl` 也同样压缩。`.gz` 核对完设成只读：`chmod a-w <文件>.gz`（用户 2026-10-26 定）。压缩前先数每帧每种输入读出答案的次数：`python -I kamiak/checks/answer_counts.py vlm_frames/main_all9_targets.csv /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>`，有一次都没有的格就先停下报用户（用户 2026-10-26 定）。
    5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。验收（帧数、每种分组 5 × 9 格的 τ-b、区间、成对一致率、SSM 之间差的区间都有值，没有 AUC）：`python -I kamiak/main_run/main_run_accept.py <名字>/main_1084 1084`，`sensitivity_1123` 那份给 1123。Spearman 只在"全部"那组算，分组的那几行空着是设计如此。
    6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`；补答作业的 `logs/force-answer_<任务号>.out`、`logs/vllm_<任务号>.log` 也复制过去。
 
@@ -242,6 +242,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `check_internvl_cut.py` | InternVL 思考版写到上限的回答，补答时上下文够不够 |
 | `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
 | `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |
+| `answer_counts.py` | 每帧每种输入 5 次里读出答案的次数（照分析程序 `read_model` 读，补答并进去）：各有几格、最少几次、不满 5 次的格在哪种输入、有没有一次都没有的格 |
 | `unparsable_report.py` | 一个运行文件里没读出答案的每一条：条件、repeat、finish_reason、生成 token 数、回答原文；是写到 max_tokens、撑满上下文，还是写完了但解析规则读不出（照 `run_vlm.parse` 逐个试回答里的 `{`，写出每处为什么不算答案） |
 | `to_office_sha256.sh` | `to_office/` 里链接背后每个真文件的 sha256 和字节数，写进 `to_office/sha256.txt` |
 | `first_lines.py` | 一个运行文件的前 N 行来自几帧、平均生成多少 token、每行多大，和整个文件比（`estimate_size.py` 为什么估偏） |
