@@ -1,7 +1,9 @@
 """Forced answers of a formal-experiment main run (2026-10-23) against the main file and the same model's pilot forced
 answers: the forced lines are exactly the main replies that stopped at max_tokens without an answer; the thinking and
 usage sent back are the main reply's; fields, sampling, max_tokens and the early-stopping text are the same as in the
-pilot's forced answers; finish_reason, parsing, prompt and answer tokens.
+pilot's forced answers; finish_reason, parsing, prompt and answer tokens. The cameras of the forced answers are counted
+as in kamiak/checks/camera_variants.py (user, 2026-10-26): the written forms that are not allowed, sorted as text; no
+answer (parsed empty) and an answer without a camera (main_hazard_camera missing or null) apart, one line each.
 usage: python -I check_forced.py <main jsonl> <main forced jsonl> <pilot forced jsonl>
 """
 import collections
@@ -9,6 +11,7 @@ import json
 import sys
 
 KEY = ('segment', 'frame_idx', 'condition', 'repeat')
+ALLOWED = {'front-left', 'front', 'front-right', 'left-side', 'right-side', 'none'}      # as camera_variants.py
 
 
 def light(raw):
@@ -59,5 +62,18 @@ for name, rs in (('main', fm), ('pilot', fp)):
           f'original completion tokens {sorted(set(d["original_usage"]["completion_tokens"] for d in rs))}; '
           f'prompt now minus (prompt + thinking) {extra}; answer tokens {ct}; risk {risk}; '
           f'latency {min(d["latency_s"] for d in rs)}-{max(d["latency_s"] for d in rs)} s')
-cams = collections.Counter((d['condition'], (d.get('parsed') or {}).get('main_hazard_camera')) for d in fm)
-print(f'  main camera per condition: {dict(sorted(cams.items()))}')
+cams, apart = collections.Counter(), collections.Counter()
+for d in fm:
+    p = d.get('parsed')
+    if not p or p.get('main_hazard_camera') is None:
+        apart[('no answer (parsed empty)' if not p else 'answer without a camera (missing or null)', d['condition'])] += 1
+    elif p['main_hazard_camera'] not in ALLOWED:
+        cams[(d['condition'], p['main_hazard_camera'])] += 1
+print('  main camera, written forms not allowed:')
+# sorted as text: sorted() stops with a TypeError when a camera is not a string
+for (c, cam), k in sorted(cams.items(), key=lambda x: (x[0][0], str(x[0][1]))):
+    print(f'    {c:10s} {cam!r}: {k}')
+print(f'    total {sum(cams.values())} (written forms only)')
+for kind in ('no answer (parsed empty)', 'answer without a camera (missing or null)'):
+    per = {c: k for (t, c), k in sorted(apart.items()) if t == kind}
+    print(f'    {kind}: {sum(per.values())} {per}')
