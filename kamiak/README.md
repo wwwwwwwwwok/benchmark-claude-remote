@@ -40,6 +40,7 @@ Waymo 数据的部分见下面"Waymo 训练集 + 验证集"一节。
   - `Qwen3.6-27B`：15 个分片，51.75 GiB。一块 H100 就装得下（权重占显存 51.01 GiB）。
   - `Qwen3-VL-32B-Instruct`：版本 `0cfaf48183f594c314753d30a4c4974bc75f3ccb`，14 个分片，66,726,519,322 字节（62.14 GiB）。要 2 块 H100。
   - `Qwen3-VL-32B-Thinking`：版本 `7edd10ffd1196091948fb245ff63e406ccb2d4d1`，14 个分片，66,726,519,215 字节（62.14 GiB）。要 2 块 H100。
+  - 上面两个（仓库 `Qwen/Qwen3-VL-32B-Instruct`、`Qwen/Qwen3-VL-32B-Thinking`）主实验跑完以后，用户 2026-10-26 决定删掉模型文件夹。官方文件清单（每个文件的大小和校验值，HF API 的 `tree/<版本>`）存在仓库 `kamiak/model_files/<模型>_<版本>.json`；10-26 删之前按版本重新取过，和 10-19 下载时存的逐字节一样，两个文件夹也各自 26/26 个文件核对一致。要补跑就按版本重下（第 3 步的命令加 `--revision`），再 `python -I kamiak/checks/verify_hf_snapshot.py <模型文件夹> kamiak/model_files/<模型>_<版本>.json` 逐个核对。
   - `InternVL3_5-38B`：OpenGVLab/InternVL3_5-38B 版本 `de99855be3642cd44fe97c9b72d70e5ce2c07f69`，36 个文件（16 个分片），76,797,097,400 字节（71.52 GiB）。要 2 块 H100（每块权重占 37.8 GiB，KV 缓存只剩 133,168 token）。
   - 原来 `hf_cache` 里的 Qwen3-VL-30B-A3B-Instruct（MoE）2026-10-19 按用户要求删掉了；删之前核对过和官方一致，要用可以重新下。
   - 脚本默认用 2 块卡。

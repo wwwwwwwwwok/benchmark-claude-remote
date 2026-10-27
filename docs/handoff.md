@@ -773,6 +773,17 @@
   - 4 份作业日志复制到 `vlm_scores/qwen3.6-27b/logs/`，逐字节核对过。
   - 压缩（作业 31435146，cn179，35 分 39 秒），解压后都逐字节一样，`.gz` 设成只读，原文件挪到 `vlm_scores_to_delete/qwen3.6-27b/`，用户来删：主实验 39,727,111,675 → 9,753,144,658 字节（sha256 `16483e046c85cdaa4c7698f7072421127d0cf0aee22636a39594a8bba46e606d`）；补答 13,028,168 → 2,106,315（`c0c70730c6bc4615f4892989a57eb3ab475c30b24423a783e5a189fb0306e557`）。22:03 课题组目录剩 15,687,122,944 字节。
   - 到这里原定的 5 个模型设置的主实验和补答都跑完、压缩过了。
+  - 用户 2026-10-26 接受这次运行；补了也读不出的 3 条照两个 InternVL 的规则当缺失；两份原文件用户来删。
+- **5 个模型的总分析**（用户 2026-10-26 定：现在就跑；重抽是所有模型共用的，以后加 Qwen-Drive 和 Qwen3.5-4B，这 5 个的数不会变）：`analyze.sh` 输出到 `/data/lab/cejli/sy/waymo_v143/analysis/after_qwen3.6-27b/`（作业 31435385，8 个 CPU、64 GB），照常跑 `summarize.py`、`main_run_accept.py`；Instruct 的数要和 `after_qwen3-vl-32b` 里的逐行比，应该完全一样。
+- **删 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking 的模型文件夹**（用户 2026-10-26 要删，用户自己删）：
+  - 删之前确认仓库里记下了仓库名、版本号和每个文件的官方校验值：版本号在 `kamiak/README.md`；官方文件清单 10-26 按版本重新取（dtn），和 10-19 存在 `tmp_checks/qwen3vl32_tree.json`、`qwen3vl32think_tree.json` 的逐字节一样，复制进仓库 `kamiak/model_files/`。用这两份清单把两个文件夹再核对一遍，都是 26/26 个文件一致（输出 `tmp_checks/model_trees/verify_before_delete_20261026.out`）。
+  - `/data/lab/cejli/sy/models/Qwen3-VL-32B-Instruct`：一共 66,726,528,251 字节（26 个模型文件 66,726,519,322，加下载时记录用的 `.cache/` 8,929）。
+  - `/data/lab/cejli/sy/models/Qwen3-VL-32B-Thinking`：一共 66,726,528,141 字节（26 个模型文件 66,726,519,215，`.cache/` 8,926）。
+- **Qwen-Drive-1.0-4B 和 Qwen3.5-4B 的设置**（用户 2026-10-26 定，两个完全一样）：开思考（两个模型的对话模板一样，默认都加 `<think>`）；采样温度 0.6、top_p 0.95、top_k 20，不用 presence_penalty（`run_vlm.py` 不改）；上下文 32,768，max_tokens 24,576；每张图的像素上限按 `preprocessor_config.json`。
+  - 要在论文里说明（用户定）：Qwen-Drive 官方的问答函数（`generate_text`）不开思考（提示停在 `<|im_start|>assistant\n`，不加 `<think>`），解码几乎是贪心（温度 0.01、top_k 1、top_p 0.001）；我们用的是模型自带对话模板的默认（开思考）和它 `generation_config.json` 的采样。另外官方问答函数不发系统提示、图片之间不夹文字、每张图最多 921,600 像素，我们和其他模型一样发系统提示和图片之间的标签，像素上限按 `preprocessor_config.json`。
+  - 同意新建环境 `/data/lab/cejli/sy/conda_envs/qwen_drive`（照上面列的版本，在计算节点上装，不动现有的 vLLM 环境；torch 的 CUDA 12.8 版跑不起来就停下问用户）和下载 Qwen3.5-4B（版本 851bf6e…，14 个文件 9,342,907,469 字节；下完和官方校验值逐个比，再看 `tokenizer.json` 和 Qwen-Drive 差的 12 字节在哪）；这两件等用户删完、空间够了再做。
+  - vLLM 和官方代码的核对（用户定）：两边用同一份事先缩好的无损 PNG（只放课题组目录，不进仓库，不打开看）；5 种输入每种至少一条，用我们的完整提示、开思考、贪心解码。通过标准：(a) 提示 token、图片格数、像素值三样完全一样；(b) 让 vLLM 给官方生成的整段逐个 token 打分，至少 99% 的位置两边第一候选一样，不一样的位置官方那边第一、第二候选的概率差都小于 0.1；(c) 两边各自生成时第一次分开在哪、那里的概率差、最后的分数，照实报。有一条不满足就停下报用户，不进试跑。
+  - Qwen-Drive 试跑完，先用它估主实验文件多大，再定两个 4B 模型怎么排（一个跑完压缩、删了原文件再跑下一个）。
 - **Qwen-Drive-1.0-4B**（用户 2026-10-26 定加，做法和其他模型一样：先试跑、核对，再跑主实验）：
   - 用户定的设置：开思考（模板默认）；采样用它 `generation_config.json` 的温度 0.6、top_p 0.95、top_k 20；上下文用它自己的 32,768；max_tokens 和别的思考模型一样 24,576。用 vLLM 跑：做一个只含视觉语言模型的文件夹，权重名要改就另存一份、逐个张量核对；不动现有的 vLLM 环境；要装别的另建环境，先告诉用户。正式开跑前，用官方代码和 vLLM 在几条请求上贪心解码比，输出一样才往下走，两边要发一模一样的内容。要用 GPU 的步骤等 Qwen3.6-27B 和它的补答跑完。
   - 下载（10-26，dtn，100 秒）：根目录 14 个文件 9,101,605,825 字节，`verify_hf_snapshot.py` 14/14 和官方校验值一致（官方清单 `tmp_checks/tree_Qwen-Drive-1.0-4B_28484089….json`，输出 `tmp_checks/verify_Qwen-Drive-1.0-4B_….out`）。放在 `/data/lab/cejli/sy/models/Qwen-Drive-1.0-4B/`。

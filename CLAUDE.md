@@ -368,6 +368,12 @@
     - 用 vLLM 跑 Qwen-Drive：做一个只含视觉语言模型的文件夹，权重名要改就另存一份、逐个张量核对和原文件一样；不动现在的 vLLM 环境和跑完前不能改的那几个文件；要装别的另建环境，先告诉我。
     - 正式开跑前，用官方代码和 vLLM 在几条请求上关掉随机抽样（贪心解码）比，输出一样才往下走，结果报我；两边要发一模一样的内容（先看清官方问答函数实际发给模型的完整内容）。要用 GPU 的步骤等 Qwen3.6-27B 和它的补答跑完再做。
     - 也想加 Qwen-Drive 的底座 Qwen/Qwen3.5-4B 当对照（同样大小，没有驾驶训练）：先查清文件、字节数、版本和它官方的思考与采样设置，我同意了再下。
+    - （10-26 晚）接受 Qwen3.6-27B 这次运行；补了也读不出的 3 条当缺失。现在就跑 5 个模型的总分析（`analysis/after_qwen3.6-27b/`），Instruct 的数要和 `after_qwen3-vl-32b` 逐行一样。
+    - Qwen-Drive-1.0-4B 和 Qwen3.5-4B 用完全一样的设置：开思考；温度 0.6、top_p 0.95、top_k 20，不用 presence_penalty（`run_vlm.py` 不改）；上下文 32,768，max_tokens 24,576；像素上限按 `preprocessor_config.json`。论文里要说明：Qwen-Drive 官方问答函数不开思考、几乎是贪心解码。
+    - 同意新建 `conda_envs/qwen_drive`（照列的版本，计算节点上装，CUDA 12.8 版的 torch 跑不起来就停下问我）和下载 Qwen3.5-4B；都等我删完、空间够了再做。
+    - vLLM 和官方代码的核对：同一份事先缩好的无损 PNG（只放课题组目录、不进仓库、不打开看），5 种输入每种至少一条，完整提示、开思考、贪心解码；通过标准见 `docs/handoff.md` 第 2 节，有一条不满足就停下报我，不进试跑。
+    - 我要删 Qwen3-VL-32B-Instruct 和 Thinking 的模型文件夹；仓库里记下了版本号和官方文件清单（`kamiak/model_files/`），要补跑就重下同一版本逐个核对。
+    - Qwen-Drive 试跑完先估主实验文件多大，再定两个 4B 模型怎么排（一个跑完压缩、删了原文件再跑下一个）。
   - Claude 的安排：
     - 输入图用复制到课题组目录的图生成（复制的图和 scratch 上的图生成出来逐字节一样，核过 6 段），放在 `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：`grid/`、`separate/` 各有 `targets.csv`（主实验 241 段的全部目标帧）和 `targets_main.csv`（主实验的 1,123 帧）；`segments/` 是指向 `tables/<split>/<段名>` 的链接，好让一次生成两个 split；`sha256_grid.txt`、`sha256_separate.txt` 是每张图的 sha256。
     - 结果文件：`/data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`。
