@@ -17,30 +17,10 @@ import time
 from PIL import Image
 
 MAX_MODEL_LEN = 32768
-
-
-def install(model):
-    """Runs inside each worker: pre-hooks that save the vision encoder's inputs (rank 0)."""
-    import os
-    import torch
-    import torch.distributed as dist
-    rank = dist.get_rank() if dist.is_initialized() else 0
-    d, n = os.environ['CAPTURE_DIR'], [0]
-
-    def pre_visual(mod, args, kwargs):
-        if rank == 0:
-            n[0] += 1
-            g = kwargs.get('grid_thw', args[1] if len(args) > 1 else None)
-            torch.save(dict(x=args[0].detach().cpu(), grid_thw=g if isinstance(g, list) else g.detach().cpu().tolist()),
-                       os.path.join(d, f'visual_{n[0]:03d}.pt'))
-
-    def pre_patch(mod, args):
-        if rank == 0:
-            torch.save(args[0].detach().cpu(), os.path.join(d, f'patch_{n[0]:03d}.pt'))
-
-    model.visual.register_forward_pre_hook(pre_visual, with_kwargs=True)
-    model.visual.patch_embed.register_forward_pre_hook(pre_patch)
-    return rank
+# the hooks live in their own module (2026-10-27: a function from the main script could not be pickled into the
+# workers); python -I leaves this folder off sys.path, and spawned processes take the parent's sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from vision_hooks import install  # noqa: E402
 
 
 def main():
