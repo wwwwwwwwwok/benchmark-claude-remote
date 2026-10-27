@@ -833,6 +833,13 @@
     - 像素值：vLLM 视觉部分里面的钩子没触发，进视觉部分的 bfloat16 是用 vLLM 自己的 GPU 程序从它实际收到的 uint8 像素重算的，和官方一样；用户接受这种核法。
     - 论文里写：不思考设置逐位一致 99.56%（453 个位置），开思考的长序列 99.912%（89,725 个位置）；不一致的都是两个候选很接近的地方，其中 3 处超过事先定的 0.1，查明是 bf16 一两格的舍入，看过后放行。
     - 接着按 10-27 定的跑：Qwen-Drive 试跑，然后 Qwen3.5-4B 先小试、再试跑；结果放 `results/vlm_scores/<模型>/`；两个试跑都报给用户，用户再定主实验。
+  - **Qwen-Drive 试跑**（作业 31443396，sn16，10-27 13:35:32–13:48:16，12 分 44 秒；`results/vlm_scores/qwen-drive-1.0-4b/pilot_qwen-drive-1.0-4b.jsonl`，45,089,586 字节；作业日志复制到同一文件夹的 `logs/`；汇总输出 `tmp_checks/qwen_drive/pilot/pilot_report_qwen-drive-1.0-4b.out`）：
+    - `done: 2550 ok (0 unparsable), 0 errors`；服务启动参数是提交脚本那一段的（`chat_template`、`default_chat_template_kwargs {'enable_thinking': False}`、上下文 32,768、2 卡），`speculative_config=None`；vLLM 日志里唯一的 ERROR 是每次都有的 FlashInfer 两卡通信那行。
+    - 每行都是温度 0.7、top_p 0.8、top_k 20、max_tokens 1,024，没有系统提示前缀，每个 token 5 个候选概率（`check_pilot_settings.py`）。
+    - 用户要单列的：写到 1,024 上限的 0 条，其中陷进重复的 0 条；没读出答案的 0 条（`count_cut_replies.py`）。`finish_reason` 全是 stop。
+    - 每种输入（`summarize_scores.py`）：提示 token grid 7,252、sep_time 13,650、sep_camera 13,662、ctrl_grid 1,658、ctrl_sep 2,903；回答中位 82–86 token；用时中位 7.0–8.8 s、最长 18.1–20.1 s；分数平均 / 标准差：grid 22.3 / 25.3、sep_time 12.8 / 11.1、sep_camera 13.7 / 13.7、ctrl_grid 18.1 / 16.6、ctrl_sep 18.5 / 16.8，最低都是 0，最高 90–100。
+    - 同一帧 5 次（102 帧）：标准差平均 grid 8.29、sep_time 4.89、sep_camera 5.69、ctrl_grid 6.20、ctrl_sep 5.73。
+    - `hazard_type`：other 1,205（47%）、none 271、lane change or side 257、crossing or intersection 236、oncoming 200、pedestrian or cyclist 199、rear-end 182，都是规定的 7 种。相机：不合规定写法的 5 次，都在 ctrl_grid（`side left` 4、`side-right` 1）；没读出答案、没写相机的都是 0。
   - 默认采样和停止 token：用 vLLM 自己的函数算（`check_defaults.py`），两个模型最后实际用的采样和停止 token 完全一样（温度 0.7、top_p 0.8、top_k 20、min_p 0、repetition 1.0、presence 0、frequency 0、1,024；停止 248044、248046）。启动日志：Qwen-Drive 有"Default vLLM sampling parameters have been overridden by the model's generation_config.json: {temperature 0.6, top_k 20, top_p 0.95}"（这 3 个请求里都会发，被覆盖），Qwen3.5-4B 没有这一行；两个都是 `speculative_config=None`；启动参数里都有 `chat_template` 和 `default_chat_template_kwargs {'enable_thinking': False}`。
 - **删 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking 的模型文件夹**（用户 2026-10-26 要删，用户自己删）：
   - 删之前确认仓库里记下了仓库名、版本号和每个文件的官方校验值：版本号在 `kamiak/README.md`；官方文件清单 10-26 按版本重新取（dtn），和 10-19 存在 `tmp_checks/qwen3vl32_tree.json`、`qwen3vl32think_tree.json` 的逐字节一样，复制进仓库 `kamiak/model_files/`。用这两份清单把两个文件夹再核对一遍，都是 26/26 个文件一致（输出 `tmp_checks/model_trees/verify_before_delete_20261026.out`）。
