@@ -246,6 +246,10 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
 | `inspect_weights.py` | 一个 safetensors 文件里的张量名（只读文件头）和参照模型的比：类型、个数、名字的前缀、去掉层号后哪些名字对不上 |
 | `make_vlm_folder.py` | 从 Qwen-Drive-1.0-4B 做一个只含视觉语言模型、vLLM 能读的文件夹（用户 2026-10-26 定） |
+| `install_env.sh` | Qwen-Drive 官方代码用的环境 `conda_envs/qwen_drive`（用户 2026-10-26 同意；版本照官方 `requirements.txt`，不装 flash-attn） |
+| `gpu_env_test.py` | 上面那个环境在 H100 上能不能跑：torch、causal-conv1d、flash-linear-attention 的内核，官方代码装模型、生成几个 token |
+| `diff_tokenizers.py` | 两个 `tokenizer.json` 差在哪：按 JSON 结构比，再比原文的开头和结尾 |
+| `qwen_drive_compare/` | Qwen-Drive 的 vLLM 和官方代码贪心解码核对（`sbatch kamiak/checks/qwen_drive_compare/compare.sbatch` 里写的路径是 `tmp_checks/qwen_drive/compare/`）：组装请求、官方代码生成、vLLM 服务生成、vLLM 逐 token 打分并存视觉部分的输入、按用户的标准出报告 |
 | `prep_compare_inputs.py` | Qwen-Drive 的 vLLM 和官方代码核对用的输入：一帧 5 种输入的 30 张图，按 `preprocessor_config.json` 缩到最终尺寸存成无损 PNG（只放课题组目录） |
 | `precheck_pixels.py` | 同一份 PNG 经官方图片代码和 Hugging Face 处理器得到的格数、像素值（float32 和转成 bfloat16 以后）一不一样 |
 | `compare_model_rows.py` | 两次分析里同一个模型的结果逐行比（加了模型以后原来那个模型的数变没变） |

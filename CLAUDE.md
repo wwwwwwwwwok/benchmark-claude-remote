@@ -374,6 +374,7 @@
     - vLLM 和官方代码的核对：同一份事先缩好的无损 PNG（只放课题组目录、不进仓库、不打开看），5 种输入每种至少一条，完整提示、开思考、贪心解码；通过标准见 `docs/handoff.md` 第 2 节，有一条不满足就停下报我，不进试跑。
     - 我要删 Qwen3-VL-32B-Instruct 和 Thinking 的模型文件夹；仓库里记下了版本号和官方文件清单（`kamiak/model_files/`），要补跑就重下同一版本逐个核对。
     - Qwen-Drive 试跑完先估主实验文件多大，再定两个 4B 模型怎么排（一个跑完压缩、删了原文件再跑下一个）。
+    - 核对的像素值按 bfloat16 比（两边模型实际收到的值）；GPU 核对时两边各在进视觉部分那一刻把实际收到的输入张量存下来比。
   - Claude 的安排：
     - 输入图用复制到课题组目录的图生成（复制的图和 scratch 上的图生成出来逐字节一样，核过 6 段），放在 `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：`grid/`、`separate/` 各有 `targets.csv`（主实验 241 段的全部目标帧）和 `targets_main.csv`（主实验的 1,123 帧）；`segments/` 是指向 `tables/<split>/<段名>` 的链接，好让一次生成两个 split；`sha256_grid.txt`、`sha256_separate.txt` 是每张图的 sha256。
     - 结果文件：`/data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`。

@@ -76,6 +76,25 @@ case "$MODEL" in
                     --chat-template kamiak/internvl_thinking_chat_template.jinja)
         SAMPLING=(--temperature 0.6 --max_tokens 24576)
         ;;
+    qwen-drive-1.0-4b)   # Qwen/Qwen-Drive-1.0-4B rev 28484089 (2026-10-26, user's choice): Qwen3.5-4B fine-tuned for
+                         # driving. Only its vision-language model, from the folder kamiak/checks/make_vlm_folder.py
+                         # made (vLLM does not know the QwenDriveForPlanning wrapper; the tensors are the original's).
+                         # The same settings as qwen3.5-4b (user): thinking on (the chat template's default), the
+                         # sampling of its generation_config.json, its own context of 32,768 (a sep prompt leaves
+                         # ~19,000 tokens to think), --max_tokens as for the other thinking models; images capped by
+                         # its preprocessor_config.json (vLLM's default). --gdn-prefill-backend triton as for
+                         # qwen3.6-27b (the same Qwen3.5 architecture).
+        MODEL_DIR=/data/lab/cejli/sy/models/Qwen-Drive-1.0-4B-vlm
+        SERVE_ARGS=(--max-model-len 32768 --reasoning-parser qwen3 --gdn-prefill-backend triton)
+        SAMPLING=(--temperature 0.6 --top_p 0.95 --top_k 20 --max_tokens 24576)
+        ;;
+    qwen3.5-4b)   # Qwen/Qwen3.5-4B rev 851bf6e8 (2026-10-26, user's choice): the model Qwen-Drive was fine-tuned from,
+                  # as the control without driving training; exactly qwen-drive-1.0-4b's settings (user). Its repo
+                  # has no generation_config.json; no presence_penalty (run_vlm.py does not send it).
+        MODEL_DIR=/data/lab/cejli/sy/models/Qwen3.5-4B
+        SERVE_ARGS=(--max-model-len 32768 --reasoning-parser qwen3 --gdn-prefill-backend triton)
+        SAMPLING=(--temperature 0.6 --top_p 0.95 --top_k 20 --max_tokens 24576)
+        ;;
     *) echo "unknown MODEL=$MODEL"; exit 1 ;;
 esac
 SERVED_NAME=$MODEL                                            # name recorded in every output line
