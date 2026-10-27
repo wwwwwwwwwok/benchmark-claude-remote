@@ -683,6 +683,10 @@
   - `analysis/after_qwen3-vl-32b`（指向整个文件夹）。
   - `to_office/sha256.txt`：链接背后每个真文件的 sha256 和字节数，分析文件夹里的 20 个文件也逐个列上（`kamiak/checks/to_office_sha256.sh`，作业 31376011，cn184）。一共 25 个文件，2,075,163,367 字节（1.93 GiB）：结果 3 个 1,985,953,545 字节，分析输入 2 个 72,857,679 字节，分析结果 20 个 16,352,143 字节。
   - 下载时要跟随链接：`scp -r` 默认跟随，`rsync` 要加 `-L`。
+- **5 个模型的总分析传回办公室电脑**（用户 2026-10-27 要求）：新建 `/data/lab/cejli/sy/waymo_v143/to_office_20261027/`，把 `analysis/after_qwen3.6-27b/` 整个复制进去（`cp -r --preserve=timestamps`，计算节点上做；和原文件 `diff -r` 一样，原文件没动）：20 个文件 76,166,082 字节。
+  - 大的：两份 `vlm_requests_tidy.csv` 27,206,341 + 28,191,994，两份 `agreement_by_segment.csv` 6,254,940 + 6,379,479，两份 `vlm_frame_scores.csv` 2,747,597 + 2,846,751；其余 14 个一共 2,537,980。
+  - 主结果的 `vlm_requests_tidy.csv`（135,500 行）、`vlm_frame_scores.csv`（27,100 行）每一行都原样在敏感性那份里（多出的是那 39 帧）；`agreement_by_segment.csv` 不是（6,750 行不同，含那 39 帧的段按段算的值会变）。
+  - `sha256.txt`：用户要照上次用 `kamiak/checks/to_office_sha256.sh`，但那个脚本写死了 `to_office/` 的路径，而且见到真文件（不是链接）就报错退出，这次是复制的真文件，不改用不了；等用户定要不要改。
 - **InternVL3.5-38B 主实验跑完**（作业 31367827，sn17，2026-10-23 12:24:10–19:42:44，7 小时 18 分 34 秒；试跑用时乘 11 估的是约 7.5 小时）：`done: 28075 ok (13 unparsable), 0 errors`。
   - 核对（`check_run.py`，和自己的试跑作业 31327948 比；输出 `tmp_checks/main_checks/check_run_internvl3.5-38b.out`）：
     - 请求 1,123 帧 × 5 种输入 × 5 次 = 28,075，缺 0，清单外 0；每行字段和试跑相同；28,075 行都有 log-probabilities，每个生成的 token 一个。
