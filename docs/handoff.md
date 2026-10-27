@@ -850,6 +850,28 @@
   - 两个 4B 试跑的参照（同一个脚本算 Qwen3-VL-32B-Instruct 的试跑，同一批帧）：标准差平均 grid 3.79、sep_time 4.25、sep_camera 3.54、ctrl_grid 3.45、ctrl_sep 4.24；分数 10–95，平均 26.8–46.9；用时中位 8.4–10.7 s。
   - 主实验大小（试跑乘 28,075 / 2,550）：Qwen-Drive 约 496,427,501 字节，Qwen3.5-4B 约 523,784,474 字节；不思考，不用补答。14:0x 课题组目录剩 168,175,800,320 字节。两个试跑用时差一倍（同一台 sn16、同样设置、回答长度差不多），原因不明，不影响结果。等用户看过再定主实验。
   - 默认采样和停止 token：用 vLLM 自己的函数算（`check_defaults.py`），两个模型最后实际用的采样和停止 token 完全一样（温度 0.7、top_p 0.8、top_k 20、min_p 0、repetition 1.0、presence 0、frequency 0、1,024；停止 248044、248046）。启动日志：Qwen-Drive 有"Default vLLM sampling parameters have been overridden by the model's generation_config.json: {temperature 0.6, top_k 20, top_p 0.95}"（这 3 个请求里都会发，被覆盖），Qwen3.5-4B 没有这一行；两个都是 `speculative_config=None`；启动参数里都有 `chat_template` 和 `default_chat_template_kwargs {'enable_thinking': False}`。
+  - 两个试跑用时差一倍，比 vLLM 日志（用户 10-27 要的；`logs/vllm_31443396.log` 对 `logs/vllm_31443556.log`）：
+    - 启动设置：启动参数除了模型路径和名字完全一样；引擎配置那一行除了模型名一样（bfloat16、不量化、`speculative_config=None`、分块预填 8,192、编译设置）。注意力（FLASH_ATTN，视觉部分也是）、两卡通信（FLASHINFER、CUSTOM、PYNCCL）、CUDA graph 一样；KV 缓存 62.06 对 62.01 GiB（3,657,668 对 3,654,819 token）；都从缓存直接读编译好的图。启动到能接请求都约 1 分 45 秒。
+    - 警告：两边一样（FlashInfer 两卡通信那几行、`linear_attn.norm.weight` 从 float32 载入 bfloat16、Triton 采样内核第一次请求时编译的 3 行），只是顺序不同。Qwen-Drive 多一条 transformers 的"incorrect regex pattern … `fix_mistral_regex=True`"警告（6 次）：transformers 5.19 读本地 `config.json` 的 `transformers_version`，有这个字段、模型类型又不是 Mistral 一类就跳过，没有这个字段就报这条警告（`tokenization_utils_tokenizers.py`）；Qwen3.5-4B 有（4.57.0.dev0）。Qwen-Drive-vlm 的 `config.json` 是原文件里 `vlm_config` 那一段（`make_vlm_folder.py`），原文件的 `transformers_version`（5.15.0）在最外层，没带过来，所以报了。只报警告，不加 `fix_mistral_regex=True` 就不改分词；核对时三处的提示 token 都一样。
+    - 吞吐：活一样多：把每 10 秒一行的吞吐加起来，提示约 4,607,000 对 4,654,000 token，生成约 209,800 对 212,500 token；同时在跑的请求两边都是 25–32 条，排队的 0–9 条。差在速度：Qwen-Drive 提示每秒约 5,400–8,250 token、生成 265–420，Qwen3.5-4B 约 16,800–18,450 和 726–934，慢约 2.4 倍；请求阶段约 650 秒对 270 秒。
+    - 两个作业都在 sn16（4 块卡、2 个 CPU 插槽），分到的是哪两块卡没记下来（作业日志的 nvidia-smi 只打了序号）。Qwen-Drive 试跑时节点上另有 1 个用 1 块卡的作业，Qwen3.5-4B 试跑时另有 2 个，所以不是 Qwen-Drive 那次节点更忙。
+    - 两个模型文件夹的配置文件：结构一样（层数、注意力的排法、视觉部分），差别是 Qwen-Drive 的多了 transformers 的默认字段、`max_position_embeddings` 32,768 对 262,144（只影响位置编码缓存的大小，正好是模型占用 4.33 对 4.38 GiB 的那 0.05 GiB）、没有 `transformers_version`；Qwen-Drive 只有一个权重文件、Qwen3.5-4B 两个（只影响载入）。
+    - 结论：日志里找不到原因；设置和活一样，不是设置或活不同造成的。还没排除的是分到的卡（两块卡在不在同一个 CPU 插槽下）。主实验跑时记下分到的卡（`scontrol show job -d` 的 GPU 序号）和吞吐再比。不影响结果。
+- **两个 4B 主实验**（用户 2026-10-27 看过两个试跑后定：可以跑主实验）：
+  - 两个一起提交，不设先后依赖：有空卡就同时跑，没有就排队；空间够（约 496 MB、524 MB），不用等前一个压缩、删原文件。
+  - 10-27 14:18:16 提交：31444009（qwen-drive-1.0-4b）、31444010（qwen3.5-4b），命令和前几个模型一样（`--grid_targets $V/grid/targets_main.csv --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`）。每人最多 2 块卡，所以实际是一个跑完再跑另一个。提交前核对过：提交脚本（最后一次改是 a8cede0，08:58）、`run_vlm.py`（10-20）、输入图、两个模型文件夹和模板，试跑以后都没改过。
+  - 每个跑完照前几个模型的做法：`done:` 那行；`check_run.py` 和自己的试跑比、`count_cut_replies.py`、`camera_variants.py`、`answer_counts.py`（有 0 次的格就停）；压缩、`.gz` 设只读、原文件挪到 `vlm_scores_to_delete/<模型>/` 由用户删；复制日志。没读出的照两个 InternVL 的规则当缺失，报条数和原文（`unparsable_report.py`）。
+  - 相机写法（用户定）：把不合规定的写法和次数都列出来，看 `analyze_vlm_ssm.py` 的 `CAMERA_FIX` 是不是都认得；有不认得的先报用户，不改程序。
+  - 两个都核对完，跑 7 个模型的总分析，输出到 `analysis/after_qwen3.5-4b/`，照常 summarize、验收；前 5 个模型的行要和 `after_qwen3.6-27b` 逐行一样（`compare_model_rows.py`）。
+- **模型两两之差的区间**（用户 2026-10-27 定，在看到两个 4B 主实验结果之前定的）：
+  - 三对：Qwen-Drive-1.0-4B − Qwen3.5-4B；Qwen3-VL-32B-Thinking − Qwen3-VL-32B-Instruct；InternVL3.5-38B 思考版 − 不思考版。
+  - 用已有的那 2,000 次重抽（所有模型共用同一批），每一轮算两个模型 τ-b 之差；区间的算法和每个模型自己的区间一样（2.5% 和 97.5% 分位数；有定义的重抽不到 90% 就不给）；点估计是全部数据上的差，应正好等于两个模型各自的 τ-b 相减，要核。
+  - 3 种分组 × 5 种输入 × 9 个 SSM，主结果（1,084 帧）和敏感性（1,123 帧）各一份，另出一张表。原来的表一张都不能变：加完以后和不加的版本逐行比。跟这次 7 个模型的总分析一起跑（来不及就先跑总分析、这张表后补，同一个种子，重抽一样）。
+  - 程序（`code/analyze_vlm_ssm.py` 的 `MODEL_PAIRS`）：每个分析文件夹多一张 `model_differences.csv`，列 model_1、model_2、condition、grouping、ssm、stat、value_1、value_2（两个模型各自的 τ-b）、diff、diff_lo、diff_hi、nboot、clear（区间不含 0）。stat 是 `tau_b_conflict`，即 `summarize.py` 报的、带区间的那个 τ-b；正式实验每帧每个 SSM 都有值，它和 `tau_b_all` 一样。有模型不在这次分析里的那对跳过，日志里写一行。只读已经算好的重抽结果，不多抽随机数，所以别的表不受影响。
+  - 测试（作业 31444151，cn172，7 分 08 秒；`tmp_checks/model_diff/test.sbatch`，输出在作业日志 `logs/model-diff-test_31444151.out`）：5 个模型（链接放在 `tmp_checks/model_diff/vlm5/`，免得读到正在写的 4B 文件），只跑主结果，重抽 20 次；不加的版本是 37cfa3b 的程序（另存为 `tmp_checks/model_diff/analyze_vlm_ssm_without.py`，作业里和 `git show` 的比过一样）。
+    - `compare_analysis_versions.py`：原来的 7 张表逐行、逐字节都一样；`params.txt` 一样；日志只多了 3 行（两对各 135 行、4B 那对跳过）和输出路径。
+    - `check_model_differences.py`：两对各 135 行；value_1、value_2 和 `agreement.csv` 的文字一样 135/135；diff 正好等于两者相减 135/135；两个模型的 `tau_b_all` 和它的区间、重抽次数都和 `tau_b_conflict` 的一样 135/135；没有缺值；点估计都在自己的区间里。20 次重抽的数只是测程序，不当结果。
+  - 正式跑法：`analyze.sh` 照常输出到 `analysis/after_qwen3.5-4b/`；同时用 `tmp_checks/model_diff/analyze_without.sh`（`analyze.sh` 只把两处程序路径换成 37cfa3b 的那份）在同样的数据上跑不加的版本，输出到 `tmp_checks/model_diff/without_7/`；然后 `compare_analysis_versions.py tmp_checks/model_diff/without_7 analysis/after_qwen3.5-4b` 逐行比，`check_model_differences.py` 核两个文件夹。
 - **删 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking 的模型文件夹**（用户 2026-10-26 要删，用户自己删）：
   - 删之前确认仓库里记下了仓库名、版本号和每个文件的官方校验值：版本号在 `kamiak/README.md`；官方文件清单 10-26 按版本重新取（dtn），和 10-19 存在 `tmp_checks/qwen3vl32_tree.json`、`qwen3vl32think_tree.json` 的逐字节一样，复制进仓库 `kamiak/model_files/`。用这两份清单把两个文件夹再核对一遍，都是 26/26 个文件一致（输出 `tmp_checks/model_trees/verify_before_delete_20261026.out`）。
   - `/data/lab/cejli/sy/models/Qwen3-VL-32B-Instruct`：一共 66,726,528,251 字节（26 个模型文件 66,726,519,322，加下载时记录用的 `.cache/` 8,929）。

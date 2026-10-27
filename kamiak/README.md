@@ -192,7 +192,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
       - 补答跑完、压缩之前核对（用户 2026-10-23 定用这个脚本）：`python -I kamiak/main_run/check_forced.py <main jsonl> <main forced jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>_forced_answers.jsonl`。看补的是不是正好是主实验里写到上限、没读出答案的那些条；接回去的思考和记下的原用量和主实验那条一样不一样；字段、采样、`max_tokens`、收尾文字和试跑补答比；finish_reason、解析、提示和回答的 token、相机写法。它只读不压缩的文件。
    3. 核对：`python -I kamiak/main_run/check_run.py <main jsonl> results/vlm_scores/<MODEL>/pilot_<MODEL>.jsonl vlm_frames/main_all9_targets.csv`（请求齐不齐、每行记的字段和设置、每组的 prompt token 和试跑一样不一样、解析）。相机写法：`python -I kamiak/checks/camera_variants.py <main jsonl[.gz]> vlm_frames/main_all9_targets.csv`（用户 2026-10-23 定：以后用仓库里的这份）。
    4. 压缩（补答跑完以后）：`bash kamiak/main_run/compress.sh <main jsonl>`：另存 `.gz`，核对解压出来逐字节一样，原文件挪到 `/data/lab/cejli/sy/waymo_v143/vlm_scores_to_delete/<MODEL>/`，由用户删。补答文件 `main_<MODEL>_forced_answers.jsonl` 也同样压缩。`.gz` 核对完设成只读：`chmod a-w <文件>.gz`（用户 2026-10-26 定）。压缩前先数每帧每种输入读出答案的次数：`python -I kamiak/checks/answer_counts.py vlm_frames/main_all9_targets.csv /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>`，有一次都没有的格就先停下报用户（用户 2026-10-26 定）。
-   5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。验收（帧数、每种分组 5 × 9 格的 τ-b、区间、成对一致率、SSM 之间差的区间都有值，没有 AUC）：`python -I kamiak/main_run/main_run_accept.py <名字>/main_1084 1084`，`sensitivity_1123` 那份给 1123。Spearman 只在"全部"那组算，分组的那几行空着是设计如此。
+   5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。验收（帧数、每种分组 5 × 9 格的 τ-b、区间、成对一致率、SSM 之间差的区间都有值，没有 AUC）：`python -I kamiak/main_run/main_run_accept.py <名字>/main_1084 1084`，`sensitivity_1123` 那份给 1123。Spearman 只在"全部"那组算，分组的那几行空着是设计如此。每个文件夹另有模型两两之差的表 `model_differences.csv`（用户 2026-10-27 定；三对写在 `analyze_vlm_ssm.py` 的 `MODEL_PAIRS`，有模型不在这次分析里的那对跳过），核对：`python -I kamiak/checks/check_model_differences.py <名字>/main_1084`（`sensitivity_1123` 也一样）。
    6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`；补答作业的 `logs/force-answer_<任务号>.out`、`logs/vllm_<任务号>.log` 也复制过去。
 
 ## 脚本用到的路径（`kamiak/main_run/`、`kamiak/checks/`）
@@ -253,6 +253,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `prep_compare_inputs.py` | Qwen-Drive 的 vLLM 和官方代码核对用的输入：一帧 5 种输入的 30 张图，按 `preprocessor_config.json` 缩到最终尺寸存成无损 PNG（只放课题组目录） |
 | `precheck_pixels.py` | 同一份 PNG 经官方图片代码和 Hugging Face 处理器得到的格数、像素值（float32 和转成 bfloat16 以后）一不一样 |
 | `compare_model_rows.py` | 两次分析里同一个模型的结果逐行比（加了模型以后原来那个模型的数变没变） |
+| `compare_analysis_versions.py` | 同样的数据、分析程序改前和改后各跑一次：改前的每张表在改后的里逐行、逐字节比，`params.txt` 和日志列出不同的行，只在改后才有的文件列出来（用户 2026-10-27：加模型两两之差以后原来的表一张都不能变） |
+| `check_model_differences.py` | `model_differences.csv`：每对的行数，两个模型的值和 `agreement.csv` 里各自的 τ-b 是不是一字不差，差是不是正好等于两者相减，缺值、重抽次数，再按每对、每种分组打出"差 [区间]"的表 |
 | `check_vlm_folder.py` | 上面那个文件夹和原文件夹逐个张量核对：名字、类型、形状、位置，每个张量的字节，用 safetensors 读出来 `torch.equal`，配置和复制的文件 |
 | `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |
 | `count_cut_replies.py` | 一个运行文件里因长度停下的回答：每种输入里写到 `max_tokens` 的、撑满上下文的各几条，其中没读出答案的、陷进重复的（最后 1,000 个 token 里至少 95% 的步第一候选概率 ≥ 0.99）各几条；同一规则在正常结束的回答上误判几条（用户 2026-10-26 要两个 4B 模型的试跑报告单列这几项） |
@@ -263,7 +265,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `check_presubmit.sh` | 正式实验剩下 4 个模型提交前和各自试跑的比对（问题文字、vLLM 参数、采样、模型和环境有没有改过）；写死了 `tmp_checks/presubmit/`，`check_pilot_settings.py` 也从那里调 |
 | `check_pilot_settings.py` | 试跑文件每行记下的采样设置和每个 token 的候选概率个数（`check_presubmit.sh` 调它） |
 
-没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`；`compress.sh`、`analyze.sh` 修正后的测试 `script_fix_tests/`；`camera_variants.py` 2026-10-23 改后在造的 7 行上的测试 `main_checks/camera_test/`；`unparsable_report.py` 在造的 6 条回答上的测试 `main_checks/unparsable_test/`。
+没放进仓库的（还在 `tmp_checks/`）：只用来调试环境、没有记下数的 `gpu_sanity_check.sh`、`gpu_sanity.sbatch`、`check_prefill_template.py`、`check_internvl_prefill.py`、`check_internvl_tokenizer.py`、`compare_tokenizers.py`；分析程序的回归测试 `analyze_regression/`、`analyze_regression2/`；`compress.sh`、`analyze.sh` 修正后的测试 `script_fix_tests/`；`camera_variants.py` 2026-10-23 改后在造的 7 行上的测试 `main_checks/camera_test/`；`unparsable_report.py` 在造的 6 条回答上的测试 `main_checks/unparsable_test/`；模型两两之差那张表的测试和正式比对 `model_diff/`（`analyze_vlm_ssm_without.py` 是加表以前 37cfa3b 的分析程序，`analyze_without.sh` 是只把程序换成它的 `analyze.sh`，`test.sbatch` 是 20 次重抽的测试）。
 
 ## Waymo 训练集 + 验证集：下载、提取、算 SSM（2026-10-21 写好，当天两部分都跑完）
 用户 2026-10-21 定：在 Kamiak 上下训练集 798 段 + 验证集 202 段（测试集没有公开标注，不下），先把 SSM 全算出来，再决定 VLM 问哪些帧。

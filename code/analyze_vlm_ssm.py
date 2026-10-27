@@ -34,7 +34,9 @@ Method (agreed with the user 2026-10-21, see CLAUDE.md "VLM 打分"):
     Spearman is only given for 'all'. agreement_by_segment.csv has every segment on its own.
  5. Bootstrap: 95 % intervals of every statistic, and of the differences between SSMs in the overall tau-b and the
     AUC per grouping (paired: one resample serves all SSMs). --resample frame (pilot) resamples frames within each
-    segment; --resample segment (formal experiment) resamples whole segments.
+    segment; --resample segment (formal experiment) resamples whole segments. The resamples are shared by all
+    models, so model_differences.csv gives model_1 - model_2 in tau-b (conflict frames) for the pairs in
+    MODEL_PAIRS, per condition x grouping x SSM, from the same resamples (user, 2026-10-27).
  6. Checks: frame score without the forced answers; median instead of mean (point estimates).
  Also per model x condition: answers, repeat stability (SD over repeats, test-retest tau-b, ICC), time and tokens.
 
@@ -81,6 +83,11 @@ HAZARD_FIX = {'lane change': 'lane change or side', 'intersection': 'crossing or
 KEY = ['segment', 'frame_idx', 'condition', 'repeat']
 STATS = ['auc', 'tau_b_conflict', 'spearman_conflict', 'agreement_conflict', 'tau_b_all']
 DIFF_STATS = ['tau_b_all', 'auc']
+# model_1 - model_2 in tau-b (user, 2026-10-27, decided before the two 4B main runs were seen); a pair with a model not
+# in the run is skipped
+MODEL_PAIRS = [('qwen-drive-1.0-4b', 'qwen3.5-4b'), ('qwen3-vl-32b-thinking', 'qwen3-vl-32b'),
+               ('internvl3.5-38b-thinking', 'internvl3.5-38b')]
+MODEL_DIFF_STAT = 'tau_b_conflict'
 
 
 # ------------------------------------------------------------------ reading the VLM replies
@@ -591,6 +598,30 @@ def main():
                                       diff=pe.at[s1, stat] - pe.at[s2, stat], diff_lo=lo, diff_hi=hi, nboot=nv,
                                       clear=bool(lo > 0 or hi < 0) if not np.isnan(lo) else False))
     without_auc(pd.DataFrame(drows), report_auc).to_csv(os.path.join(a.out_dir, 'ssm_differences.csv'), index=False)
+
+    # --- differences between models (MODEL_PAIRS), per condition x grouping x SSM, paired over the same resamples
+    # (shared by all models); the point estimate is the difference on all the data (user, 2026-10-27)
+    k = STATS.index(MODEL_DIFF_STAT)
+    pe = dict(zip(zip(main_rows.model, main_rows.condition, main_rows.grouping, main_rows.ssm),
+                  main_rows[MODEL_DIFF_STAT]))
+    mrows = []
+    for m1, m2 in MODEL_PAIRS:
+        if m1 not in models or m2 not in models:
+            print(f'model differences {m1} - {m2}: skipped, not in this run: '
+                  f'{", ".join(m for m in (m1, m2) if m not in models)}')
+            continue
+        i1, i2 = models.index(m1), models.index(m2)
+        for (ci_, c), (gi, gname), (si, s) in itertools.product(enumerate(CONDITIONS), enumerate(gnames),
+                                                                 enumerate(SSMS)):
+            v1, v2 = pe[(m1, c, gname, s)], pe[(m2, c, gname, s)]
+            lo, hi, nv = ci(boot[:, i1, ci_, si, gi, k] - boot[:, i2, ci_, si, gi, k])
+            mrows.append(dict(model_1=m1, model_2=m2, condition=c, grouping=gname, ssm=s, stat=MODEL_DIFF_STAT,
+                              value_1=v1, value_2=v2, diff=v1 - v2, diff_lo=lo, diff_hi=hi, nboot=nv,
+                              clear=bool(lo > 0 or hi < 0) if not np.isnan(lo) else False))
+        print(f'model differences {m1} - {m2}: {sum(r["model_1"] == m1 for r in mrows)} rows')
+    pd.DataFrame(mrows, columns=['model_1', 'model_2', 'condition', 'grouping', 'ssm', 'stat', 'value_1', 'value_2',
+                                 'diff', 'diff_lo', 'diff_hi', 'nboot', 'clear']) \
+        .to_csv(os.path.join(a.out_dir, 'model_differences.csv'), index=False)
 
     # --- per model x condition: answers, stability, time
     crow = []
