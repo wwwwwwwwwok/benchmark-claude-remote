@@ -857,12 +857,22 @@
     - 两个作业都在 sn16（4 块卡、2 个 CPU 插槽），分到的是哪两块卡没记下来（作业日志的 nvidia-smi 只打了序号）。Qwen-Drive 试跑时节点上另有 1 个用 1 块卡的作业，Qwen3.5-4B 试跑时另有 2 个，所以不是 Qwen-Drive 那次节点更忙。
     - 两个模型文件夹的配置文件：结构一样（层数、注意力的排法、视觉部分），差别是 Qwen-Drive 的多了 transformers 的默认字段、`max_position_embeddings` 32,768 对 262,144（只影响位置编码缓存的大小，正好是模型占用 4.33 对 4.38 GiB 的那 0.05 GiB）、没有 `transformers_version`；Qwen-Drive 只有一个权重文件、Qwen3.5-4B 两个（只影响载入）。
     - 结论：日志里找不到原因；设置和活一样，不是设置或活不同造成的。还没排除的是分到的卡（两块卡在不在同一个 CPU 插槽下）。主实验跑时记下分到的卡（`scontrol show job -d` 的 GPU 序号）和吞吐再比。不影响结果。
+    - 主实验对照（10-27）：Qwen-Drive 主实验还在 sn16（GPU 0、1，CPU 40–55），启动参数、引擎配置、警告和错误行的种类和条数都和它的试跑一样，提示每秒平均 18,077 token（试跑 7,088），和 Qwen3.5-4B 试跑（17,236）、主实验（18,248；sn17 的 GPU 1、2）一样快。同一个模型、同样设置、同一台节点这次不慢，所以试跑那次慢是当时的运行环境（分到的卡、CPU 或节点上别的作业），不是模型或设置。试跑分到哪两块卡没记下：那时 sn16 的 GPU 2 被另一个用户从 10-26 起一直占着，所以是 0、1、3 里的两块。
 - **两个 4B 主实验**（用户 2026-10-27 看过两个试跑后定：可以跑主实验）：
   - 两个一起提交，不设先后依赖：有空卡就同时跑，没有就排队；空间够（约 496 MB、524 MB），不用等前一个压缩、删原文件。
   - 10-27 14:18:16 提交：31444009（qwen-drive-1.0-4b）、31444010（qwen3.5-4b），命令和前几个模型一样（`--grid_targets $V/grid/targets_main.csv --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`）。每人最多 2 块卡，所以实际是一个跑完再跑另一个。提交前核对过：提交脚本（最后一次改是 a8cede0，08:58）、`run_vlm.py`（10-20）、输入图、两个模型文件夹和模板，试跑以后都没改过。
   - 每个跑完照前几个模型的做法：`done:` 那行；`check_run.py` 和自己的试跑比、`count_cut_replies.py`、`camera_variants.py`、`answer_counts.py`（有 0 次的格就停）；压缩、`.gz` 设只读、原文件挪到 `vlm_scores_to_delete/<模型>/` 由用户删；复制日志。没读出的照两个 InternVL 的规则当缺失，报条数和原文（`unparsable_report.py`）。
   - 相机写法（用户定）：把不合规定的写法和次数都列出来，看 `analyze_vlm_ssm.py` 的 `CAMERA_FIX` 是不是都认得；有不认得的先报用户，不改程序。
   - 两个都核对完，跑 7 个模型的总分析，输出到 `analysis/after_qwen3.5-4b/`，照常 summarize、验收；前 5 个模型的行要和 `after_qwen3.6-27b` 逐行一样（`compare_model_rows.py`）。
+  - 跑完（排队到 15:08；核对脚本 `tmp_checks/main_checks/checks_4b.sh <模型>`，输出 `tmp_checks/main_checks/<检查>_<模型>.out`）：
+    - Qwen-Drive（31444009）：sn16 GPU 0、1，15:08:37–15:57:44，49 分 07 秒；`done: 28075 ok (0 unparsable), 0 errors`。Qwen3.5-4B（31444010）：sn17 GPU 1、2，15:57:49–16:46:29，48 分 40 秒；`done: 28075 ok (0 unparsable), 0 errors`。两个作业日志第一行的 `OUT=` 是提交脚本里默认的试跑文件名，实际以末尾的 `--out` 为准；试跑文件没动（大小、时间和试跑时一样）。
+    - vLLM 日志：两个的启动参数、引擎配置（`speculative_config=None`）和各自的试跑一样（端口除外），警告和错误行的种类、条数也一样。
+    - `check_run.py`：两个都是 28,075 行、28,075 个请求，缺 0、多 0；每行的字段和试跑一样；温度 0.7、top_p 0.8、top_k 20、max_tokens 1,024、没有系统提示前缀、没有思考；每种输入的提示 token 和试跑一样（7,252、13,650、13,662、1,658、2,903）；全部 stop，没读出 0。Qwen-Drive：分数 0–100、23 种、平均 27.86，回答中位 85、最多 132 token，用时中位 3.16 s；Qwen3.5-4B：0–100、21 种、平均 20.02，中位 84、最多 122，3.15 s。
+    - `count_cut_replies.py`：两个都没有因长度停下的（写到 1,024 的 0、撑满上下文的 0）。`unparsable_report.py`：两个都是 0 条没读出答案，没有要按 InternVL 规则当缺失的。`answer_counts.py`：两个都是 5,615 格每格 5 次，没有 0 次的格。
+    - 相机写法（`camera_variants.py`；都在 `CAMERA_FIX` 里，没有不认得的）：Qwen-Drive 31 次，都在 ctrl_grid：`side left` 27（1 次在主结果拿掉的 39 帧上）、`side right` 4。Qwen3.5-4B 435 次：grid `side left` 124（2）、`side-left` 113（2）、`side right` 25、`side-right` 26；ctrl_grid `side left` 107（3）、`side-left` 7（1）、`side right` 24、`side-right` 9。两个都没有没读出答案的、读出答案没写相机的。
+    - 压缩（作业 31445826、31445828），解压后逐字节一样，`.gz` 设成只读，原文件挪到 `vlm_scores_to_delete/<模型>/`，用户来删：Qwen-Drive 506,045,116 → 101,246,007 字节（sha256 `858495bb56ca58add17d376b563fcd7b7463f8cee81fe730285fb06d30bce55f`；估计 496,427,501，+1.9%）；Qwen3.5-4B 523,031,645 → 108,536,501（`0efa3d7ac2d373e6d758832b21524a9b66be938af01fc74a9b50320dfc22afe7`；估计 523,784,474，−0.1%）。
+    - 作业日志 `qwen-vlm_<作业号>.out`、`vllm_<作业号>.log` 复制到 `vlm_scores/<模型>/logs/`（`cmp` 过）。
+    - 16:53 交了 7 个模型的总分析：31445833（`analyze.sh` → `analysis/after_qwen3.5-4b/`）和 31445834（不加模型差那张表的版本 → `tmp_checks/model_diff/without_7/`），各 8 个 CPU、64 GB。
 - **模型两两之差的区间**（用户 2026-10-27 定，在看到两个 4B 主实验结果之前定的）：
   - 三对：Qwen-Drive-1.0-4B − Qwen3.5-4B；Qwen3-VL-32B-Thinking − Qwen3-VL-32B-Instruct；InternVL3.5-38B 思考版 − 不思考版。
   - 用已有的那 2,000 次重抽（所有模型共用同一批），每一轮算两个模型 τ-b 之差；区间的算法和每个模型自己的区间一样（2.5% 和 97.5% 分位数；有定义的重抽不到 90% 就不给）；点估计是全部数据上的差，应正好等于两个模型各自的 τ-b 相减，要核。
