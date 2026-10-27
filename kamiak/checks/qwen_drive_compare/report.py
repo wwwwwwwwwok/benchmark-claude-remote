@@ -46,7 +46,7 @@ print(f'vLLM vision encoder calls: {len(glob.glob(os.path.join(out, "vllm_vision
       f'{len(v_grids)}, distinct bfloat16 tensors {len(v_bf16)}')
 
 ok_all = True
-agree_all = n_all = 0
+agree_all = n_all = agree_1k = n_1k = 0
 for r in json.load(open(req_json)):
     c = r['condition']
     off = json.load(open(os.path.join(out, f'official_{c}.json')))
@@ -76,8 +76,12 @@ for r in json.load(open(req_json)):
     b = rate >= 0.99 and all(gp < 0.1 for gp in gaps)
     agree_all += sum(agree)
     n_all += len(agree)
+    head = agree[:1000]                        # user, 2026-10-26: also the first 1,000 tokens, for reference only
+    agree_1k += sum(head)
+    n_1k += len(head)
     print(f"(b) positions {len(agree)}; same top-1 {sum(agree)} ({rate:.4%}); differing {len(gaps)}, official "
-          f"top-1 minus top-2 there: max {max(gaps) if gaps else 0:.4f} -> {'PASS' if b else 'FAIL'}")
+          f"top-1 minus top-2 there: max {max(gaps) if gaps else 0:.4f} -> {'PASS' if b else 'FAIL'}; first 1,000 "
+          f"positions (reference only): {sum(head)}/{len(head)} ({sum(head) / len(head):.4%})")
     if gaps:
         print('    differing positions (official p1 - p2):',
               [(j, round(top2[j][1][0] - top2[j][1][1], 4)) for j, ok in enumerate(agree) if not ok][:20])
@@ -101,5 +105,6 @@ for r in json.load(open(req_json)):
           f"{where}; scores: official {off_ans.get('risk') if off_ans else None}, vLLM "
           f"{srv_ans.get('risk') if srv_ans else None}")
     ok_all = ok_all and a and b
-print(f"\noverall (b): same top-1 at {agree_all}/{n_all} positions ({agree_all / n_all:.4%})" if n_all else '')
+print(f"\noverall (b): same top-1 at {agree_all}/{n_all} positions ({agree_all / n_all:.4%}); first 1,000 of each "
+      f"request (reference only): {agree_1k}/{n_1k} ({agree_1k / n_1k:.4%})" if n_all else '')
 print(f"ALL CRITERIA (a) AND (b) MET: {ok_all}")
