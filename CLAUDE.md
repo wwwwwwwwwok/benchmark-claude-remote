@@ -375,6 +375,8 @@
     - 我要删 Qwen3-VL-32B-Instruct 和 Thinking 的模型文件夹；仓库里记下了版本号和官方文件清单（`kamiak/model_files/`），要补跑就重下同一版本逐个核对。
     - Qwen-Drive 试跑完先估主实验文件多大，再定两个 4B 模型怎么排（一个跑完压缩、删了原文件再跑下一个）。
     - 核对的像素值按 bfloat16 比（两边模型实际收到的值）；GPU 核对时两边各在进视觉部分那一刻把实际收到的输入张量存下来比。
+    - Qwen3.5-4B 试跑前先发几条小试，确认思考和回答分得开、答案读得出；确认它没开推测解码。
+    - 两个 4B 模型的试跑报告单列：sep_time、sep_camera 里撑满 32,768 上下文的条数，写到 24,576 上限的条数，这两种里陷进重复的条数（`kamiak/checks/count_cut_replies.py`）。先只数、只报，不改设置。
   - Claude 的安排：
     - 输入图用复制到课题组目录的图生成（复制的图和 scratch 上的图生成出来逐字节一样，核过 6 段），放在 `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：`grid/`、`separate/` 各有 `targets.csv`（主实验 241 段的全部目标帧）和 `targets_main.csv`（主实验的 1,123 帧）；`segments/` 是指向 `tables/<split>/<段名>` 的链接，好让一次生成两个 split；`sha256_grid.txt`、`sha256_separate.txt` 是每张图的 sha256。
     - 结果文件：`/data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`。
