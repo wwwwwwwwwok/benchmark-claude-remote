@@ -771,6 +771,8 @@
   - `hazard_type` 不在 7 种里的：`pedestrian` 5、`Rear-end` 1（分析程序转小写后就是 rear-end）、`lane change` 1（换成 lane change or side）。
   - 每格答案次数（`answer_counts.py`）：28,072 个答案（含补答 107）；5 次 5,612 格、4 次 3 格（ctrl_sep 2、sep_time 1），没有 0 次的格。
   - 4 份作业日志复制到 `vlm_scores/qwen3.6-27b/logs/`，逐字节核对过。
+  - 压缩（作业 31435146，cn179，35 分 39 秒），解压后都逐字节一样，`.gz` 设成只读，原文件挪到 `vlm_scores_to_delete/qwen3.6-27b/`，用户来删：主实验 39,727,111,675 → 9,753,144,658 字节（sha256 `16483e046c85cdaa4c7698f7072421127d0cf0aee22636a39594a8bba46e606d`）；补答 13,028,168 → 2,106,315（`c0c70730c6bc4615f4892989a57eb3ab475c30b24423a783e5a189fb0306e557`）。22:03 课题组目录剩 15,687,122,944 字节。
+  - 到这里原定的 5 个模型设置的主实验和补答都跑完、压缩过了。
 - **Qwen-Drive-1.0-4B**（用户 2026-10-26 定加，做法和其他模型一样：先试跑、核对，再跑主实验）：
   - 用户定的设置：开思考（模板默认）；采样用它 `generation_config.json` 的温度 0.6、top_p 0.95、top_k 20；上下文用它自己的 32,768；max_tokens 和别的思考模型一样 24,576。用 vLLM 跑：做一个只含视觉语言模型的文件夹，权重名要改就另存一份、逐个张量核对；不动现有的 vLLM 环境；要装别的另建环境，先告诉用户。正式开跑前，用官方代码和 vLLM 在几条请求上贪心解码比，输出一样才往下走，两边要发一模一样的内容。要用 GPU 的步骤等 Qwen3.6-27B 和它的补答跑完。
   - 下载（10-26，dtn，100 秒）：根目录 14 个文件 9,101,605,825 字节，`verify_hf_snapshot.py` 14/14 和官方校验值一致（官方清单 `tmp_checks/tree_Qwen-Drive-1.0-4B_28484089….json`，输出 `tmp_checks/verify_Qwen-Drive-1.0-4B_….out`）。放在 `/data/lab/cejli/sy/models/Qwen-Drive-1.0-4B/`。
