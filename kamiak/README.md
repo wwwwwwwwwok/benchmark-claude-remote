@@ -68,6 +68,8 @@ Waymo 数据的部分见下面"Waymo 训练集 + 验证集"一节。
    - Qwen3-VL-32B-Instruct：`--revision 0cfaf48183f594c314753d30a4c4974bc75f3ccb`，2026-10-19 用了 9 分 25 秒；
    - Qwen3-VL-32B-Thinking：`--revision 7edd10ffd1196091948fb245ff63e406ccb2d4d1`，2026-10-19 用了 14 分 41 秒；
    - InternVL3.5-38B：仓库 `OpenGVLab/InternVL3_5-38B`，`--revision de99855be3642cd44fe97c9b72d70e5ce2c07f69`，2026-10-20 用了 15 分 55 秒（用 `sbatch --wrap` 提交，会话断了也不影响）。
+   - Qwen-Drive-1.0-4B（用户 2026-10-26 定加）：仓库 `Qwen/Qwen-Drive-1.0-4B`，`--revision 28484089a7cc8c335cf5089fb0745cf7c49b6eaa`，只下根目录（问答只用根目录的视觉语言模型）：加 `--exclude "assets/*" --exclude "perception/*" --exclude "planner-rl/*" --exclude "planner-sft/*"`（每个规则写一次 `--exclude`；先加 `--dry-run` 看会下哪些）。14 个文件 9,101,605,825 字节，2026-10-26 用了 100 秒。官方文件清单用不递归的 `tree/<版本>`，`verify_hf_snapshot.py` 只比文件夹最上一层。
+     - vLLM 不认它的外壳（`QwenDriveForPlanning`），张量名前面多 `vlm.`：用 `kamiak/checks/make_vlm_folder.py` 另做一个只含视觉语言模型的文件夹 `/data/lab/cejli/sy/models/Qwen-Drive-1.0-4B-vlm/`（配置取原 `vlm_config`，权重去掉 `vlm.` 另存、数据部分逐字节照抄），再用 `kamiak/checks/check_vlm_folder.py <原文件夹> <新文件夹> --load` 逐个张量核对（`--load` 要用有 torch 和 safetensors 的环境，比如 `vllm_cu129`）。
 
    ```bash
    srun --partition=dtn --account=cejli --time=03:00:00 --cpus-per-task=2 --mem=900M bash -c '
@@ -241,6 +243,9 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `reparse_scores.py` | 按新解析办法重算一个结果文件的 `parsed`（先备份，有一条结果会变就不写） |
 | `check_internvl_cut.py` | InternVL 思考版写到上限的回答，补答时上下文够不够 |
 | `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
+| `inspect_weights.py` | 一个 safetensors 文件里的张量名（只读文件头）和参照模型的比：类型、个数、名字的前缀、去掉层号后哪些名字对不上 |
+| `make_vlm_folder.py` | 从 Qwen-Drive-1.0-4B 做一个只含视觉语言模型、vLLM 能读的文件夹（用户 2026-10-26 定） |
+| `check_vlm_folder.py` | 上面那个文件夹和原文件夹逐个张量核对：名字、类型、形状、位置，每个张量的字节，用 safetensors 读出来 `torch.equal`，配置和复制的文件 |
 | `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |
 | `answer_counts.py` | 每帧每种输入 5 次里读出答案的次数（照分析程序 `read_model` 读，补答并进去）：各有几格、最少几次、不满 5 次的格在哪种输入、有没有一次都没有的格 |
 | `unparsable_report.py` | 一个运行文件里没读出答案的每一条：条件、repeat、finish_reason、生成 token 数、回答原文；是写到 max_tokens、撑满上下文，还是写完了但解析规则读不出（照 `run_vlm.parse` 逐个试回答里的 `{`，写出每处为什么不算答案） |

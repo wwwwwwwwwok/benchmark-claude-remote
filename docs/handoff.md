@@ -754,6 +754,40 @@
     - 思考版补答 5,453,193 → 481,640（`4afc07cdfe71d948d7d3532ef7c7249a7da3d9a32029d896719bb3cca2647816`）。
   - `check_forced.py` 照 `camera_variants.py` 那次的改法改了（用户定，赶在 Qwen3.6-27B 的补答核对之前；单独提交 20deeae）：补答的相机只列不合规定的写法，按文字排；没读出答案的、读出答案没写相机的分开数，各列一行。在思考版的补答文件上重跑：grid `side right` 1 次、没读出答案 3 条（grid、sep_camera、sep_time 各 1）、没写相机 0 条；前面各项和 10-24 的输出一样（输出 `check_forced_v2_internvl3.5-38b-thinking.out`）。
   - Qwen3.6-27B（作业 31367829）：10-26 09:46 写了 24,610 行、34,626,817,025 字节；10-24 18:47 以来每小时约 554 行，还剩 3,465 行，估计 10-26 16:00 左右跑完，接着补答 31367906。按现在每行的平均大小，整个文件约 39.50 GB（10-24 用前 3,000 行估的是 40.40 GB）。09:48 课题组目录剩 46,662,598,656 字节；还要写约 4.9 GB，再加压缩版约 9.7 GB，够。作业日志到 23,650 条时有 92 条没读出答案（试跑 2,550 条里 3 条）。
+- **Qwen3.6-27B 主实验和补答跑完**（2026-10-26）：
+  - 主实验（作业 31367829，sn17，10-24 13:09:08 到 10-26 16:21:25，2 天 3 小时 12 分 17 秒；试跑用时乘 11 估的是约 70 小时）：`done: 28075 ok (110 unparsable), 0 errors`。文件 39,727,111,675 字节（10-24 用前 3,000 行估的是 40,396,283,532，差 −1.7%）。
+  - 核对（`check_run.py`，和自己的试跑 31307048、补跑 31315513 比；作业 31433703，15 分 28 秒；输出都在 `tmp_checks/main_checks/`，文件名带 `qwen3.6-27b`）：
+    - 请求 28,075，缺 0，清单外 0；每行字段和试跑相同；28,075 行都有 log-probabilities，每个生成的 token 一个。
+    - 采样每行都是温度 1.0、top_p 0.95、top_k 20、max_tokens 24,576，每行都有思考；每种输入的提示 token 和试跑完全一样：grid 7,250、sep_time 13,648、sep_camera 13,660、ctrl_grid 1,656、ctrl_sep 2,901。
+    - `finish_reason` stop 27,965、length 110；解析失败的 110 条就是这 110 条，全是思考写到 24,576 的上限（`unparsable_report.py`：撑满上下文 0、写完了读不出 0）。
+    - 分数 0–100，24 种值，平均 30.00（试跑 0–90、19 种、29.74）；生成 token 中位 5,410、最长 24,576（试跑中位 5,543）；用时中位 171.64 s、最长 826.21 s。
+    - vLLM 日志里的警告和 ERROR 去掉进程号和时间以后，和试跑、补跑都一样；启动参数也一样。
+  - 补答（作业 31367906，sn17，16:21:26–16:37:45，16 分 19 秒）：`done: 110 answered, 0 errors`。`check_forced.py`（10-26 改过的）：
+    - 补的 110 条正好是写到上限的 110 条（ctrl_grid 35、sep_camera 28、ctrl_sep 21、sep_time 14、grid 12）；接回去的思考和原用量都一样（110/110）；字段、采样、`max_tokens` 1,024、收尾文字都和试跑补答一样；服务启动参数、警告也一样。
+    - stop 106、length 4；读出 107 条。读不出的 3 条都写到 1,024，回答部分接着写分析、没有 `{`：177507 第 80 帧 ctrl_sep 第 3 次、257026 第 95 帧 sep_time 第 3 次、812390 第 20 帧 ctrl_sep 第 2 次。
+    - 提示比"原提示 + 思考"多 22–24 token 的是大多数；有 6 条是 −65 到 11（接回去的思考重新分词后 token 数和原来不同，Qwen 的另两次补答里没出现过）。
+    - 补答的相机：ctrl_grid `side left` 2、`side right` 3、`side-left` 1；没读出答案 3、没写相机 0。
+  - 相机写法（主实验文件）：不是规定写法的 681 次：grid 274、ctrl_grid 406，另有 sep_camera 写成 `Front-left`（大写）1 次；其中 8 次在那 39 帧上。没读出答案 110 条（3 条在那 39 帧上）。读出答案但没写相机 13 条（ctrl_grid 2、sep_camera 5、sep_time 6）：前几个模型都是 0。
+  - `hazard_type` 不在 7 种里的：`pedestrian` 5、`Rear-end` 1（分析程序转小写后就是 rear-end）、`lane change` 1（换成 lane change or side）。
+  - 每格答案次数（`answer_counts.py`）：28,072 个答案（含补答 107）；5 次 5,612 格、4 次 3 格（ctrl_sep 2、sep_time 1），没有 0 次的格。
+  - 4 份作业日志复制到 `vlm_scores/qwen3.6-27b/logs/`，逐字节核对过。
+- **Qwen-Drive-1.0-4B**（用户 2026-10-26 定加，做法和其他模型一样：先试跑、核对，再跑主实验）：
+  - 用户定的设置：开思考（模板默认）；采样用它 `generation_config.json` 的温度 0.6、top_p 0.95、top_k 20；上下文用它自己的 32,768；max_tokens 和别的思考模型一样 24,576。用 vLLM 跑：做一个只含视觉语言模型的文件夹，权重名要改就另存一份、逐个张量核对；不动现有的 vLLM 环境；要装别的另建环境，先告诉用户。正式开跑前，用官方代码和 vLLM 在几条请求上贪心解码比，输出一样才往下走，两边要发一模一样的内容。要用 GPU 的步骤等 Qwen3.6-27B 和它的补答跑完。
+  - 下载（10-26，dtn，100 秒）：根目录 14 个文件 9,101,605,825 字节，`verify_hf_snapshot.py` 14/14 和官方校验值一致（官方清单 `tmp_checks/tree_Qwen-Drive-1.0-4B_28484089….json`，输出 `tmp_checks/verify_Qwen-Drive-1.0-4B_….out`）。放在 `/data/lab/cejli/sy/models/Qwen-Drive-1.0-4B/`。
+  - 只含视觉语言模型的文件夹 `/data/lab/cejli/sy/models/Qwen-Drive-1.0-4B-vlm/`（`kamiak/checks/make_vlm_folder.py`，`check_vlm_folder.py`；输出 `tmp_checks/qwen_drive/make_and_check_vlm_folder.out`）：
+    - 原权重 723 个张量，名字都是 `vlm.model.language_model.*`（426）或 `vlm.model.visual.*`（297），比标准 Qwen3.5 的名字多一个 `vlm.`；没有 `lm_head`（`tie_word_embeddings` 为 true）、没有 MTP（`inspect_weights.py`，和 Qwen3.6-27B 比）。所以另存一份去掉 `vlm.` 的。
+    - 核对：名字都等于原名去掉 `vlm.`，类型、形状、位置一样；723/723 个张量字节一样，数据部分 9,078,538,752 字节整体一样；用 safetensors 读出来 723/723 个 `torch.equal`（BF16 675、F32 48）；`config.json` 只把顶层 `dtype` 从空改成 bfloat16（权重和 `text_config` 都是 bfloat16）；复制的 8 个文件逐字节一样。
+  - 官方问答代码（GitHub `QwenLM/Qwen-Drive-1.0`，提交 28091c1532e869bc7aee91fc0aef6b3e6fd0b2e0，2026-09-03；源码取到 `tmp_checks/qwen_drive/src_28091c15…/`，只读不运行）实际发给模型的内容（`generate_text` → `QwenDriveProcessor.encode_vqa`）：
+    - 不加 `<FRONT VIEW>` 一类视角标签，不加 `frame: k`：这两种只在规划模式（`build_input_ids`）里加。
+    - 没有系统提示：`encode_vqa` 有 `system` 参数，`generate_text` 没传。
+    - 不开思考：提示停在 `<|im_start|>assistant\n`，后面什么都不加（模型自带的对话模板默认会加 `<think>\n`）。返回的文字去掉 `</think>` 之前的部分。
+    - 排法固定：所有图片在前、问题文字在最后，图片之间不能夹文字。
+    - 图片：自己缩，每张最多 921,600 像素（配置里的 `current_image_pixels`）、最少 4,096，torchvision 对 PIL 图双三次插值，均值、标准差 0.5。`preprocessor_config.json`（vLLM 用它）是最少 65,536、最多 16,777,216。
+    - 默认解码：温度 0.01、top_k 1、top_p 0.001、最多 32,768 token、种子 3407（等于贪心）。
+  - 我们的提示（系统提示 + 图片之间的文字标签 + 模板默认的 `<think>\n`）用 `generate_text` 发不了。我们的输入图：网格图都是 1920×722（138.6 万像素，超过 921,600：默认设置下对齐成 1920×736、每张 1,380 个图片 token；照官方问答代码缩成 1536×576、864 个）；分开的图 960×640（前方 3 个相机，不用缩）和 960×443（两侧，两边都要对齐成 960×448，但缩图程序不同：官方用 PIL，vLLM 用 torchvision）。
+  - vLLM 0.32 的对话接口有 `return_token_ids`（返回实际的提示 token）和 `prompt_logprobs`。vLLM 环境里的 transformers 是 5.19.0，官方要求 5.14.1。
+  - 官方代码要的环境（`requirements.txt`，官方用 Python 3.12、CUDA 12.8 验证）：torch 2.8.0、torchvision 0.23.0、transformers 5.14.1、accelerate 1.12.0、safetensors 0.8.0、numpy 2.2.6、pillow 12.0.0、flash-attn 2.8.3、causal-conv1d 1.6.2.post1、flash-linear-attention 0.5.1、opencv-python、matplotlib、tqdm。问答用 `sdpa`，flash-attn 只有选 `flash_attention_2` 时才导入。causal-conv1d 在 GitHub 发布页有现成的包（cu12、torch 2.8、cp312，193,650,571 字节）。
+  - 对照模型 Qwen3.5-4B（用户要的，同意了再下）：仓库 `Qwen/Qwen3.5-4B`，版本 `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`（2026-03-02），Apache-2.0，不用申请；14 个文件 9,342,907,469 字节（两个权重分片 5,329,398,688 + 3,990,429,408），参数 4,659,865,088（Qwen-Drive 根目录 4,539,265,536）。Qwen-Drive 的元数据写的是从它微调来的（`base_model: Qwen/Qwen3.5-4B`）。对话模板、`preprocessor_config.json`、`vocab.json`、`merges.txt` 和 Qwen-Drive 的校验值一样；`tokenizer.json` 差 12 字节，`tokenizer_config.json` 不同。默认思考；仓库里没有 `generation_config.json`，README 推荐：思考、一般任务温度 1.0、top_p 0.95、top_k 20、min_p 0、presence_penalty 1.5、repetition_penalty 1.0；思考、精确的编程任务 0.6、0.95、20、presence_penalty 0；不思考 0.7、0.8、20、presence_penalty 1.5；输出长度建议 32,768；上下文 262,144，建议至少 128K 保住思考能力。
 
 ## 3. 下一步：在 Kamiak 上试跑
 
@@ -974,7 +1008,7 @@
 | 10-22（晚） | Qwen3-VL-32B-Instruct 主实验跑完、核对、压缩、分析（用户接受这次运行；`side left` 原样留着）；按用户指出的修正 `compress.sh` 的检查和 `analyze.sh` 的 wait（Claude 另改 `tail -n 2`），用造的小文件测过；剩下 4 个模型和各自的试跑核对后，用 afterany 一次排好（作业 31367826–31367829，Qwen3.6-27B 最后）；用户同意直接补答后，核对补答和试跑一样，3 个补答作业插进队列（31367904–31367906）；补复制 InternVL 思考版试跑的作业日志；写好 Qwen3.6-27B 文件大小的估算脚本，在试跑文件上验证 |
 | 10-23 | Qwen3-VL-32B-Thinking 主实验跑完（14 条写到上限）、补答 14 条全补出；核对、压缩、复制日志；用户接受这次运行；按用户定的改 `camera_variants.py`（没读出答案、没写相机分开数），`check_forced.py` 复制进仓库；在 Thinking 主实验的 `.gz` 上验证文件大小的估算（前 300 条 +41.2%，前 3,000 条 −4.2%）；建传回办公室电脑的下载文件夹 `to_office/`（只放链接）和 `sha256.txt`；InternVL3.5-38B 主实验跑完（12:24–19:42），核对，没读出答案的 13 条（都是 `reason` 少了收尾引号）报给用户，压缩等用户看过再做；InternVL 思考版 19:42 开始 |
 | 10-24 | InternVL 思考版主实验跑完（66 条没读出）、补答 63 条补出 48 条（15 条上下文满了补不了，和试跑那条一样）；核对、复制日志，压缩等用户看过再做；`check_forced.py` 最后一行遇到没读出答案的补答会报错，没改，等用户定；Qwen3.6-27B 13:09 开始，用前 300、3,000 行估文件大小（3,000 行的估计够）；用户想加 Qwen-Drive-1.0-4B，查了它的情况和课题组目录里可删的东西 |
-| 10-26 | 用户定两个 InternVL 没有答案的当缺失；数每格答案次数（没有 0 次的格）；压缩 3 个文件、`.gz` 设成只读；按用户定的改 `check_forced.py`（单独提交） |
+| 10-26 | 用户定两个 InternVL 没有答案的当缺失；数每格答案次数（没有 0 次的格）；压缩 3 个文件、`.gz` 设成只读；按用户定的改 `check_forced.py`（单独提交）；用户定加 Qwen-Drive-1.0-4B：下载根目录并核对，做只含视觉语言模型的文件夹并逐个张量核对，看清官方问答函数发的内容；查 Qwen3.5-4B；Qwen3.6-27B 主实验和补答跑完、核对，开始压缩 |
 
 ## 7. 背景和文献笔记（CLAUDE.md 和 docs 里没有的部分）
 
