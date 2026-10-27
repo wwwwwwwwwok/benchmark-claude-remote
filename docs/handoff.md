@@ -775,6 +775,24 @@
   - 到这里原定的 5 个模型设置的主实验和补答都跑完、压缩过了。
   - 用户 2026-10-26 接受这次运行；补了也读不出的 3 条照两个 InternVL 的规则当缺失；两份原文件用户来删。
 - **5 个模型的总分析**（用户 2026-10-26 定：现在就跑；重抽是所有模型共用的，以后加 Qwen-Drive 和 Qwen3.5-4B，这 5 个的数不会变）：`analyze.sh` 输出到 `/data/lab/cejli/sy/waymo_v143/analysis/after_qwen3.6-27b/`（作业 31435385，8 个 CPU、64 GB），照常跑 `summarize.py`、`main_run_accept.py`；Instruct 的数要和 `after_qwen3-vl-32b` 里的逐行比，应该完全一样。
+  - 跑完（cn156，10-26 22:07:59 到 10-27 00:11:45，2 小时 3 分 46 秒；主结果 7,268 s、敏感性 7,423 s）。汇总表 `summary_main_vs_sensitivity.txt`、`summary_sensitivity.txt`。
+  - 验收（`main_run_accept.py`；输出 `tmp_checks/main_checks/accept_and_compare_after_qwen3.6-27b.out`）：主结果 1,084 帧（238 段），敏感性 1,123 帧（241 段）；3 种分组下 5 种输入 × 9 个 SSM 的 45 格每格都有 5 个模型的 τ-b、区间、成对一致率（Spearman 只在"全部"）；SSM 之间的差每种分组 900 行，都有区间，重抽 2,000 次；没有 AUC。
+  - Instruct 逐行比（`kamiak/checks/compare_model_rows.py`）：两个文件夹各 7 张表里 Instruct 的行和 10-22 的一字不差（不一样的 0 张）；`params.txt` 只差运行时间、多出的模型和 5 个模型合在一起的"写法不同"计数。
+  - 结果（主结果 1,084 帧，"全部"分组，Kendall τ-b）：
+    - Qwen3.6-27B：5 种输入第一都是 ACT（0.072–0.095），grid 0.095 [0.021, 0.163]、sep_time 0.085 [0.012, 0.157] 区间在 0 以上；grid 的 MTTC 0.087 [0.020, 0.154] 也在 0 以上。
+    - InternVL3.5-38B：ACT 4 种第一（0.061–0.071），sep_camera 是 MTTC（0.068）；区间都含 0。
+    - InternVL 思考版：ACT 第一的是 grid、ctrl_grid（0.075、0.070），MTTC 第一的是 sep_time、sep_camera、ctrl_sep（0.049–0.074；ctrl_sep 0.074 [0.003, 0.147]）。
+    - Qwen3-VL-32B-Thinking：都接近 0；ACT 第一的是 grid、ctrl_grid、ctrl_sep（0.045、0.020、0.015），PICUD 第一的是 sep_time、sep_camera（0.008、0.005）。
+    - Qwen3-VL-32B-Instruct：和 10-22 一样（ACT 0.055–0.106）。
+    - 5 个模型都是 PSD 最负（−0.104 到 −0.261，区间都在 0 以下），THW、CI 也多为负；明显落后于第一的，5 个模型几乎都有 PSD、THW、DRAC、CI。
+    - 同一帧 5 次的标准差平均：Instruct 3.66–4.44，InternVL3.5-38B 4.75–5.37，InternVL 思考版 6.51–8.26，Thinking 7.38–8.92，Qwen3.6-27B 6.60–10.07；5 次平均后的 ICC 0.820–0.974。
+    - 敏感性（1,123 帧）对主结果：75 个"模型 × 分组 × 输入"里 SSM 先后完全一样的 38 个，τ-b 最多差 0.013。
+- **Qwen-Drive 的 GPU 核对第一次跑（作业 31435620，sn16，10-26 22:50:15–23:43:18）：标准 (a) 不满足，按用户的规矩停下，没进试跑**（输出 `tmp_checks/qwen_drive/compare_out/`）：
+  - 第 1 步（官方代码，开思考、贪心）：grid 写满 24,576（796 s），sep_time 19,120、sep_camera 19,108（提示加回答正好 32,768），ctrl_sep 写满 24,576，这 4 条最后 1,000 步第一候选概率 ≥ 0.99 的占 100%，原样循环（周期 36、172、297、198 个 token），都没写出 `</think>`，没有答案；只有 ctrl_grid 想了 2,347 token 后正常结束，分数 25。视觉部分收到的是 bfloat16。
+  - 第 2 步（vLLM 服务，提交脚本那一段的参数）：5 条的提示都比官方少 2 个 token（7,248 对 7,250 等），前面完全一样，差在结尾：vLLM 停在 `<|im_start|>assistant\n`，官方是 `<|im_start|>assistant\n<think>\n`。vLLM 那边模型先写一个空的思考块再直接答，88–99 token、约 1 秒就结束。
+  - 原因：Qwen-Drive 的仓库里有两套不同的对话模板。`chat_template.jinja`（和 Qwen3.5-4B 的那份逐字节一样）默认在结尾加 `<think>\n`；`chat_template.json` 和 `tokenizer_config.json` 里内嵌的是另一套，结尾只加 `<|im_start|>assistant\n`，没有思考的写法，和官方问答代码 `encode_vqa` 拼的格式一致。官方那边 transformers 的 `apply_chat_template` 用了 `.jinja`，vLLM 用了另一套。10-24、10-26 报的"模板默认思考"只看了 `.jinja`，漏了另一套。
+  - 第 3 步（vLLM 离线打分）没跑起来：程序没有 `if __name__ == '__main__':`，vLLM 用 spawn 起引擎时又把脚本执行了一遍。已改（只改了这一处结构，没重跑）。
+  - 等用户定：Qwen-Drive（和 Qwen3.5-4B）到底开不开思考、用哪套模板；之后重跑第 2–4 步（第 1 步的官方输出用的是 `.jinja`、开思考，要是还开思考就不用重跑）。
 - **删 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking 的模型文件夹**（用户 2026-10-26 要删，用户自己删）：
   - 删之前确认仓库里记下了仓库名、版本号和每个文件的官方校验值：版本号在 `kamiak/README.md`；官方文件清单 10-26 按版本重新取（dtn），和 10-19 存在 `tmp_checks/qwen3vl32_tree.json`、`qwen3vl32think_tree.json` 的逐字节一样，复制进仓库 `kamiak/model_files/`。用这两份清单把两个文件夹再核对一遍，都是 26/26 个文件一致（输出 `tmp_checks/model_trees/verify_before_delete_20261026.out`）。
   - `/data/lab/cejli/sy/models/Qwen3-VL-32B-Instruct`：一共 66,726,528,251 字节（26 个模型文件 66,726,519,322，加下载时记录用的 `.cache/` 8,929）。

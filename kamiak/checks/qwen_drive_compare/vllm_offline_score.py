@@ -14,14 +14,6 @@ import time
 
 from PIL import Image
 
-vlm, req_json, out = sys.argv[1:4]
-os.environ['CAPTURE_DIR'] = os.path.join(out, 'vllm_vision')
-os.makedirs(os.environ['CAPTURE_DIR'], exist_ok=True)
-os.environ.setdefault('VLLM_USE_FLASHINFER_SAMPLER', '0')
-from vllm import LLM, SamplingParams  # noqa: E402
-from vllm.inputs import TokensPrompt  # noqa: E402
-
-
 def install(model):
     """Runs inside each worker: pre-hooks that save the vision encoder's inputs (rank 0)."""
     import os
@@ -46,11 +38,25 @@ def install(model):
     return rank
 
 
-llm = LLM(model=vlm, tensor_parallel_size=2, max_model_len=32768, gpu_memory_utilization=0.85,
-          limit_mm_per_prompt={'image': 25}, gdn_prefill_backend='triton', max_num_batched_tokens=4096)
-print('hooks in ranks', llm.apply_model(install), flush=True)
-sp = SamplingParams(max_tokens=1, temperature=0, prompt_logprobs=5)
-for r in json.load(open(req_json)):
+def main():
+    # inside main (2026-10-27): vLLM starts its engine with the spawn method, which imports this file again in the
+    # new processes; the first run failed because this part was at module level
+    vlm, req_json, out = sys.argv[1:4]
+    os.environ['CAPTURE_DIR'] = os.path.join(out, 'vllm_vision')
+    os.makedirs(os.environ['CAPTURE_DIR'], exist_ok=True)
+    os.environ.setdefault('VLLM_USE_FLASHINFER_SAMPLER', '0')
+    from vllm import LLM, SamplingParams
+    from vllm.inputs import TokensPrompt
+
+    llm = LLM(model=vlm, tensor_parallel_size=2, max_model_len=32768, gpu_memory_utilization=0.85,
+              limit_mm_per_prompt={'image': 25}, gdn_prefill_backend='triton', max_num_batched_tokens=4096)
+    print('hooks in ranks', llm.apply_model(install), flush=True)
+    sp = SamplingParams(max_tokens=1, temperature=0, prompt_logprobs=5)
+    for r in json.load(open(req_json)):
+        score_one(llm, sp, TokensPrompt, r, out)
+
+
+def score_one(llm, sp, TokensPrompt, r, out):
     cond = r['condition']
     off = json.load(open(os.path.join(out, f'official_{cond}.json')))
     imgs = [Image.open(v).convert('RGB') for k, v in r['parts'] if k == 'image']
@@ -68,3 +74,7 @@ for r in json.load(open(req_json)):
                        seconds=round(time.time() - t0, 1)), f)
     print(f'{cond}: {len(res.prompt_token_ids)} prompt tokens scored ({n_prompt} prompt + '
           f'{len(res.prompt_token_ids) - n_prompt} generated), {time.time() - t0:.0f} s', flush=True)
+
+
+if __name__ == '__main__':
+    main()
