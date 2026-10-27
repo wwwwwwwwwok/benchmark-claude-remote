@@ -376,7 +376,12 @@
     - Qwen-Drive 试跑完先估主实验文件多大，再定两个 4B 模型怎么排（一个跑完压缩、删了原文件再跑下一个）。
     - 核对的像素值按 bfloat16 比（两边模型实际收到的值）；GPU 核对时两边各在进视觉部分那一刻把实际收到的输入张量存下来比。
     - Qwen3.5-4B 试跑前先发几条小试，确认思考和回答分得开、答案读得出；确认它没开推测解码。
-    - 两个 4B 模型的试跑报告单列：sep_time、sep_camera 里撑满 32,768 上下文的条数，写到 24,576 上限的条数，这两种里陷进重复的条数（`kamiak/checks/count_cut_replies.py`）。先只数、只报，不改设置。
+    - 两个 4B 模型的试跑报告单列：sep_time、sep_camera 里撑满 32,768 上下文的条数，写到 24,576 上限的条数，这两种里陷进重复的条数（`kamiak/checks/count_cut_replies.py`）。先只数、只报，不改设置。（10-27 改成不思考以后，换成：写到 1,024 上限的条数、其中陷进重复的、没读出答案的。）
+  - 我定的（2026-10-27）：两个 4B 模型（Qwen-Drive-1.0-4B、Qwen3.5-4B）都不开思考，设置完全一样，照 Qwen3-VL-32B-Instruct。原定开思考；核对时发现 Qwen-Drive 有两套模板，它自己的问答格式不思考（让它自己选时 5 条都写空思考块直接答），开思考贪心 5 条里 4 条循环；Qwen3.5-4B 的说明建议思考时上下文至少 128K，我们只能用 32,768。
+    - 两个都用 Qwen-Drive 的 `chat_template.jinja`，vLLM 加 `--chat-template` 和 `--default-chat-template-kwargs '{"enable_thinking": false}'`（提示结尾 `<|im_start|>assistant\n<think>\n\n</think>\n\n`），不加 `--reasoning-parser`。
+    - 采样温度 0.7、top_p 0.8、top_k 20（Qwen3.5 不思考的推荐值），`--max_tokens 1024`，上下文 32,768；不加说明推荐的 presence_penalty 1.5（前 5 个模型都没用）。`run_vlm.py`、提示词、输入图都不动。
+    - 两个服务启动日志里的默认采样和停止 token 要一样，不一样就停下报我。重跑核对的做法和通过标准见 `docs/handoff.md` 第 2 节；任何一条不满足就停下报我。
+    - 通过以后直接跑 Qwen-Drive 试跑，再小试、试跑 Qwen3.5-4B；试跑放 `results/vlm_scores/<模型>/`（家目录按估计加 30% 不够就放课题组目录 `vlm_scores/<模型>/` 并告诉我）；两个试跑都报给我，我看过再定主实验。
   - Claude 的安排：
     - 输入图用复制到课题组目录的图生成（复制的图和 scratch 上的图生成出来逐字节一样，核过 6 段），放在 `/data/lab/cejli/sy/waymo_v143/vlm_inputs/`：`grid/`、`separate/` 各有 `targets.csv`（主实验 241 段的全部目标帧）和 `targets_main.csv`（主实验的 1,123 帧）；`segments/` 是指向 `tables/<split>/<段名>` 的链接，好让一次生成两个 split；`sha256_grid.txt`、`sha256_separate.txt` 是每张图的 sha256。
     - 结果文件：`/data/lab/cejli/sy/waymo_v143/vlm_scores/<模型>/main_<模型>.jsonl`。

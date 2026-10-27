@@ -793,6 +793,15 @@
   - 原因：Qwen-Drive 的仓库里有两套不同的对话模板。`chat_template.jinja`（和 Qwen3.5-4B 的那份逐字节一样）默认在结尾加 `<think>\n`；`chat_template.json` 和 `tokenizer_config.json` 里内嵌的是另一套，结尾只加 `<|im_start|>assistant\n`，没有思考的写法，和官方问答代码 `encode_vqa` 拼的格式一致。官方那边 transformers 的 `apply_chat_template` 用了 `.jinja`，vLLM 用了另一套。10-24、10-26 报的"模板默认思考"只看了 `.jinja`，漏了另一套。
   - 第 3 步（vLLM 离线打分）没跑起来：程序没有 `if __name__ == '__main__':`，vLLM 用 spawn 起引擎时又把脚本执行了一遍。已改（只改了这一处结构，没重跑）。
   - 等用户定：Qwen-Drive（和 Qwen3.5-4B）到底开不开思考、用哪套模板；之后重跑第 2–4 步（第 1 步的官方输出用的是 `.jinja`、开思考，要是还开思考就不用重跑）。
+- **用户 2026-10-27 定：两个 4B 模型（Qwen-Drive-1.0-4B、Qwen3.5-4B）都不开思考，设置完全一样，照 Qwen3-VL-32B-Instruct。**
+  - 理由（用户写明）：两个 4B 原定开思考；核对时发现 Qwen-Drive 有两套模板，它自己的问答格式不思考（让它自己选时 5 条都写空思考块直接答），开思考贪心 5 条里 4 条循环；Qwen3.5-4B 的说明建议思考时上下文至少 128K，我们只能用 32,768。所以两个都改成不思考。
+  - 模板：两个都用 Qwen-Drive 的 `chat_template.jinja`（和 Qwen3.5-4B 的逐字节一样）；vLLM 启动加 `--chat-template <这个文件>` 和 `--default-chat-template-kwargs '{"enable_thinking": false}'`，提示结尾应是 `<|im_start|>assistant\n<think>\n\n</think>\n\n`。不加 `--reasoning-parser`（和 Instruct 一样）。
+  - 采样：温度 0.7、top_p 0.8、top_k 20（Qwen3.5 说明里不思考的推荐值）；`--max_tokens 1024`，上下文 32,768。不加 presence_penalty：说明推荐 1.5，前 5 个模型都没用，这一条和官方推荐不同（论文里要说明）。
+  - `run_vlm.py`、提示词、输入图都不动。
+  - 两个服务的启动日志里核对：除了我们发的这 3 个值，默认采样（repetition_penalty、min_p 等）和停止 token 两个模型一样。Qwen-Drive 有 `generation_config.json`、Qwen3.5-4B 没有，要特别看。不一样就停下报用户。
+  - 重跑核对（标准 (a)(b)(c) 不变）：1. 官方那边用同一份 `.jinja`、`enable_thinking=False`，对同样 5 条重新贪心生成；2. vLLM 照上面的设置，比提示 token、图片 token 数、像素值（按 bfloat16），两边进视觉部分的张量存下来；3. vLLM 逐位打分官方的新输出，回答短，一处不同就不到 99%，所以 5 条合起来算 99%，每处不同还必须是官方第一、第二候选概率差 < 0.1；4. 已有的 5 条开思考的官方输出（用它们自己带 `<think>\n` 的提示）也逐位打分，当长序列的附加证据：只要有 vLLM 第一候选和官方不同、而官方第一第二候选概率差 ≥ 0.1 的位置就停下，前 1,000 个 token 的一致率只作参考；5. 比上次 vLLM 那 5 条里模型自己写的空思考块，和 `.jinja` 关思考时提示结尾加的那几个 token，是不是同样的 token ID（论文里要写"等于它自己的问答格式"）。任何一条不满足就停下报用户。
+  - 通过以后：直接接着跑 Qwen-Drive 试跑 2,550 条，报告照常，另外单列写到 1,024 上限的条数、其中陷进重复的条数、没读出答案的条数（先只数、只报）；然后 Qwen3.5-4B 先小试几条（答案读得出、日志里 `speculative_config=None`），再试跑，报告同上。试跑结果和前 5 个模型一样放 `results/vlm_scores/<模型>/pilot_<模型>.jsonl`；放之前按估计大小加 30% 看家目录够不够，不够就放课题组目录的 `vlm_scores/<模型>/`，告诉用户。两个试跑都报给用户，用户看过再定主实验。
+  - 10-26 定的那三项（sep 里撑满上下文的、写到 24,576 的、其中重复的）是按开思考设计的；不开思考以后换成上一条的三项（写到 1,024 的、其中重复的、没读出答案的）。
 - **删 Qwen3-VL-32B-Instruct 和 Qwen3-VL-32B-Thinking 的模型文件夹**（用户 2026-10-26 要删，用户自己删）：
   - 删之前确认仓库里记下了仓库名、版本号和每个文件的官方校验值：版本号在 `kamiak/README.md`；官方文件清单 10-26 按版本重新取（dtn），和 10-19 存在 `tmp_checks/qwen3vl32_tree.json`、`qwen3vl32think_tree.json` 的逐字节一样，复制进仓库 `kamiak/model_files/`。用这两份清单把两个文件夹再核对一遍，都是 26/26 个文件一致（输出 `tmp_checks/model_trees/verify_before_delete_20261026.out`）。
   - `/data/lab/cejli/sy/models/Qwen3-VL-32B-Instruct`：一共 66,726,528,251 字节（26 个模型文件 66,726,519,322，加下载时记录用的 `.cache/` 8,929）。

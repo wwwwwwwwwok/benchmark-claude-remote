@@ -79,21 +79,27 @@ case "$MODEL" in
     qwen-drive-1.0-4b)   # Qwen/Qwen-Drive-1.0-4B rev 28484089 (2026-10-26, user's choice): Qwen3.5-4B fine-tuned for
                          # driving. Only its vision-language model, from the folder kamiak/checks/make_vlm_folder.py
                          # made (vLLM does not know the QwenDriveForPlanning wrapper; the tensors are the original's).
-                         # The same settings as qwen3.5-4b (user): thinking on (the chat template's default), the
-                         # sampling of its generation_config.json, its own context of 32,768 (a sep prompt leaves
-                         # ~19,000 tokens to think), --max_tokens as for the other thinking models; images capped by
-                         # its preprocessor_config.json (vLLM's default). --gdn-prefill-backend triton as for
-                         # qwen3.6-27b (the same Qwen3.5 architecture).
+                         # 2026-10-27 (user): thinking off, the same settings as qwen3.5-4b and as qwen3-vl-32b. The
+                         # repo ships two chat templates; both models use Qwen-Drive's chat_template.jinja (byte for
+                         # byte Qwen3.5-4B's) with enable_thinking false, so every prompt ends with an empty thinking
+                         # block (<think>\n\n</think>\n\n); no --reasoning-parser. Sampling: Qwen3.5's recommended
+                         # values without thinking, but no presence_penalty (the card says 1.5; no model here uses
+                         # it). Context 32,768 (Qwen-Drive's own); images capped by preprocessor_config.json (vLLM's
+                         # default). --gdn-prefill-backend triton as for qwen3.6-27b (the same Qwen3.5 architecture).
         MODEL_DIR=/data/lab/cejli/sy/models/Qwen-Drive-1.0-4B-vlm
-        SERVE_ARGS=(--max-model-len 32768 --reasoning-parser qwen3 --gdn-prefill-backend triton)
-        SAMPLING=(--temperature 0.6 --top_p 0.95 --top_k 20 --max_tokens 24576)
+        SERVE_ARGS=(--max-model-len 32768 --gdn-prefill-backend triton
+                    --chat-template /data/lab/cejli/sy/models/Qwen-Drive-1.0-4B/chat_template.jinja
+                    --default-chat-template-kwargs '{"enable_thinking": false}')
+        SAMPLING=(--temperature 0.7 --top_p 0.8 --top_k 20 --max_tokens 1024)
         ;;
     qwen3.5-4b)   # Qwen/Qwen3.5-4B rev 851bf6e8 (2026-10-26, user's choice): the model Qwen-Drive was fine-tuned from,
-                  # as the control without driving training; exactly qwen-drive-1.0-4b's settings (user). Its repo
-                  # has no generation_config.json; no presence_penalty (run_vlm.py does not send it).
+                  # as the control without driving training; exactly qwen-drive-1.0-4b's settings (user, 2026-10-27).
+                  # Its repo has no generation_config.json.
         MODEL_DIR=/data/lab/cejli/sy/models/Qwen3.5-4B
-        SERVE_ARGS=(--max-model-len 32768 --reasoning-parser qwen3 --gdn-prefill-backend triton)
-        SAMPLING=(--temperature 0.6 --top_p 0.95 --top_k 20 --max_tokens 24576)
+        SERVE_ARGS=(--max-model-len 32768 --gdn-prefill-backend triton
+                    --chat-template /data/lab/cejli/sy/models/Qwen-Drive-1.0-4B/chat_template.jinja
+                    --default-chat-template-kwargs '{"enable_thinking": false}')
+        SAMPLING=(--temperature 0.7 --top_p 0.8 --top_k 20 --max_tokens 1024)
         ;;
     *) echo "unknown MODEL=$MODEL"; exit 1 ;;
 esac
