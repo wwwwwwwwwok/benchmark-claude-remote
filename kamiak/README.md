@@ -246,6 +246,9 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `verify_hf_snapshot.py` | 下载的模型文件逐个和官方校验值比 |
 | `inspect_weights.py` | 一个 safetensors 文件里的张量名（只读文件头）和参照模型的比：类型、个数、名字的前缀、去掉层号后哪些名字对不上 |
 | `make_vlm_folder.py` | 从 Qwen-Drive-1.0-4B 做一个只含视觉语言模型、vLLM 能读的文件夹（用户 2026-10-26 定） |
+| `prep_compare_inputs.py` | Qwen-Drive 的 vLLM 和官方代码核对用的输入：一帧 5 种输入的 30 张图，按 `preprocessor_config.json` 缩到最终尺寸存成无损 PNG（只放课题组目录） |
+| `precheck_pixels.py` | 同一份 PNG 经官方图片代码和 Hugging Face 处理器得到的格数、像素值（float32 和转成 bfloat16 以后）一不一样 |
+| `compare_model_rows.py` | 两次分析里同一个模型的结果逐行比（加了模型以后原来那个模型的数变没变） |
 | `check_vlm_folder.py` | 上面那个文件夹和原文件夹逐个张量核对：名字、类型、形状、位置，每个张量的字节，用 safetensors 读出来 `torch.equal`，配置和复制的文件 |
 | `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |
 | `answer_counts.py` | 每帧每种输入 5 次里读出答案的次数（照分析程序 `read_model` 读，补答并进去）：各有几格、最少几次、不满 5 次的格在哪种输入、有没有一次都没有的格 |
