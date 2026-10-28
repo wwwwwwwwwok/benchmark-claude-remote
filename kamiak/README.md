@@ -195,6 +195,14 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
    5. 分析：`bash kamiak/main_run/analyze.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字>`：主结果 1,084 帧（`main_1084/`）和敏感性分析 1,123 帧（`sensitivity_1123/`），按片段重抽 2,000 次，分组用"全部""同一时段"（Waymo 的时段标签；天气分组还没定）和"同一段"。汇总表：`python -I kamiak/main_run/summarize.py <名字>/main_1084 <名字>/sensitivity_1123`。验收（帧数、每种分组 5 × 9 格的 τ-b、区间、成对一致率、SSM 之间差的区间都有值，没有 AUC）：`python -I kamiak/main_run/main_run_accept.py <名字>/main_1084 1084`，`sensitivity_1123` 那份给 1123。Spearman 只在"全部"那组算，分组的那几行空着是设计如此。每个文件夹另有模型两两之差的表 `model_differences.csv`（用户 2026-10-27 定；三对写在 `analyze_vlm_ssm.py` 的 `MODEL_PAIRS`，有模型不在这次分析里的那对跳过），核对：`python -I kamiak/checks/check_model_differences.py <名字>/main_1084`（`sensitivity_1123` 也一样）。
    6. 把 `logs/qwen-vlm_<任务号>.out` 和 `logs/vllm_<任务号>.log` 复制到 `/data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/logs/`；补答作业的 `logs/force-answer_<任务号>.out`、`logs/vllm_<任务号>.log` 也复制过去。
 
+## 物理量实验（2026-10-28 用户定；设计见 CLAUDE.md "VLM 打分"）
+问模型 5 个量（前车距离、自车速度、前车速度、自车加速度、前车加速度），每个量一条独立的请求。输入、系统提示、5 种输入方式、图和图注都和风险实验一样，只换最后的问题和 JSON（`code/run_vlm.py` 的 `QUANTITIES`）。采样、思考、上下文、max_tokens 照各模型风险实验的设置（提交脚本里那一段），只是不存候选概率。
+- 提交（不用改提交脚本，末尾的参数覆盖）：`sbatch --export=ALL,MODEL=<MODEL> kamiak/qwen_vlm.sbatch --task quantities --top_logprobs 0 --out results/vlm_scores/<MODEL>/pilot_quantities_<MODEL>.jsonl`（试跑：102 帧 × 5 种输入 × 5 个量 × 5 次 = 12,750 条）。小试加 `--limit 1 --repeats 1`（25 条），输出叫 `smoke_quantities_<MODEL>.jsonl`。不加 `--task` 就还是风险实验。
+- 每行多一列 `quantity`；`parsed` 是第一个含这个量的键、值是数字的 JSON（写成字符串的数字也转），负数和离谱的数照原样记；断点续跑时按（段、帧、输入、量、第几次）跳过已有的。
+- 改程序以后核对风险实验的请求不变：`sbatch kamiak/checks/compare_risk_requests.sbatch`（改前的程序放在 `tmp_checks/run_vlm_compare/run_vlm_old.py`，路径写死在脚本里；`kamiak/checks/compare_risk_requests.py`：改前改后的 `run_vlm.py` 各用一个什么都不发的假接口跑一遍，每条要发的请求——提示文字、图片顺序和内容、采样参数——按发送顺序逐条比 sha256，输出行和不发送时的打印也比）。
+- 真值：`python -I code/quantity_truth.py <frame_ssm.csv> <目标帧清单> /data/lab/cejli/sy/waymo_v143/tables <输出 csv> --ssm_params <params.txt>...`。距离 = `gap` + 这段的车头到前摄像头的距离（`footprint_from_lidars` 的车头 x 减 `camera_position` 的 FRONT x，从这段的 `context.json` 读，读不到就报错）；其余 4 个量是 `v_ego`、`v_lead`、`a_ego`、`a_lead`。
+- 试跑报告：`python -I kamiak/checks/quantities_pilot_report.py <pilot_quantities jsonl> <真值 csv>`。
+
 ## 脚本用到的路径（`kamiak/main_run/`、`kamiak/checks/`）
 脚本里写死的、或者要当参数给的路径（用户 2026-10-22 要求写在这里）：
 - `/data/lab/cejli/sy/conda_envs/waymo/bin/python`：处理 Waymo 数据和做分析用的 Python（`analyze.sh` 里写死）。vLLM 环境 `/data/lab/cejli/sy/conda_envs/vllm_cu129/` 只有 `kamiak/qwen_vlm.sbatch` 用。
@@ -254,6 +262,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `precheck_pixels.py` | 同一份 PNG 经官方图片代码和 Hugging Face 处理器得到的格数、像素值（float32 和转成 bfloat16 以后）一不一样 |
 | `compare_model_rows.py` | 两次分析里同一个模型的结果逐行比（加了模型以后原来那个模型的数变没变） |
 | `compare_analysis_versions.py` | 同样的数据、分析程序改前和改后各跑一次：改前的每张表在改后的里逐行、逐字节比，`params.txt` 和日志列出不同的行，只在改后才有的文件列出来（用户 2026-10-27：加模型两两之差以后原来的表一张都不能变） |
+| `compare_risk_requests.py` | 改 `run_vlm.py` 前后风险实验的每条请求逐条比（用不发送的假接口；用户 2026-10-28：加物理量任务以后风险的请求要逐字节一样） |
+| `quantities_pilot_report.py` | 物理量试跑的报告：每个量 × 每种输入的读出率、长度、用时、写到上限的；回答的分布；同一帧几次的离散程度；真值；每帧中位数和真值的 τ-b、误差，加速度三类分对的比例（只作参考） |
 | `check_model_differences.py` | `model_differences.csv`：每对的行数，两个模型的值和 `agreement.csv` 里各自的 τ-b 是不是一字不差，差是不是正好等于两者相减，缺值、重抽次数，再按每对、每种分组打出"差 [区间]"的表 |
 | `check_vlm_folder.py` | 上面那个文件夹和原文件夹逐个张量核对：名字、类型、形状、位置，每个张量的字节，用 safetensors 读出来 `torch.equal`，配置和复制的文件 |
 | `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |

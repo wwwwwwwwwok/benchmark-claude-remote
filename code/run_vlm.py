@@ -20,6 +20,12 @@ Usage:
 Without --send nothing is sent: the script prints --show assembled requests and the size of the run (requests,
 images, estimated image tokens). Add --send only when the endpoint and the size are right.
 
+--task quantities (user, 2026-10-28; default --task risk): the same system prompt, conditions, pictures and captions,
+but the closing question asks for one physical quantity instead of the risk score, one request per quantity
+(QUANTITIES: distance to the lead, ego speed, lead speed, ego acceleration, lead acceleration; --quantities picks
+some). Requests go frame -> condition -> quantity -> repeat; every output line has a `quantity` column, and `parsed`
+is the first JSON object whose key for that quantity holds a number (parse_quantity).
+
 Output: one JSON line per (segment, frame_idx, condition, repeat) with the raw reply, the parsed JSON, the sampling
 settings sent, finish_reason, the model's thinking text (`reasoning`, when the server's reasoning parser splits it off),
 token usage, latency and (when the server returns them) the log-probabilities of all generated tokens, thinking
@@ -29,6 +35,7 @@ import argparse
 import base64
 import concurrent.futures as cf
 import json
+import math
 import os
 import sys
 import threading
@@ -58,10 +65,37 @@ FORMAT = ('Give a risk score from 0 to 100, where 0 means no risk at all and 100
           '  "reason": "<one sentence>"\n'
           '}')
 CONDITIONS = ['grid', 'sep_time', 'sep_camera', 'ctrl_grid', 'ctrl_sep']
+# --task quantities (user, 2026-10-28): question and JSON key per quantity; {now} is filled per condition as in the risk
+# question ("right now, in picture 5" etc.)
+NOW = {'grid': ', in picture 5', 'sep_time': ', at moment 5', 'sep_camera': '', 'ctrl_grid': '', 'ctrl_sep': ''}
+GUESS = 'Always give a number; if you are not sure, give your best estimate.'
+UNIT_SPEED = 'in meters per second (1 m/s = 3.6 km/h, about 2.24 mph)'
+QUANTITIES = {
+    'distance': ('Right now{now}, how far is it from your front camera to the back of the vehicle (or cyclist) directly '
+                 'ahead of you in your lane? Measure along the lane, in meters. ' + GUESS, 'distance_m'),
+    'ego_speed': (f'How fast is your car going right now{{now}}? Give the speed {UNIT_SPEED}. ' + GUESS,
+                  'ego_speed_mps'),
+    'lead_speed': ('How fast is the vehicle (or cyclist) directly ahead of you in your lane going right now{now}? Give its '
+                   f'speed over the ground, not relative to your car, {UNIT_SPEED}. ' + GUESS, 'lead_speed_mps'),
+    'ego_accel': ('Right now{now}, is your car speeding up or slowing down, and how strongly? Give its acceleration '
+                  'along the direction of travel in meters per second squared: positive when speeding up, negative '
+                  'when slowing down, 0 at a steady speed. ' + GUESS, 'ego_accel_mps2'),
+    'lead_accel': ('Right now{now}, is the vehicle (or cyclist) directly ahead of you in your lane speeding up or slowing '
+                   'down, and how strongly? Give its acceleration along its direction of travel in meters per second '
+                   'squared: positive when speeding up, negative when slowing down, 0 at a steady speed. ' + GUESS,
+                   'lead_accel_mps2'),
+}
 
 
-def build(cond, grid_imgs, sep_imgs):
-    """User content as a list of ('text', str) and ('image', path) parts, in sending order."""
+def quantity_question(q):
+    """The closing text for quantity q, with {now} still to fill."""
+    text, key = QUANTITIES[q]
+    return text + '\nReply with JSON only, in this format:\n{"' + key + '": <number>}'
+
+
+def build(cond, grid_imgs, sep_imgs, question=None):
+    """User content as a list of ('text', str) and ('image', path) parts, in sending order. `question`: another closing
+    text instead of the risk question (task quantities; '{now}' in it is filled for the condition)."""
     p = []
     if cond == 'grid':
         p.append(('text', 'Below are 5 pictures from your car, taken 0.5 seconds apart and shown in time order. '
@@ -97,6 +131,8 @@ def build(cond, grid_imgs, sep_imgs):
         p.append(('text', 'How risky is the driving situation right now?\n' + FORMAT))
     else:
         raise ValueError(cond)
+    if question is not None:
+        p[-1] = ('text', question.replace('{now}', NOW[cond]))
     return p
 
 
@@ -140,12 +176,40 @@ def parse(text):
     return None
 
 
+def parse_quantity(text, key):
+    """Task quantities: the first JSON object in the reply whose `key` holds a number; a number written as a string is
+    converted. Negative and implausible values are kept as they are; NaN and infinity count as no number (user,
+    2026-10-28)."""
+    text = text or ''
+    i = 0
+    while (i := text.find('{', i)) >= 0:
+        try:
+            d, _ = json.JSONDecoder().raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(d, dict) and key in d:
+            v = d[key]
+            if isinstance(v, str):
+                try:
+                    v = float(v.strip())
+                except ValueError:
+                    v = None
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+                d[key] = v
+                return d
+        i += 1
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--grid_targets', required=True)
     ap.add_argument('--sep_targets', required=True)
     ap.add_argument('--out', required=True)
     ap.add_argument('--conditions', default=','.join(CONDITIONS))
+    ap.add_argument('--task', choices=['risk', 'quantities'], default='risk')
+    ap.add_argument('--quantities', default=','.join(QUANTITIES), help='task quantities: which ones, in this order')
     ap.add_argument('--repeats', type=int, default=3)
     ap.add_argument('--base_url', default='http://localhost:8000/v1')
     ap.add_argument('--model', default='qwen')
@@ -173,35 +237,43 @@ def main():
         t = t.head(a.limit)
     conds = a.conditions.split(',')
     assert all(c in CONDITIONS for c in conds), conds
+    quants = [None] if a.task == 'risk' else a.quantities.split(',')
+    assert a.task == 'risk' or all(q in QUANTITIES for q in quants), quants
     system = SYSTEM
     if a.system_prefix_file:
         with open(a.system_prefix_file, encoding='utf-8') as f:
             system = f.read().strip() + '\n\n' + SYSTEM
 
-    jobs = []
+    jobs = []                                         # (segment, frame, condition, quantity or None, repeat, parts)
     for r in t.itertuples():
         grid_imgs = [os.path.join(root_g, p) for p in r.images.split(';')]
         by_time = [os.path.join(root_s, p) for p in r.images_by_time.split(';')]
         sep_imgs = {cam: [by_time[i * 5 + c] for i in range(5)] for c, cam in enumerate(CAMERAS)}
         for cond in conds:
-            for rep in range(a.repeats):
-                jobs.append((r.segment, int(r.frame_idx), cond, rep, build(cond, grid_imgs, sep_imgs)))
+            for q in quants:
+                for rep in range(a.repeats):
+                    jobs.append((r.segment, int(r.frame_idx), cond, q, rep,
+                                 build(cond, grid_imgs, sep_imgs, None if q is None else quantity_question(q))))
+
+    def key(seg, k, cond, q, rep):                    # a risk line has no quantity
+        return (seg, k, cond, rep) if q is None else (seg, k, cond, q, rep)
 
     if not a.send:
-        for seg, k, cond, rep, parts in jobs[:a.show]:
-            print(f'===== {seg[:6]} frame {k} {cond} repeat {rep}')
+        for seg, k, cond, q, rep, parts in jobs[:a.show]:
+            print(f'===== {seg[:6]} frame {k} {cond}' + (f' {q}' if q else '') + f' repeat {rep}')
             print('[SYSTEM] ' + system)
             for kind, val in parts:
                 print(val if kind == 'text' else f'<image {os.path.relpath(val)}>')
         per = {}
-        for seg, k, cond, rep, parts in jobs:
+        for seg, k, cond, q, rep, parts in jobs:
             if cond not in per:
                 imgs = [v for kind, v in parts if kind == 'image']
                 per[cond] = (len(imgs), sum(qwen_image_tokens(p) for p in imgs))
-        print(f'\n{len(jobs)} requests ({len(t)} targets x {len(conds)} conditions x {a.repeats} repeats)')
+        print(f'\n{len(jobs)} requests ({len(t)} targets x {len(conds)} conditions'
+              + ('' if a.task == 'risk' else f' x {len(quants)} quantities') + f' x {a.repeats} repeats)')
         for cond, (n_img, tok) in per.items():
             print(f'  {cond:10s}: {n_img:2d} images, about {tok:,} image tokens per request (Qwen estimate)')
-        total = sum(per[c][1] for c in conds) * len(t) * a.repeats
+        total = sum(per[c][1] for c in conds) * len(t) * len(quants) * a.repeats
         print(f'  total image tokens about {total:,}')
         print('nothing sent (add --send to send)')
         return
@@ -211,8 +283,8 @@ def main():
         with open(a.out, encoding='utf-8') as f:
             for line in f:
                 d = json.loads(line)
-                done.add((d['segment'], d['frame_idx'], d['condition'], d['repeat']))
-    todo = [j for j in jobs if (j[0], j[1], j[2], j[3]) not in done]
+                done.add(key(d['segment'], d['frame_idx'], d['condition'], d.get('quantity'), d['repeat']))
+    todo = [j for j in jobs if key(*j[:5]) not in done]
     print(f'{len(jobs)} requests, {len(done)} already done, {len(todo)} to send')
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
 
@@ -223,9 +295,12 @@ def main():
     lock = threading.Lock()
 
     def ask(job):
-        seg, k, cond, rep, parts = job
-        rec = dict(segment=seg, frame_idx=k, condition=cond, repeat=rep, model=a.model, temperature=a.temperature,
-                   top_p=a.top_p, top_k=a.top_k, max_tokens=a.max_tokens)
+        seg, k, cond, q, rep, parts = job
+        rec = dict(segment=seg, frame_idx=k, condition=cond)
+        if q is not None:
+            rec['quantity'] = q
+        rec.update(repeat=rep, model=a.model, temperature=a.temperature, top_p=a.top_p, top_k=a.top_k,
+                   max_tokens=a.max_tokens)
         if a.system_prefix_file:
             rec['system_prefix_file'] = os.path.basename(a.system_prefix_file)
         t0 = time.time()
@@ -241,7 +316,8 @@ def main():
             resp = client.chat.completions.create(**kw)
             ch = resp.choices[0]
             # vLLM's --reasoning-parser puts the thinking text in `reasoning` (formerly `reasoning_content`)
-            rec.update(text=ch.message.content, parsed=parse(ch.message.content),
+            rec.update(text=ch.message.content, parsed=(parse(ch.message.content) if q is None else
+                                                        parse_quantity(ch.message.content, QUANTITIES[q][1])),
                        reasoning=getattr(ch.message, 'reasoning', None), finish_reason=ch.finish_reason,
                        usage=resp.usage.model_dump() if resp.usage else None)
             if ch.logprobs and ch.logprobs.content:
@@ -261,7 +337,8 @@ def main():
         for i, rec in enumerate(ex.map(ask, todo), 1):
             if 'error' in rec:
                 n_err += 1
-                print(f"error {rec['segment'][:6]} {rec['frame_idx']} {rec['condition']}: {rec['error'][:200]}")
+                print(f"error {rec['segment'][:6]} {rec['frame_idx']} {rec['condition']}"
+                      + (f" {rec['quantity']}" if 'quantity' in rec else '') + f": {rec['error'][:200]}")
             else:
                 n_ok += 1
                 n_bad += rec['parsed'] is None
