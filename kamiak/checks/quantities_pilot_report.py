@@ -39,6 +39,9 @@ with open(path, encoding='utf-8') as f:
                          latency=d.get('latency_s'), text=d.get('text')))
 r = pd.DataFrame(rows)
 keys = r[['segment', 'frame_idx', 'condition', 'quantity', 'repeat']]
+r = r.sort_values(['quantity', 'condition'], key=lambda s: s.map({**{q: i for i, q in enumerate(QUANT)},
+                                                                    **{c: i for i, c in enumerate(CONDS)}}),
+                  kind='stable').reset_index(drop=True)          # tables in the order of QUANT and CONDS
 print(f'{path}: {len(r)} lines, {len(keys.drop_duplicates())} distinct requests; '
       f'frames {len(r[["segment", "frame_idx"]].drop_duplicates())}; settings max_tokens {sorted(r.max_tokens.unique())}')
 
@@ -55,10 +58,10 @@ print(f'finish_reason overall: {r.finish.value_counts().to_dict()}')
 
 bad = r[r.value.isna()]
 if len(bad):
-    print(f'\n=== replies without a readable number: {len(bad)} (up to 3 per quantity shown, text cut at 300 characters)')
-    for q, sub in bad.groupby('quantity', sort=False):
-        for x in sub.head(3).itertuples():
-            print(f'  {q} {x.segment[:6]} {x.frame_idx} {x.condition} r{x.repeat} {x.finish}: {str(x.text)[:300]!r}')
+    print(f'\n=== replies without a readable number: {len(bad)} (up to 60 shown; text: the last 300 characters)')
+    for x in bad.head(60).itertuples():
+        print(f'  {x.quantity} {x.segment[:6]} {x.frame_idx} {x.condition} r{x.repeat} {x.finish} {x.completion} tokens: '
+              f'{str(x.text)[-300:]!r}')
 
 print('\n=== the answers (per quantity x condition)')
 out = []
