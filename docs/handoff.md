@@ -873,6 +873,18 @@
     - 压缩（作业 31445826、31445828），解压后逐字节一样，`.gz` 设成只读，原文件挪到 `vlm_scores_to_delete/<模型>/`，用户来删：Qwen-Drive 506,045,116 → 101,246,007 字节（sha256 `858495bb56ca58add17d376b563fcd7b7463f8cee81fe730285fb06d30bce55f`；估计 496,427,501，+1.9%）；Qwen3.5-4B 523,031,645 → 108,536,501（`0efa3d7ac2d373e6d758832b21524a9b66be938af01fc74a9b50320dfc22afe7`；估计 523,784,474，−0.1%）。
     - 作业日志 `qwen-vlm_<作业号>.out`、`vllm_<作业号>.log` 复制到 `vlm_scores/<模型>/logs/`（`cmp` 过）。
     - 16:53 交了 7 个模型的总分析：31445833（`analyze.sh` → `analysis/after_qwen3.5-4b/`）和 31445834（不加模型差那张表的版本 → `tmp_checks/model_diff/without_7/`），各 8 个 CPU、64 GB。
+- **7 个模型的总分析**（`/data/lab/cejli/sy/waymo_v143/analysis/after_qwen3.5-4b/`；作业 31445833，cn176，10-27 16:53:28–19:00:09，2 小时 6 分 41 秒，主结果 7,399 s、敏感性 7,596 s；程序 09a231d）。汇总表 `summary_main_vs_sensitivity.txt`、`summary_sensitivity.txt`；跑完后的汇总、验收、比对都在 `tmp_checks/main_checks/after_analysis_7.sh`（作业 31450191）。
+  - 验收（`main_run_accept.py`；输出 `tmp_checks/main_checks/accept_and_compare_after_qwen3.5-4b.out`）：主结果 1,084 帧（238 段），敏感性 1,123 帧（241 段）；3 种分组下 45 格每格都有 7 个模型的 τ-b、区间、成对一致率（Spearman 只在"全部"）；SSM 之间的差每种分组 1,260 行，都有区间，重抽 2,000 次；没有 AUC。
+  - 前 5 个模型逐行比（`compare_model_rows.py`，同一个输出文件）：5 个模型在两个文件夹的 7 张表里的行都和 `after_qwen3.6-27b` 一字不差（不一样的 0 张）。`params.txt` 只差运行时间、多出的两个模型那两行、7 个模型合在一起的相机写法计数（正好等于原来的加两个 4B 的：如敏感性 `side left` 1,503 → 1,761，多 27 + 231）。
+  - 加表和不加表逐行比（`compare_analysis_versions.py`，输出 `tmp_checks/main_checks/compare_without_with_after_qwen3.5-4b.out`）：两个文件夹原来的 7 张表都逐行、逐字节一样；只多了 `model_differences.csv`；`params.txt` 只差运行时间那一行；日志只差用时、新加的 3 行（三对各 135 行）和输出路径。
+  - 新表核对（`check_model_differences.py`，输出 `tmp_checks/main_checks/model_differences_after_qwen3.5-4b_<文件夹>.out`）：两个文件夹各 405 行，三对各 135 行；value_1、value_2 和 `agreement.csv` 里两个模型各自的 τ-b 文字一样 135/135，差正好等于两者相减 135/135；`tau_b_all` 及其区间、重抽次数和 `tau_b_conflict` 一样 135/135；没有缺值，重抽 2,000 次，点估计都在自己的区间里。
+  - 结果（主结果 1,084 帧，Kendall τ-b）：
+    - Qwen-Drive-1.0-4B，"全部"：第一是 MTTC（sep_camera 0.201 [0.127, 0.269]、ctrl_grid 0.160、ctrl_sep 0.187）或 PICUD（grid 0.128 [0.043, 0.217]、sep_time 0.215 [0.132, 0.296]），TTC 0.071–0.153；CI、PSD 最负（−0.198 到 −0.297，区间都在 0 以下）。"同一段"：5 种输入第一都是 PICUD（0.164–0.221），THW、TTC 其次。是 7 个模型里 τ-b 最高的。
+    - Qwen3.5-4B，"全部"：都接近 0（−0.162 到 0.092）；ctrl_grid、ctrl_sep 第一是 MTTC（0.078 [0.011, 0.144]、0.092 [0.024, 0.161]），其余三种的第一（PICUD 0.028、ACT 0.010、CI 0.030）区间都含 0；PSD 多为最负。"同一段"：区间都含 0。
+    - 同一帧 5 次的标准差平均：Qwen-Drive 7.20–11.14（5 次平均后的 ICC 0.909–0.936），Qwen3.5-4B 3.88–15.74（ICC 0.572–0.866；网格图和两种分开图 11.5–15.7，对照组 3.9、6.1）；用时中位约 3 s。
+    - 模型两两之差（区间不含 0 的格数，45 格里；"全部" / "同一时段" / "同一段"）：Qwen-Drive − Qwen3.5-4B 主结果 33（24 正、9 负）/ 26 / 29（26 正、3 负），敏感性 29 / 25 / 27；正的多在 TTC、MTTC、PICUD（如 sep_time PICUD +0.230 [+0.161, +0.299]），负的是 CI、PSD（如 sep_camera CI −0.327 [−0.390, −0.263]）。Thinking − Instruct 主结果 29（13 正、16 负）/ 29 / 3（都负），敏感性 31 / 30 / 2。InternVL 思考版 − 不思考版主结果 8（1 正、7 负）/ 8 / 8（都正），敏感性 7 / 8 / 7。
+    - 敏感性（1,123 帧）对主结果：105 个"模型 × 分组 × 输入"里 SSM 先后完全一样的 52 个（前 5 个模型还是 75 个里 38 个；Qwen-Drive 15 个里 10 个，Qwen3.5-4B 15 个里 4 个），τ-b 最多差 0.020（Qwen-Drive "同一段" ctrl_sep）。
+  - 可以删的（用户删）：`vlm_scores_to_delete/qwen-drive-1.0-4b/main_qwen-drive-1.0-4b.jsonl`（506,045,116 字节）、`vlm_scores_to_delete/qwen3.5-4b/main_qwen3.5-4b.jsonl`（523,031,645）；比对用的 `tmp_checks/model_diff/without_7/`（106,287,450）、`test_without/`（37,395,491）、`test_with/`（37,446,611）、`vlm5/`（只有链接）。21:0x 课题组目录剩 166,637,875,200 字节。
 - **模型两两之差的区间**（用户 2026-10-27 定，在看到两个 4B 主实验结果之前定的）：
   - 三对：Qwen-Drive-1.0-4B − Qwen3.5-4B；Qwen3-VL-32B-Thinking − Qwen3-VL-32B-Instruct；InternVL3.5-38B 思考版 − 不思考版。
   - 用已有的那 2,000 次重抽（所有模型共用同一批），每一轮算两个模型 τ-b 之差；区间的算法和每个模型自己的区间一样（2.5% 和 97.5% 分位数；有定义的重抽不到 90% 就不给）；点估计是全部数据上的差，应正好等于两个模型各自的 τ-b 相减，要核。
