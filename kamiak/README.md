@@ -202,6 +202,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - 改程序以后核对风险实验的请求不变：`sbatch kamiak/checks/compare_risk_requests.sbatch`（改前的程序放在 `tmp_checks/run_vlm_compare/run_vlm_old.py`，路径写死在脚本里；`kamiak/checks/compare_risk_requests.py`：改前改后的 `run_vlm.py` 各用一个什么都不发的假接口跑一遍，每条要发的请求——提示文字、图片顺序和内容、采样参数——按发送顺序逐条比 sha256，输出行和不发送时的打印也比）。
 - 真值：`python -I code/quantity_truth.py <frame_ssm.csv> <目标帧清单> /data/lab/cejli/sy/waymo_v143/tables <输出 csv> --ssm_params <params.txt>...`。距离 = `gap` + 这段的车头到前摄像头的距离（`footprint_from_lidars` 的车头 x 减 `camera_position` 的 FRONT x，从这段的 `context.json` 读，读不到就报错）；其余 4 个量是 `v_ego`、`v_lead`、`a_ego`、`a_lead`。
 - 试跑报告：`python -I kamiak/checks/quantities_pilot_report.py <pilot_quantities jsonl> <真值 csv>`。
+- 主实验（用户 2026-10-28 定）：上面的提交命令加 `--grid_targets $V/grid/targets_main.csv --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/main_quantities_<MODEL>.jsonl`（140,375 条）。跑完核对：`python -I kamiak/checks/check_quantities_run.py <文件> vlm_frames/main_all9_targets.csv`（每格 5 次齐不齐、设置、每个量 × 每种输入的读出率和写到上限的、没读出的按类数和举例、长度和用时），然后照风险实验第 4 步压缩、`.gz` 设只读、复制日志。主实验 1,123 帧的真值在 `/data/lab/cejli/sy/waymo_v143/quantities/truth_main.csv`（`code/quantity_truth.py`）。
+- 分析：`bash kamiak/main_run/analyze_quantities.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字> /data/lab/cejli/sy/waymo_v143/analysis/<风险分析的名字>`（`code/analyze_quantities.py`；主结果 1,084 帧、敏感性 1,123 帧；风险分取风险分析文件夹里的 `vlm_frame_scores.csv`，重抽的核对用它的 `agreement.csv`，所以风险分析里要有这几个模型）。验收：`python -I kamiak/checks/quantities_accept.py <名字>/main_1084 1084 /data/lab/cejli/sy/waymo_v143/quantities/truth_main.csv --intervals`（`sensitivity_1123` 那份给 1123）。
 
 ## 脚本用到的路径（`kamiak/main_run/`、`kamiak/checks/`）
 脚本里写死的、或者要当参数给的路径（用户 2026-10-22 要求写在这里）：
@@ -262,6 +264,8 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `precheck_pixels.py` | 同一份 PNG 经官方图片代码和 Hugging Face 处理器得到的格数、像素值（float32 和转成 bfloat16 以后）一不一样 |
 | `compare_model_rows.py` | 两次分析里同一个模型的结果逐行比（加了模型以后原来那个模型的数变没变） |
 | `compare_analysis_versions.py` | 同样的数据、分析程序改前和改后各跑一次：改前的每张表在改后的里逐行、逐字节比，`params.txt` 和日志列出不同的行，只在改后才有的文件列出来（用户 2026-10-27：加模型两两之差以后原来的表一张都不能变） |
+| `check_quantities_run.py` | 物理量的运行文件：每格 5 次齐不齐、设置、每个量 × 每种输入的读出率和写到上限的、没读出的按类数（截断、null、文字、只有一个数、文字里给数等）并举例、回答和思考长度、用时（用户 2026-10-28 要的主实验核对） |
+| `quantities_accept.py` | `analyze_quantities.py` 输出的验收：帧数、每格有值、差正好等于两者相减；另用 scipy / numpy 重算"全部"的 τ-b 和误差、用公式重算模型眼里的 TTC、THW、DRAC，重抽的核对（风险区间一字不差） |
 | `compare_risk_requests.py` | 改 `run_vlm.py` 前后风险实验的每条请求逐条比（用不发送的假接口；用户 2026-10-28：加物理量任务以后风险的请求要逐字节一样） |
 | `quantities_pilot_report.py` | 物理量试跑的报告：每个量 × 每种输入的读出率、长度、用时、写到上限的；回答的分布；同一帧几次的离散程度；真值；每帧中位数和真值的 τ-b、误差，加速度三类分对的比例（只作参考） |
 | `check_model_differences.py` | `model_differences.csv`：每对的行数，两个模型的值和 `agreement.csv` 里各自的 τ-b 是不是一字不差，差是不是正好等于两者相减，缺值、重抽次数，再按每对、每种分组打出"差 [区间]"的表 |
