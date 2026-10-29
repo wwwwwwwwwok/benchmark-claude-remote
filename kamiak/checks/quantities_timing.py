@@ -5,11 +5,11 @@ to the last request, given as two times (from the vLLM log). Projection: request
 run, per condition and in all, plus the server start-up given.
 usage: python -I quantities_timing.py <jsonl> <first request 'YYYY-MM-DD HH:MM:SS'> <last request ...>
                                       <targets of the other run> <repeats> [<repeats> ...] [--startup_min 2.5]
+                                      [--truth <truth csv with has_lead>]
 """
 import argparse
 import json
 
-import numpy as np
 import pandas as pd
 
 ap = argparse.ArgumentParser()
@@ -19,16 +19,18 @@ ap.add_argument('end')
 ap.add_argument('targets')
 ap.add_argument('repeats', type=int, nargs='+')
 ap.add_argument('--startup_min', type=float, default=2.5)
+ap.add_argument('--truth', default=None, help='truth csv with has_lead: also split by frames with and without a lead')
 a = ap.parse_args()
 rows = []
 for line in open(a.jsonl, encoding='utf-8'):
     d = json.loads(line)
     u = d.get('usage') or {}
-    rows.append(dict(condition=d['condition'], quantity=d['quantity'], latency=d['latency_s'],
+    rows.append(dict(segment=d['segment'], frame_idx=d['frame_idx'], condition=d['condition'], quantity=d['quantity'],
+                     latency=d['latency_s'], finish=d.get('finish_reason'),
                      tokens=u.get('completion_tokens'), prompt=u.get('prompt_tokens')))
 r = pd.DataFrame(rows)
 hours = (pd.Timestamp(a.end) - pd.Timestamp(a.start)).total_seconds() / 3600
-n_targets = len(pd.read_csv(a.targets))
+n_targets = len(pd.read_csv(a.targets, comment='#'))         # the frame lists start with '#' lines
 per = r.groupby('condition', sort=False).agg(requests=('latency', 'size'), latency_sum_h=('latency', lambda s: s.sum() / 3600),
                                               latency_median_s=('latency', 'median'), tokens_median=('tokens', 'median'),
                                               tokens_mean=('tokens', 'mean'), prompt_median=('prompt', 'median'))
@@ -47,3 +49,18 @@ for rep in a.repeats:
     tot = hours * k + a.startup_min / 60
     print(f'  {rep} repeat(s): {n_targets * 25 * rep:,} requests, {tot:.1f} h = {tot / 24:.2f} days; by condition (h) '
           f'{by_c}')
+if a.truth:
+    tr = pd.read_csv(a.truth, usecols=['segment', 'frame_idx', 'has_lead'])
+    r = r.merge(tr, on=['segment', 'frame_idx'], how='left', validate='many_to_one')
+    if r.has_lead.isna().any():
+        raise SystemExit(f'{a.truth}: frames of the run missing')
+    g = r.groupby('has_lead').agg(requests=('latency', 'size'), latency_sum_h=('latency', lambda s: s.sum() / 3600),
+                                  tokens_mean=('tokens', 'mean'), cut=('finish', lambda s: int((s == 'length').sum())))
+    g['seconds_per_request'] = g.latency_sum_h / g.latency_sum_h.sum() * hours * 3600 / g.requests
+    print(f'\nby whether the frame has a lead vehicle ({a.truth}; time shared by the summed latency):')
+    print(g.round(3).to_string())
+    spr = float(g.loc[True, 'seconds_per_request'])
+    print(f'projection at the speed of the frames with a lead ({spr:.3f} s per request):')
+    for rep in a.repeats:
+        tot = n_targets * 25 * rep * spr / 3600 + a.startup_min / 60
+        print(f'  {rep} repeat(s): {n_targets * 25 * rep:,} requests, {tot:.1f} h = {tot / 24:.2f} days')
