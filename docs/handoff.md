@@ -701,6 +701,13 @@
     ```
 
   - 用户定 20 个文件全传，不挑。
+- **两个 4B 物理量实验的结果传回办公室电脑**（用户 2026-10-29 要求，照 `to_office/` 的做法）：下载文件夹 `/data/lab/cejli/sy/waymo_v143/to_office_20261029/`，只放符号链接，不复制、不解压（一次性脚本 `tmp_checks/to_office_20261029_make.sh`，srun 作业 31485191，cn175，10-29 14:25；输出 `tmp_checks/to_office_20261029_make.out`；`kamiak/checks/to_office_sha256.sh` 只认 `to_office/`，照用户 10-27 定的不改它）：
+  - 链接：`analysis/quantities_4b_explore`、`analysis/after_qwen3.5-4b`（指向整个文件夹）；`vlm_scores_main/<模型>/main_quantities_<模型>.jsonl.gz`（两个 4B）；`inputs/truth_main.csv`（指向 `quantities/truth_main.csv`）。
+  - `sha256.txt`：格式和 `to_office/sha256.txt` 一样（链接、每个真文件的 sha256 和字节数、合计）；后面另列两个 `.gz` 压缩时记下的解压后的 sha256 和字节数（取自压缩作业 31457634、31457635 的日志；这次又解压算了一遍，一样），以及不放链接的 `analyze.sh` 两个输入现在的 sha256 和字节数。
+  - 一共 71 个文件，141,561,102 字节（135.0 MiB）：`analysis/after_qwen3.5-4b` 22 个 106,618,327（main_1084 9 个 52,344,154，sensitivity_1123 9 个 54,058,660，最上层 4 个 215,513）；`analysis/quantities_4b_explore` 46 个 16,469,565（main_1084 16 个 7,808,298，sensitivity_1123 16 个 8,075,078，first_k_main_1084 6 个 147,756，最上层 8 个 438,433）；`vlm_scores_main` 2 个 18,252,850（Qwen-Drive 3,228,146，Qwen3.5-4B 15,024,704）；`inputs` 1 个 220,360。
+  - `analyze.sh` 的两个输入和 10-23 `to_office/sha256.txt` 里的一样：`frame_ssm_validation_training.csv` `3d0942f3…` 72,793,171 字节，`scene_labels_waymo.csv` `a25e296e…` 64,508 字节。
+  - 链接指向原来的文件夹：以后不往 `analysis/quantities_4b_explore/`、`analysis/after_qwen3.5-4b/` 里加文件，不然下载下来的会和 `sha256.txt` 对不上（27B 试跑的离散程度表放 `analysis/quantities_spread/`）。
+  - 下载时要跟随链接：`scp -r` 默认跟随，`rsync` 要加 `-L`。
 - **InternVL3.5-38B 主实验跑完**（作业 31367827，sn17，2026-10-23 12:24:10–19:42:44，7 小时 18 分 34 秒；试跑用时乘 11 估的是约 7.5 小时）：`done: 28075 ok (13 unparsable), 0 errors`。
   - 核对（`check_run.py`，和自己的试跑作业 31327948 比；输出 `tmp_checks/main_checks/check_run_internvl3.5-38b.out`）：
     - 请求 1,123 帧 × 5 种输入 × 5 次 = 28,075，缺 0，清单外 0；每行字段和试跑相同；28,075 行都有 log-probabilities，每个生成的 token 一个。
