@@ -203,7 +203,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 - 真值：`python -I code/quantity_truth.py <frame_ssm.csv> <目标帧清单> /data/lab/cejli/sy/waymo_v143/tables <输出 csv> --ssm_params <params.txt>...`。距离 = `gap` + 这段的车头到前摄像头的距离（`footprint_from_lidars` 的车头 x 减 `camera_position` 的 FRONT x，从这段的 `context.json` 读，读不到就报错）；其余 4 个量是 `v_ego`、`v_lead`、`a_ego`、`a_lead`。
 - 试跑报告：`python -I kamiak/checks/quantities_pilot_report.py <pilot_quantities jsonl> <真值 csv>`。
 - 主实验（用户 2026-10-28 定）：上面的提交命令加 `--grid_targets $V/grid/targets_main.csv --sep_targets $V/separate/targets_main.csv --out /data/lab/cejli/sy/waymo_v143/vlm_scores/<MODEL>/main_quantities_<MODEL>.jsonl`（140,375 条）。跑完核对：`python -I kamiak/checks/check_quantities_run.py <文件> vlm_frames/main_all9_targets.csv`（每格 5 次齐不齐、设置、每个量 × 每种输入的读出率和写到上限的、没读出的按类数和举例、长度和用时），然后照风险实验第 4 步压缩、`.gz` 设只读、复制日志。主实验 1,123 帧的真值在 `/data/lab/cejli/sy/waymo_v143/quantities/truth_main.csv`（`code/quantity_truth.py`）。
-- 分析：`bash kamiak/main_run/analyze_quantities.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字> /data/lab/cejli/sy/waymo_v143/analysis/<风险分析的名字>`（`code/analyze_quantities.py`；主结果 1,084 帧、敏感性 1,123 帧；风险分取风险分析文件夹里的 `vlm_frame_scores.csv`，重抽的核对用它的 `agreement.csv`，所以风险分析里要有这几个模型）。验收：`python -I kamiak/checks/quantities_accept.py <名字>/main_1084 1084 /data/lab/cejli/sy/waymo_v143/quantities/truth_main.csv --intervals`（`sensitivity_1123` 那份给 1123）。汇总成报告用的几张表：`python -I kamiak/main_run/summarize_quantities.py <名字>/main_1084`（敏感性那份同样）。
+- 分析：`bash kamiak/main_run/analyze_quantities.sh /data/lab/cejli/sy/waymo_v143/analysis/<名字> /data/lab/cejli/sy/waymo_v143/analysis/<风险分析的名字>`（`code/analyze_quantities.py`；主结果 1,084 帧、敏感性 1,123 帧；风险分取风险分析文件夹里的 `vlm_frame_scores.csv`，重抽的核对用它的 `agreement.csv`，所以风险分析里要有这几个模型）。验收：`python -I kamiak/checks/quantities_accept.py <名字>/main_1084 1084 /data/lab/cejli/sy/waymo_v143/quantities/truth_main.csv --intervals`（`sensitivity_1123` 那份给 1123）。汇总成报告用的几张表：`python -I kamiak/main_run/summarize_quantities.py <名字>/main_1084`（敏感性那份同样）；探索性表和只取前 k 次的汇总：`python -I kamiak/main_run/summarize_quantities_explore.py <名字>/main_1084 [<只取前 k 次的输出文件夹>]`。
 - 探索性分析（用户 2026-10-29）：同一个程序多出 `exploratory_*.csv`（E1、E2、误差）。验收：`python -I kamiak/checks/quantities_explore_accept.py <名字>/main_1084 <真值 csv> <frame_ssm csv> <风险分析的名字>/main_1084 --intervals`；原来的表不变：`python -I kamiak/checks/compare_analysis_versions.py <不加的分析> <加了的分析>`。只取前 k 次：`python -I kamiak/checks/quantities_first_k.py <vlm_scores> <真值 csv> <frame_ssm csv> <输出文件夹> --check <名字>/main_1084`。离散程度：`python -I kamiak/checks/quantities_spread.py <输出前缀> <标签>,<jsonl>,<真值 csv>[,<帧清单 csv>] ...`。
 
 ## 脚本用到的路径（`kamiak/main_run/`、`kamiak/checks/`）
@@ -266,12 +266,14 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `compare_model_rows.py` | 两次分析里同一个模型的结果逐行比（加了模型以后原来那个模型的数变没变） |
 | `compare_analysis_versions.py` | 同样的数据、分析程序改前和改后各跑一次：改前的每张表在改后的里逐行、逐字节比，`params.txt` 和日志列出不同的行，只在改后才有的文件列出来（用户 2026-10-27：加模型两两之差以后原来的表一张都不能变） |
 | `check_quantities_run.py` | 物理量的运行文件：每格 5 次齐不齐、设置、每个量 × 每种输入的读出率和写到上限的、没读出的按类数（截断、null、文字、只有一个数、文字里给数等）并举例、回答和思考长度、用时（用户 2026-10-28 要的主实验核对） |
+| `check_two_stage_resume.py` | 物理量任务分两段跑同一个文件（先 `--repeats 1`、再 `--repeats 3`，用户 2026-10-29 为 27B 主实验准备）：用不发送的假接口跑两段，核对第二段只发 repeat 1、2，条数、顺序（帧 → 输入 → 量 → 第几次）都对，每条和第一段同一格的请求一样，最后每条正好一次 |
 | `quantities_accept.py` | `analyze_quantities.py` 输出的验收：帧数、每格有值、差正好等于两者相减；另用 scipy / numpy 重算"全部"的 τ-b 和误差、用公式重算模型眼里的 TTC、THW、DRAC，重抽的核对（风险区间一字不差） |
 | `quantities_explore_accept.py` | `analyze_quantities.py` 探索性表的验收（用户 2026-10-29 加的 E1、E2、误差）：每格有值；E1 表里原来那几列和 `perceived_ssm_tau_b.csv` 一样；用公式加 scipy 重算 E1 的 TTC、THW、DRAC 的 τ-b，scipy 重算 E2，numpy 重算误差的标准差、四分位距、不看图的对照、距离差不到 25% 的比例；对照之差正好等于两者相减。原来的表不变用 `compare_analysis_versions.py` 比 |
 | `quantities_first_k.py` | 只取前 k 次（用户 2026-10-29，为 27B 主实验定次数）：k = 1–4 和 5 比，估计和真值的 τ-b（"全部"加区间、"同一段"）、模型眼里的 SSM 和真 SSM 的 τ-b（"全部"加区间）、误差中位数、缺值帧数，按用户事先定的规则选 k；k = 5 的数和区间要和分析文件夹的一样 |
 | `compare_risk_requests.py` | 改 `run_vlm.py` 前后风险实验的每条请求逐条比（用不发送的假接口；用户 2026-10-28：加物理量任务以后风险的请求要逐字节一样） |
 | `quantities_pilot_report.py` | 物理量试跑的报告：每个量 × 每种输入的读出率、长度、用时、写到上限的；回答的分布；同一帧几次的离散程度；真值；每帧中位数和真值的 τ-b、误差，加速度三类分对的比例（只作参考） |
 | `quantities_spread.py` | 物理量同一帧几次之间的离散程度（标准差取各帧中位数）和帧与帧之间真值的标准差；"前 k 次中位数和 5 次中位数之差的绝对值"取各帧中位数（用户 2026-10-29） |
+| `quantities_timing.py` | 物理量运行按实测速度分输入的用时（各输入占请求时间的比例按它的请求用时之和算），推算换一批目标帧、几次要多久（用户 2026-10-29） |
 | `check_model_differences.py` | `model_differences.csv`：每对的行数，两个模型的值和 `agreement.csv` 里各自的 τ-b 是不是一字不差，差是不是正好等于两者相减，缺值、重抽次数，再按每对、每种分组打出"差 [区间]"的表 |
 | `check_vlm_folder.py` | 上面那个文件夹和原文件夹逐个张量核对：名字、类型、形状、位置，每个张量的字节，用 safetensors 读出来 `torch.equal`，配置和复制的文件 |
 | `camera_variants.py` | 一个运行文件里 `main_hazard_camera` 没按规定写法的回答：每种输入、每种写法几次，几次落在主结果拿掉的 39 帧上。没读出答案的、读出答案没写相机的另外各列一行，合计只算写法不同的（用户 2026-10-23 定；原来遇到没读出答案的回答会报错退出） |
