@@ -74,8 +74,8 @@ report(len(e1f) == len(pmi) and (f1.frames_gap_negative == f1.gap_negative).all(
 
 tr = pd.read_csv(a.truth, float_precision='round_trip').set_index(['segment', 'frame_idx'])
 fs = pd.read_csv(a.frame_ssm).set_index(['segment', 'frame_idx'])
-est = qfr.pivot_table(index=['model', 'condition', 'segment', 'frame_idx'], columns='quantity', values='estimate',
-                      dropna=False)
+est = qfr.set_index(['model', 'condition', 'segment', 'frame_idx', 'quantity']).estimate.unstack('quantity')
+#   (unstack keeps the frames as they are; pivot_table with dropna=False would cross every segment with every frame index)
 rs = pd.read_csv(os.path.join(a.risk, 'vlm_frame_scores.csv'), float_precision='round_trip') \
     .set_index(['model', 'condition', 'segment', 'frame_idx'])['score_mean']
 dt = dw = dr = dz = 0.0
