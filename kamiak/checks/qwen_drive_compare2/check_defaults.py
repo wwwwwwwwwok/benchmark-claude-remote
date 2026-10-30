@@ -6,8 +6,12 @@ ModelConfig.get_diff_sampling_param looks at) and the extra eos ids; our request
 20, max_tokens 1024, top_logprobs 5, as run_vlm.py sends it) is filled from those defaults where it leaves a value
 unset, then SamplingParams.update_from_generation_config(diff, tokenizer eos) adds the stop tokens. Prints every
 sampling field of the final parameters for each model and whether the two are equal.
-usage: python -I check_defaults.py <model folder A> <model folder B>
+2026-10-29 (user: Qwen3.6-27B without thinking): also one model folder alone, and --sent gives the request's values
+as JSON instead of the 4B request above (e.g. '{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty":
+1.5, "max_tokens": 24576}'; no logprobs, as run_vlm.py sends with --top_logprobs 0).
+usage: python -I check_defaults.py <model folder A> [<model folder B>] [--sent JSON]
 """
+import json
 import sys
 
 from vllm import SamplingParams
@@ -20,8 +24,14 @@ SENT = dict(temperature=0.7, top_p=0.8, top_k=20, max_tokens=1024, logprobs=5)
 FIELDS = ['temperature', 'top_p', 'top_k', 'min_p', 'repetition_penalty', 'presence_penalty', 'frequency_penalty',
           'max_tokens', 'min_tokens', 'stop', 'stop_token_ids', 'ignore_eos', 'logprobs', 'seed', 'bad_words',
           'skip_special_tokens', 'spaces_between_special_tokens', 'include_stop_str_in_output']
+args = sys.argv[1:]
+if '--sent' in args:
+    i = args.index('--sent')
+    SENT = json.loads(args[i + 1])
+    del args[i:i + 2]
+print(f'request values: {SENT}')
 res = {}
-for path in sys.argv[1:3]:
+for path in args[:2]:
     gc = try_get_generation_config(path, trust_remote_code=False)
     diff = gc.to_diff_dict() if gc is not None else {}
     defaults = {k: diff[k] for k in KEYS if diff.get(k) is not None}
@@ -35,7 +45,8 @@ for path in sys.argv[1:3]:
     res[path] = final
     print(f'{path}:\n  generation config (non-default values): {diff}\n  server default sampling: {defaults}\n'
           f'  tokenizer eos {tok.eos_token_id} ({tok.eos_token!r}); final sampling: {final}')
-a, b = res.values()
-diffs = {f: (a[f], b[f]) for f in a if a[f] != b[f]}
-print(f'\nfields that differ between the two: {diffs if diffs else "none"}')
-print(f'SAME SAMPLING AND STOP TOKENS: {not diffs}')
+if len(res) == 2:
+    a, b = res.values()
+    diffs = {f: (a[f], b[f]) for f in a if a[f] != b[f]}
+    print(f'\nfields that differ between the two: {diffs if diffs else "none"}')
+    print(f'SAME SAMPLING AND STOP TOKENS: {not diffs}')

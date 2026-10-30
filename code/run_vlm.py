@@ -217,6 +217,9 @@ def main():
     ap.add_argument('--temperature', type=float, default=1.0)
     ap.add_argument('--top_p', type=float, default=None, help='sent only when given')
     ap.add_argument('--top_k', type=int, default=None, help='sent only when given (vLLM extension, via extra_body)')
+    ap.add_argument('--presence_penalty', type=float, default=None,
+                    help='sent and recorded in each output line only when given (user, 2026-10-29: Qwen3.6-27B '
+                         'without thinking), so the requests and lines of every earlier run stay the same')
     ap.add_argument('--max_tokens', type=int, default=300)
     ap.add_argument('--top_logprobs', type=int, default=5, help='0 = do not ask for log-probabilities')
     ap.add_argument('--workers', type=int, default=8)
@@ -301,6 +304,8 @@ def main():
             rec['quantity'] = q
         rec.update(repeat=rep, model=a.model, temperature=a.temperature, top_p=a.top_p, top_k=a.top_k,
                    max_tokens=a.max_tokens)
+        if a.presence_penalty is not None:
+            rec['presence_penalty'] = a.presence_penalty
         if a.system_prefix_file:
             rec['system_prefix_file'] = os.path.basename(a.system_prefix_file)
         t0 = time.time()
@@ -311,6 +316,8 @@ def main():
                 kw['top_p'] = a.top_p
             if a.top_k is not None:
                 kw['extra_body'] = {'top_k': a.top_k}
+            if a.presence_penalty is not None:
+                kw['presence_penalty'] = a.presence_penalty
             if a.top_logprobs:
                 kw.update(logprobs=True, top_logprobs=a.top_logprobs)
             resp = client.chat.completions.create(**kw)

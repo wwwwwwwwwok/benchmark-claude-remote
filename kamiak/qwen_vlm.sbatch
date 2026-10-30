@@ -53,6 +53,20 @@ case "$MODEL" in
         SERVE_ARGS=(--max-model-len 40960 --reasoning-parser qwen3 --gdn-prefill-backend triton)
         SAMPLING=(--temperature 1.0 --top_p 0.95 --top_k 20 --max_tokens 24576)
         ;;
+    qwen3.6-27b-nothink)   # the same Qwen3.6-27B weights with thinking off (user, 2026-10-29, after its quantities
+                           # pilot with thinking, for time): the model's own chat template with enable_thinking false,
+                           # so every prompt ends with an empty thinking block (<think>\n\n</think>\n\n); images,
+                           # prompts, context and --max_tokens as qwen3.6-27b. --reasoning-parser qwen3 kept at first
+                           # (user; to be dropped if the smoke test finds the answer taken for thinking): by its source,
+                           # vLLM 0.32's qwen3 parser reads enable_thinking (the server default included) and then
+                           # leaves the whole reply in message.content. Sampling: Qwen3.6's recommended values without
+                           # thinking (user): 0.7 / 0.8 / 20 and presence_penalty 1.5, sent; min_p 0 and
+                           # repetition_penalty 1.0 are vLLM's defaults (generation_config.json sets neither).
+        MODEL_DIR=/data/lab/cejli/sy/models/Qwen3.6-27B
+        SERVE_ARGS=(--max-model-len 40960 --reasoning-parser qwen3 --gdn-prefill-backend triton
+                    --default-chat-template-kwargs '{"enable_thinking": false}')
+        SAMPLING=(--temperature 0.7 --top_p 0.8 --top_k 20 --presence_penalty 1.5 --max_tokens 24576)
+        ;;
     internvl3.5-38b)   # OpenGVLab/InternVL3_5-38B rev de99855b (2026-10-20, user's choice): InternViT-6B + Qwen3-32B,
                        # thinking off (its default). generation_config.json has no sampling values; 0.8 / 0.8 are the
                        # ones in the model card's API example (user's choice). --trust-remote-code: the config class
