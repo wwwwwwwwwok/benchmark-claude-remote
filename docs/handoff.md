@@ -1022,6 +1022,7 @@
       - 用一个假的接口服务（`mock_server.py`，只回固定的 JSON，记下收到的请求）跑探针和 `run_vlm.py`：请求里有 `presence_penalty` 1.5（贪心那次 0.0 也照发）、`top_k` 20，探针那次多了 `return_token_ids`；每行在 `max_tokens` 后面多一列 `presence_penalty`；Qwen3.6-27B 的分词器把 `<think>\n\n</think>\n\n` 分成 248068、271、248069、271，探针认得出。（假服务一次只接一个连接，32 个 worker 那次有 6 条连不上；一个 worker 那次 25 条都通。是假服务的问题。）
       - 三项检查用开思考的小试、试跑当材料：smoke、gate 都找出了思考（应该的），gate 算的有前车的帧读出率 98.7953%、每行 30,191 字节，和试跑报告一样；greedy 同一个文件比三次 0 条不同，和假服务的比找出了不同。
       - `check_defaults.py` 在 CPU 上能跑：27B 不思考最后的采样是温度 0.7、top_p 0.8、top_k 20、min_p 0、repetition_penalty 1.0、presence_penalty 1.5、frequency_penalty 0、max_tokens 24,576，停止 token 248044、248046；两次贪心 vLLM 把 top_p、top_k 换成 1.0 和 0；开思考的试跑 presence_penalty 0、min_p 0、repetition_penalty 1.0。两个 4B 那次（两个文件夹、不给 `--sent`）的输出和 10-27 一样，只多了新加的第一行。
+    - 作业（10-29 20:05 交，程序在 a2043fe）：CPU 核对 31488637（`kamiak/checks/compare_requests_presence_penalty.sbatch`，输出 `tmp_checks/run_vlm_compare2/`；有一项不对就退出码 1）；GPU 作业 31488638（`kamiak/main_run/quantities_27b_nothink.sbatch`，`--dependency=afterok:31488637`，时限 4 天；检查的输出 `tmp_checks/quantities/nothink_27b/`，vLLM 日志 `logs/vllm_31488638_smoke.log`（小试，开请求日志）和 `logs/vllm_31488638.log`（试跑、主实验））。交的时候 camas 的 sn16 是 down（当天 15:49 意外重启），sn17、sn18 的 8 块卡都在用，开始时间估不出。
 - **模型两两之差的区间**（用户 2026-10-27 定，在看到两个 4B 主实验结果之前定的）：
   - 三对：Qwen-Drive-1.0-4B − Qwen3.5-4B；Qwen3-VL-32B-Thinking − Qwen3-VL-32B-Instruct；InternVL3.5-38B 思考版 − 不思考版。
   - 用已有的那 2,000 次重抽（所有模型共用同一批），每一轮算两个模型 τ-b 之差；区间的算法和每个模型自己的区间一样（2.5% 和 97.5% 分位数；有定义的重抽不到 90% 就不给）；点估计是全部数据上的差，应正好等于两个模型各自的 τ-b 相减，要核。
