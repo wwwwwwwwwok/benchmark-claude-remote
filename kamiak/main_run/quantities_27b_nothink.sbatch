@@ -15,8 +15,10 @@
 #  7 check_nothink_runs.py gate: 0 errors, the settings and no thinking on every line, frames with a lead read >= 98 %,
 #    room for the main run; stop when one is not met;
 #  8 main run: 1,123 frames x 5 x 5 x 5 = 140,375 requests, in the lab folder.
-# A step not passed ends the job with exit 1; what was written stays. STAGE=main (sbatch --export=ALL,STAGE=main)
-# skips 1-4 and 6, checks the pilot again and resumes the main run (e.g. after the time limit).
+# A step not passed ends the job with exit 1; what was written stays. STAGE=pilot (sbatch --export=ALL,STAGE=pilot;
+# user, 2026-10-29, after job 31488638 stopped at the greedy control: presence_penalty 1.5 kept) skips 1-4, which
+# were done (a passed smoke check must be in the check folder; no pilot or main file yet), and starts at 5.
+# STAGE=main skips 1-4 and 6, checks the pilot again and resumes the main run (e.g. after the time limit).
 # The final sampling of vLLM's code is checked before, on CPU (check_defaults.py; tmp_checks/run_vlm_compare2/).
 # Submit from the repository root: sbatch kamiak/main_run/quantities_27b_nothink.sbatch
 #SBATCH --job-name=q27b-nothink
@@ -28,6 +30,7 @@
 #SBATCH --output=logs/%x_%j.out
 set -euo pipefail
 STAGE=${STAGE:-all}
+case $STAGE in all | pilot | main) ;; *) echo "STAGE must be all, pilot or main, not $STAGE"; exit 1 ;; esac
 MODEL=qwen3.6-27b-nothink
 eval "$(sed -n '/^case "\$MODEL" in/,/^esac/p' kamiak/qwen_vlm.sbatch)"
 N_GPUS=2
@@ -132,10 +135,16 @@ if [ "$STAGE" = all ]; then
     [ $rc = 0 ] || { echo "greedy answers differ between presence_penalty 1.5 and 0 (or a run is incomplete): stop"; exit 1; }
     stop_server
 fi
+if [ "$STAGE" = pilot ]; then
+    grep -l '^SMOKE PASSED: True' "$Q"/smoke_check*.out || { echo "no passed smoke check in $Q: stop"; exit 1; }
+    for f in "$PILOT" "$MAIN" "$Q/pilot_run.log" "$Q/pilot_gate.out"; do
+        [ ! -e "$f" ] || { echo "$f exists: stop"; exit 1; }
+    done
+fi
 
 echo "=== 5 server for the pilot and the main run"
 serve "logs/vllm_${SLURM_JOB_ID}.log"
-if [ "$STAGE" = all ]; then
+if [ "$STAGE" != main ]; then
     echo "=== 6 pilot $(date '+%F %T')"
     python -I code/run_vlm.py "${ARGS[@]}" "${PILOT_T[@]}" --out "$PILOT" 2>&1 | tee "$Q/pilot_run.log"
     echo "pilot written $(date '+%F %T'): $(wc -l < "$PILOT") lines, $(stat -c %s "$PILOT") bytes"
