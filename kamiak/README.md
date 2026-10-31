@@ -278,6 +278,9 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
 | `compare_requests_presence_penalty.sbatch` | 加 `--presence_penalty` 以后（用户 2026-10-29，27B 不思考）在 CPU 上核：改前（`tmp_checks/run_vlm_compare2/run_vlm_old.py`，98a8fa4）改后风险实验的请求 15 组、三个物理量模型试跑的请求，27B 不思考和开思考的请求，最后的采样值，不发送的组装；有一项不对就退出码 1（GPU 作业 afterok 排在它后面） |
 | `compare_sampling_only.py` | 两组 `run_vlm.py` 参数的请求（不发送的假接口）除了模型名和采样是不是逐条一样，列出两边的采样值 |
 | `probe_prompt_tail.py` | 用 `run_vlm.py` 自己的 main 发请求，只多要 vLLM 的 `return_token_ids`：每条实际的提示 token 结尾是不是空思考块、生成的 token 里有没有 `<think>`、`</think>`（用户 2026-10-29，27B 不思考的小试） |
+| `compare_without_model.py` | 物理量分析加了一个模型以后和加之前比：加之前的每张表，和加之后的表去掉提到新模型的行，逐行比文字；数新模型的行；`params.txt`、日志列出不同的行（2026-10-30，27B 不思考加进两个 4B 的分析） |
+| `accept_counts_no_risk.py` | 物理量分析里按模型数的两项行数：`perceived_ssm_tau_b.csv`（有风险分的模型两种比较，没有的只有一种）和 E2（风险分析里的模型对真距离、真车速，两边都有的再加它自己的估计）。两个验收脚本按"有一个模型有风险分就每个都有"数，遇到风险分析里没有的模型（27B 不思考）这两项会对不上，所以另数 |
+| `choose_thinking_condition.py` | 用户 2026-10-29 定的规则：27B 不思考在主结果 1,084 帧、"全部"分组上，5 个量和真值的 τ-b 等权平均，最高的那种输入给开思考那份用；打出 5 × 5 的 τ-b、平均、第一和第二差多少，打平就报、不选 |
 | `check_nothink_runs.py` | 27B 不思考的四项检查，`quantities_27b_nothink.sbatch` 靠退出码决定往不往下走：smoke（设置、没有思考、读得出、提示结尾、提示 token 比开思考多 2）、greedy（presence_penalty 1.5 和 0 逐条比答案）、gate（试跑放行的三条和主实验的空间）、defaults（`check_defaults.py` 的最后采样值） |
 | `check_model_differences.py` | `model_differences.csv`：每对的行数，两个模型的值和 `agreement.csv` 里各自的 τ-b 是不是一字不差，差是不是正好等于两者相减，缺值、重抽次数，再按每对、每种分组打出"差 [区间]"的表 |
 | `check_vlm_folder.py` | 上面那个文件夹和原文件夹逐个张量核对：名字、类型、形状、位置，每个张量的字节，用 safetensors 读出来 `torch.equal`，配置和复制的文件 |
