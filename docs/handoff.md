@@ -1058,6 +1058,7 @@
         - 两份验收照原样跑（`quantities_accept.py`、`quantities_explore_accept.py`）。其中两项行数（`perceived_ssm_tau_b` 和 E2）脚本按"有一个模型有风险分就每个都有"数，27B 不思考会对不上（应少 105 行和 30 行）；脚本不改，另用 `kamiak/checks/accept_counts_no_risk.py` 按模型数；
         - 汇总（`summarize_quantities.py`、`summarize_quantities_explore.py`），最后按规则选开思考用的输入（`kamiak/checks/choose_thinking_condition.py`）。
         - 三个新脚本先在 4B 的分析上测过（`tmp_checks/quantities/nothink_27b_test/test_new_checks.sh`，srun 作业 31501071，输出 `test_new_checks.out`）：同一个文件夹自己比自己全一样；把 Qwen3.5-4B 的行去掉、再当新模型加回来比，全一样；改一行查得出；两项行数都对；选输入的脚本跑得通（只是试，用的 Qwen-Drive）。
+      - 用户 10-30 看过 625e1b6、658d377 和三个新脚本：主实验的核对、压缩没问题，三个新脚本的逻辑对。定了（原话在 CLAUDE.md 10-30 那条）：验收脚本不改，两份验收里只能是那两项对不上、正好少 105 行和 30 行，其余全过，按模型数那份全部 ok；作业跑完之前它要调用的脚本都不改；选输入时有格不到 1,084 帧，就用 `quantity_tau_b.csv` 里的 25 个 τ-b（每格用自己有数的帧）照原规则选，另报少了的格、少几帧、是哪几帧；原文件等分析跑完、验收过了用户自己删。
 - **模型两两之差的区间**（用户 2026-10-27 定，在看到两个 4B 主实验结果之前定的）：
   - 三对：Qwen-Drive-1.0-4B − Qwen3.5-4B；Qwen3-VL-32B-Thinking − Qwen3-VL-32B-Instruct；InternVL3.5-38B 思考版 − 不思考版。
   - 用已有的那 2,000 次重抽（所有模型共用同一批），每一轮算两个模型 τ-b 之差；区间的算法和每个模型自己的区间一样（2.5% 和 97.5% 分位数；有定义的重抽不到 90% 就不给）；点估计是全部数据上的差，应正好等于两个模型各自的 τ-b 相减，要核。
