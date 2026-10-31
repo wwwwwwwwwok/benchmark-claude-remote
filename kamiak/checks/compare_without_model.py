@@ -1,10 +1,11 @@
 """The quantities analysis with one model more against the analysis without it (Claude, 2026-10-30: Qwen3.6-27B without
 thinking added to the two 4B models; same program, same replies of the others, and the resamples are shared by all
 models, so nothing of the other models may change).
-For main_1084/ and sensitivity_1123/: every CSV of the old run against the new run's lines without the lines that name
+For main_1084/ and sensitivity_1123/: every CSV of the old run against the new run, both without the lines that name
 the added model (one of the comma-separated fields is the model name), as text, line by line in file order, header
-included; how many lines name the added model; files only in one of the two runs; the other files (params.txt,
-exploratory_params.txt) and the run logs: the lines that differ, to read by eye.
+included; how many lines name the added model in each (2026-10-30: in the old run too, for a model that was there as
+a risk-analysis model, e.g. qwen3.6-27b's E2 rows; its own lines are checked elsewhere); files only in one of the two
+runs; the other files (params.txt, exploratory_params.txt) and the run logs: the lines that differ, to read by eye.
 usage: python -I compare_without_model.py <old analysis folder> <new analysis folder> <added model>
 """
 import difflib
@@ -38,14 +39,14 @@ for sub in ('main_1084', 'sensitivity_1123'):
                 print(f'    {l[:250]}')
             continue
         a, b = open(a_path).read().splitlines(), open(b_path).read().splitlines()
-        named = [model in l.split(',') for l in b]
-        rest = [l for l, n in zip(b, named) if not n]
-        same = a == rest
+        a_rest = [l for l in a if model not in l.split(',')]
+        rest = [l for l in b if model not in l.split(',')]
+        same = a_rest == rest
         bad += not same
-        print(f'  {name}: old {len(a)} lines, new {len(b)}, of which {sum(named)} name {model}; the other {len(rest)} '
-              f'identical to the old, in order: {same}')
+        print(f'  {name}: old {len(a)} lines, of which {len(a) - len(a_rest)} name {model}; new {len(b)}, of which '
+              f'{len(b) - len(rest)}; the other {len(rest)} identical to the old, in order: {same}')
         if not same:
-            for i, (x, y) in enumerate(zip(a, rest)):
+            for i, (x, y) in enumerate(zip(a_rest, rest)):
                 if x != y:
                     print(f'    first difference at line {i + 1}:\n      old {x[:300]}\n      new {y[:300]}')
                     break

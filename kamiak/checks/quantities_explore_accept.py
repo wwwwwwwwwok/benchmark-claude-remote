@@ -4,11 +4,16 @@ value; the original columns of the E1 table are those of perceived_ssm_tau_b.csv
 perceived_ssm_missing.csv; by other means: tau-b ('all') of E1 (TTC, THW, DRAC by the textbook formulas with the floored
 gap, frames without a value tied at the safe end) and of E2 recomputed with scipy; error SD, IQR, the image-free
 answer and its median absolute error, the share within 25 % recomputed with numpy; mae_minus_baseline exactly the
-difference of the two values.
+difference of the two values. Row counts per model (user, 2026-10-30): each model with its own conditions (all five,
+or those of --only_conditions as params.txt records them) and whether the risk analysis has its risk scores. The
+table with thinking - without (exploratory_thinking_minus_no_thinking.csv, from 2026-10-30; an older analysis has none):
+its rows, every diff exactly value_1 - value_2, the two values the point estimates of quantity_tau_b.csv /
+quantity_errors.csv, no missing value.
 usage: python -I quantities_explore_accept.py <analysis folder> <truth csv> <frame_ssm csv> <risk analysis subfolder>
                                               [--intervals]
 """
 import argparse
+import ast
 import os
 
 import numpy as np
@@ -30,8 +35,13 @@ pss, pmi, qfr, qer, pfr = (rd(n) for n in ('perceived_ssm_tau_b.csv', 'perceived
 E1_GAP = float(open(os.path.join(a.d, 'exploratory_params.txt'), encoding='utf-8').read().split('a gap of ')[1]
                .split(' m')[0])
 models = sorted(qfr.model.unique())
-conds = list(dict.fromkeys(qfr.condition))
 ng = pss.grouping.nunique()
+CONDITIONS = ['grid', 'sep_time', 'sep_camera', 'ctrl_grid', 'ctrl_sep']          # as code/analyze_vlm_ssm.py
+EXPLORATORY_MODEL_PAIRS = [('qwen3.6-27b', 'qwen3.6-27b-nothink')]                  # as code/analyze_quantities.py
+params = open(os.path.join(a.d, 'params.txt'), encoding='utf-8').read().splitlines()
+only = next((ast.literal_eval(l.split(': ', 1)[1].split('; in this run')[0]) for l in params
+             if l.startswith('only these conditions (--only_conditions): ')), {})
+mconds = {m: only.get(m, CONDITIONS) for m in models}                # the conditions each model must have
 bad = 0
 
 
@@ -50,7 +60,10 @@ def tau_all(x, y):
     return kendalltau(x, y, variant='b').statistic if len(x) >= 3 else np.nan
 
 
-print(f'{a.d}: models {models}; E1 gap {E1_GAP} m')
+print(f'{a.d}: models {models}; E1 gap {E1_GAP} m; conditions per model { {m: len(c) for m, c in mconds.items()} } '
+      f'(--only_conditions {only})')
+report(all(sorted(set(qfr[qfr.model == m].condition)) == sorted(mconds[m]) for m in models),
+       'each model has exactly its conditions in quantity_frames')
 # --- E1
 report(len(e1) == len(pss), f'E1 table rows {len(e1)} = perceived_ssm_tau_b rows {len(pss)}')
 k = ['model', 'condition', 'ssm', 'comparison', 'grouping']
@@ -137,11 +150,14 @@ report(frame_stats_ok, 'E1 frames: true and estimated distance of the frames wit
 
 # --- E2
 n_risk = rs.index.get_level_values(0).nunique()
-n_exp = (n_risk * len(conds) * 2 + len(models) * len(conds) * 2) * ng
+risk_mc = set(rs.index.droplevel([2, 3]).unique())
+n_own = sum((m, c) in risk_mc for m in models for c in mconds[m])    # model x condition with both
+n_exp = (len(risk_mc) * 2 + n_own * 2) * ng
 cols = ['tau_b'] + (['tau_b_lo', 'tau_b_hi'] if a.intervals else [])
 report(len(e2) == n_exp and not e2[cols].isna().any().any(),
-       f'E2 rows {len(e2)} (expected {n_exp}: {n_risk} risk models, {len(models)} with their own estimates); missing '
-       f'values in {cols}: {int(e2[cols].isna().sum().sum())}; frames per cell {e2.frames.min()}-{e2.frames.max()}')
+       f'E2 rows {len(e2)} (expected {n_exp}: {n_risk} risk models in {len(risk_mc)} model x condition cells, '
+       f'{n_own} cells with their own estimates too); missing values in {cols}: {int(e2[cols].isna().sum().sum())}; '
+       f'frames per cell {e2.frames.min()}-{e2.frames.max()}')
 frames = qfr[['segment', 'frame_idx']].drop_duplicates()
 fi = pd.MultiIndex.from_frame(frames)
 de2 = 0.0
@@ -164,7 +180,7 @@ cols = ['error_sd', 'error_iqr', 'median_abs_error', 'baseline_median_abs_error'
       'baseline_median_abs_error_hi', 'mae_minus_baseline_lo', 'mae_minus_baseline_hi'] if a.intervals else [])
 wcols = ['share_within_25pct'] + (['share_within_25pct_lo', 'share_within_25pct_hi'] if a.intervals else [])
 isd = xe.quantity == 'distance'
-report(len(xe) == len(models) * len(conds) * nq and not xe[cols].isna().any().any()
+report(len(xe) == sum(len(c) for c in mconds.values()) * nq and not xe[cols].isna().any().any()
        and not xe.loc[isd, wcols].isna().any().any() and xe.loc[~isd, wcols].isna().all().all(),
        f'errors: {len(xe)} rows; missing values in {cols}: {int(xe[cols].isna().sum().sum())}; the share within 25 % '
        f'for the distance only')
@@ -193,4 +209,29 @@ for r in xe.itertuples():
 report(base_ok and mx['sd'] < 1e-9 and mx['iqr'] < 1e-12 and mx['base'] == 0 and mx['within'] == 0,
        f'errors by numpy: image-free answer = median of the truth: {base_ok}; largest difference SD {mx["sd"]:.2e}, '
        f'IQR {mx["iqr"]:.2e}, baseline median absolute error {mx["base"]}, share within 25 % {mx["within"]}')
+
+# --- with thinking - without (from 2026-10-30)
+f = os.path.join(a.d, 'exploratory_thinking_minus_no_thinking.csv')
+if not os.path.exists(f):
+    newer = 'with thinking - without' in open(os.path.join(a.d, 'exploratory_params.txt'), encoding='utf-8').read()
+    report(not newer, 'exploratory_thinking_minus_no_thinking.csv: '
+                      + ('missing, though exploratory_params.txt names it' if newer else 'none (an analysis before it)'))
+else:
+    tm = rd('exploratory_thinking_minus_no_thinking.csv')
+    tq = rd('quantity_tau_b.csv').set_index(['model', 'condition', 'quantity', 'grouping']).tau_b.to_dict()
+    eq = qer.set_index(['model', 'condition', 'quantity']).median_abs_error.to_dict()
+    n_exp = sum(len(set(mconds[m1]) & set(mconds[m2])) for m1, m2 in EXPLORATORY_MODEL_PAIRS
+                if m1 in models and m2 in models) * nq * (ng + 1)
+    cols = ['diff'] + (['diff_lo', 'diff_hi'] if a.intervals else [])
+    pt = 0
+    for r in tm.itertuples():
+        k1, k2 = (r.model_1, r.condition_1, r.quantity), (r.model_2, r.condition_2, r.quantity)
+        v1, v2 = ((tq.get(k1 + (r.grouping,), np.nan), tq.get(k2 + (r.grouping,), np.nan)) if r.stat == 'tau_b'
+                  else (eq.get(k1, np.nan), eq.get(k2, np.nan)))
+        pt += (v1 == r.value_1) and (v2 == r.value_2) and r.condition_1 == r.condition_2
+    report(len(tm) == n_exp and (tm['diff'] == tm.value_1 - tm.value_2).all() and pt == len(tm)
+           and not tm[cols].isna().any().any() and set(tm.comparison) <= {'thinking_minus_no_thinking'},
+           f'with thinking - without: {len(tm)} rows (expected {n_exp}); diff = value_1 - value_2 exactly in '
+           f'{int((tm["diff"] == tm.value_1 - tm.value_2).sum())}; the values are the point estimates of the same '
+           f'condition in {pt}; missing values in {cols}: {int(tm[cols].isna().sum().sum())}')
 print(f'\nchecks not passed: {bad}')

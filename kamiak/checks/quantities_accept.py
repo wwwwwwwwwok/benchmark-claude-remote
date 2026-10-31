@@ -3,10 +3,13 @@ every cell has a value, every difference exactly the difference of its two point
 means: tau-b ('all'), median absolute error and median error recomputed from quantity_frames.csv with scipy and numpy;
 the model's TTC, THW and DRAC recomputed from the frame estimates with the textbook formulas (distance minus the camera
 offset as the gap); the resamples (risk_check.csv all identical); the acceleration class counts adding up.
+Row counts per model (user, 2026-10-30): each model with its own conditions (all five, or those of --only_conditions as
+params.txt records them) and, per condition, whether the risk analysis (params.txt) has its risk scores.
 usage: python -I quantities_accept.py <analysis folder> <expected frames> <truth csv> [--intervals]
        --intervals: also require every interval (not for the pilot: 3 segments)
 """
 import argparse
+import ast
 import os
 
 import numpy as np
@@ -31,7 +34,18 @@ pfr = rd('perceived_ssm_frames.csv')
 qfr = rd('quantity_frames.csv')
 rc = rd('risk_check.csv')
 models = sorted(tau.model.unique())
-nm, nq, nc, ng = len(models), tau.quantity.nunique(), tau.condition.nunique(), tau.grouping.nunique()
+nq, ng = tau.quantity.nunique(), tau.grouping.nunique()
+CONDITIONS = ['grid', 'sep_time', 'sep_camera', 'ctrl_grid', 'ctrl_sep']          # as code/analyze_vlm_ssm.py
+TIME_PAIRS = [('grid', 'ctrl_grid'), ('sep_time', 'ctrl_sep'), ('sep_camera', 'ctrl_sep')]   # as analyze_quantities
+MODEL_PAIRS = [('qwen-drive-1.0-4b', 'qwen3.5-4b')]                                    # as analyze_quantities
+params = open(os.path.join(d, 'params.txt'), encoding='utf-8').read().splitlines()
+only = next((ast.literal_eval(l.split(': ', 1)[1].split('; in this run')[0]) for l in params
+             if l.startswith('only these conditions (--only_conditions): ')), {})
+conds = {m: only.get(m, CONDITIONS) for m in models}                 # the conditions each model must have
+risk_dir = next(l.split(' = ', 1)[1] for l in params if l.startswith('risk analysis = '))
+risk_mc = set(pd.read_csv(os.path.join(risk_dir, 'vlm_frame_scores.csv'), usecols=['model', 'condition'])
+              .drop_duplicates().itertuples(index=False, name=None))
+n_cells = sum(len(conds[m]) for m in models)                         # model x condition
 bad = 0
 
 
@@ -41,19 +55,24 @@ def report(ok, text):
     print(f'  [{"ok" if ok else "NOT OK"}] {text}')
 
 
-print(f'{d}: models {models}; conditions {nc}, quantities {nq}, groupings {sorted(tau.grouping.unique())}')
+print(f'{d}: models {models}; quantities {nq}, groupings {sorted(tau.grouping.unique())}; conditions per model '
+      f'{ {m: len(c) for m, c in conds.items()} } (--only_conditions {only}); risk analysis {risk_dir}')
+have = {t: {m: sorted(set(x[x.model == m].condition)) for m in models} for t, x in (('tau', tau), ('frames', qfr))}
+report(all(have[t][m] == sorted(conds[m]) for t in have for m in models),
+       f'each model has exactly its conditions in quantity_tau_b and quantity_frames: '
+       f'{ {m: have["tau"][m] for m in models if len(conds[m]) < len(CONDITIONS)} or "all five for every model"}')
 nf = qfr[['segment', 'frame_idx']].drop_duplicates().shape[0]
-report(nf == a.frames, f'frames {nf} (expected {a.frames}); quantity_frames rows {len(qfr)} = models x conditions x '
-                       f'quantities x frames {nm * nc * nq * a.frames}: {len(qfr) == nm * nc * nq * a.frames}')
-report(len(tau) == nm * nc * nq * ng, f'quantity_tau_b rows {len(tau)} (expected {nm * nc * nq * ng})')
+report(nf == a.frames, f'frames {nf} (expected {a.frames}); quantity_frames rows {len(qfr)} = model x condition cells x '
+                       f'quantities x frames {n_cells * nq * a.frames}: {len(qfr) == n_cells * nq * a.frames}')
+report(len(tau) == n_cells * nq * ng, f'quantity_tau_b rows {len(tau)} (expected {n_cells * nq * ng})')
 cols = ['tau_b'] + (['tau_b_lo', 'tau_b_hi'] if a.intervals else [])
 report(not tau[cols].isna().any().any(), f'quantity_tau_b: missing values in {cols}: {int(tau[cols].isna().sum().sum())}; '
                                          f'nboot {sorted(tau.nboot.unique())}; frames per cell {tau.frames.min()}-{tau.frames.max()}')
-report(len(err) == nm * nc * nq, f'quantity_errors rows {len(err)} (expected {nm * nc * nq})')
+report(len(err) == n_cells * nq, f'quantity_errors rows {len(err)} (expected {n_cells * nq})')
 cols = ['median_abs_error', 'median_error'] + (['median_abs_error_lo', 'median_abs_error_hi', 'median_error_lo',
                                                 'median_error_hi'] if a.intervals else [])
 report(not err[cols].isna().any().any(), f'quantity_errors: missing values in {cols}: {int(err[cols].isna().sum().sum())}')
-report(len(acc) == nm * nc * 2, f'accel_classes rows {len(acc)} (expected {nm * nc * 2})')
+report(len(acc) == n_cells * 2, f'accel_classes rows {len(acc)} (expected {n_cells * 2})')
 sums = acc.truth_up + acc.truth_steady + acc.truth_down
 conf = acc[[c for c in acc.columns if c.startswith('n_truth_')]].sum(axis=1)
 right = acc.right_up + acc.right_steady + acc.right_down
@@ -61,9 +80,9 @@ report((sums == acc.frames).all() and (conf == acc.frames).all() and
        np.allclose(right / acc.frames, acc.share_right_all) and np.allclose(acc.truth_steady / acc.frames,
                                                                              acc.share_always_steady),
        'accel_classes: truth classes and the 3 x 3 counts add up to the frames; shares right and always-steady agree')
-n_time = nm * 3 * nq * (ng + 1)
-pair = all(m in models for m in ('qwen-drive-1.0-4b', 'qwen3.5-4b'))
-n_model = nc * nq * (ng + 1) if pair else 0
+n_time = sum(c1 in conds[m] and c2 in conds[m] for m in models for c1, c2 in TIME_PAIRS) * nq * (ng + 1)
+n_model = sum(len(set(conds[m1]) & set(conds[m2])) for m1, m2 in MODEL_PAIRS
+              if m1 in models and m2 in models) * nq * (ng + 1)
 report(len(dif) == n_time + n_model, f'quantity_differences rows {len(dif)} (expected time {n_time} + model {n_model})')
 exact = (dif['diff'] == dif.value_1 - dif.value_2) | (dif['diff'].isna() & (dif.value_1.isna() | dif.value_2.isna()))
 report(exact.all(), f'quantity_differences: diff = value_1 - value_2 exactly in {int(exact.sum())} of {len(dif)}')
@@ -71,24 +90,28 @@ cols = ['diff'] + (['diff_lo', 'diff_hi'] if a.intervals else [])
 report(not dif[cols].isna().any().any(), f'quantity_differences: missing values in {cols}: '
                                          f'{int(dif[cols].isna().sum().sum())}')
 # the point estimates in the differences are the ones in quantity_tau_b / quantity_errors
-tk = tau.set_index(['model', 'condition', 'quantity', 'grouping']).tau_b
-ek = err.set_index(['model', 'condition', 'quantity']).median_abs_error
+tk = tau.set_index(['model', 'condition', 'quantity', 'grouping']).tau_b.to_dict()
+ek = err.set_index(['model', 'condition', 'quantity']).median_abs_error.to_dict()
 same = 0
-for r in dif.itertuples():
+for r in dif.itertuples():      # a row of a cell that is not in the tables counts as not the same
     if r.stat == 'tau_b':
-        v1, v2 = tk[(r.model_1, r.condition_1, r.quantity, r.grouping)], tk[(r.model_2, r.condition_2, r.quantity, r.grouping)]
+        v1 = tk.get((r.model_1, r.condition_1, r.quantity, r.grouping), np.nan)
+        v2 = tk.get((r.model_2, r.condition_2, r.quantity, r.grouping), np.nan)
     else:
-        v1, v2 = ek[(r.model_1, r.condition_1, r.quantity)], ek[(r.model_2, r.condition_2, r.quantity)]
+        v1, v2 = ek.get((r.model_1, r.condition_1, r.quantity), np.nan), ek.get((r.model_2, r.condition_2, r.quantity), np.nan)
     same += (v1 == r.value_1) and (v2 == r.value_2)
 report(same == len(dif), f'quantity_differences: value_1 and value_2 are the point estimates of the two cells: {same} '
                          f'of {len(dif)}')
-has_risk = pss.comparison.eq('risk_score_vs_model_ssm').any()
-n_p = nm * nc * 7 * ng * (2 if has_risk else 1)
-report(len(pss) == n_p, f'perceived_ssm_tau_b rows {len(pss)} (expected {n_p}); comparisons {sorted(pss.comparison.unique())}')
+n_p = sum(7 * ng * (2 if (m, c) in risk_mc else 1) for m in models for c in conds[m])
+n_r = int(pss.comparison.eq('risk_score_vs_model_ssm').sum())
+n_r_exp = sum(7 * ng for m in models for c in conds[m] if (m, c) in risk_mc)
+report(len(pss) == n_p and n_r == n_r_exp,
+       f'perceived_ssm_tau_b rows {len(pss)} (expected {n_p}: per model x condition 7 SSMs x {ng} groupings, twice when '
+       f'the risk analysis has its risk scores), of which risk_score_vs_model_ssm {n_r} (expected {n_r_exp})')
 cols = ['tau_b'] + (['tau_b_lo', 'tau_b_hi'] if a.intervals else [])
 report(not pss[cols].isna().any().any(), f'perceived_ssm_tau_b: missing values in {cols}: '
                                          f'{int(pss[cols].isna().sum().sum())}')
-report(len(pmi) == nm * nc and (pmi.missing == pmi.frames - pfr.groupby(['model', 'condition'], sort=False).valid.sum()
+report(len(pmi) == n_cells and (pmi.missing == pmi.frames - pfr.groupby(['model', 'condition'], sort=False).valid.sum()
                                 .reindex(pd.MultiIndex.from_frame(pmi[['model', 'condition']])).to_numpy()).all(),
        f'perceived_ssm_missing: {len(pmi)} rows; missing = frames - valid frames; missing frames per model x condition '
        f'{pmi.missing.min()}-{pmi.missing.max()} (quantity missing {pmi.quantity_missing.sum()}, gap < 0 '

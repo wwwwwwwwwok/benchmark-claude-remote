@@ -38,13 +38,22 @@ the pictures, and what its reading implies for the lead-vehicle SSMs.
    median of the truth over the frames analysed (the same number in every resample, on the cell's frames) and the
    model's minus it; for the distance the share within 25 % (larger / smaller below 1.25; an answer of 0 or below is
    never within).
+ - A model asked about some conditions only (user, 2026-10-30: Qwen3.6-27B with thinking, sep_camera only): named with
+   --only_conditions MODEL=COND[,COND...]; its file must have exactly those conditions, and every other model all five
+   (a cell without any request stops the run, as before). Such a model gets the tables of its conditions only, the
+   risk-related ones included; a TIME_PAIRS difference only when it has both conditions; MODEL_PAIRS on the conditions
+   both models have; the risk check (grid) only for models with grid.
+ - Exploratory (user, 2026-10-30; exploratory_thinking_minus_no_thinking.csv, the tables above unchanged):
+   EXPLORATORY_MODEL_PAIRS, Qwen3.6-27B with thinking - without, on the conditions both have (sep_camera), as
+   MODEL_PAIRS: tau-b in every grouping, median absolute error ('all'), the same resamples, each cell its own frames.
+   The two differ in the sampling as well (each its own recommended values).
 
 Inputs: <vlm_scores>/<model>/<run>_quantities_<model>.jsonl(.gz) for every model folder that has one; the truth csv of
 code/quantity_truth.py for (at least) these frames; frame_ssm.csv; the risk analysis subfolder of the same frames
 (vlm_frame_scores.csv, agreement.csv; e.g. analysis/after_qwen3.5-4b/main_1084).
 usage: python -I analyze_quantities.py <vlm_scores> <truth.csv> <frame_ssm.csv> <risk analysis subfolder> <out_dir>
                                        [--run main] [--closing_min 0.1] [--scene_labels <csv>] [--group_by time_of_day]
-                                       [--n_boot 2000] [--seed 20261021]
+                                       [--n_boot 2000] [--seed 20261021] [--only_conditions MODEL=COND[,COND...]]
 """
 import argparse
 import glob
@@ -70,6 +79,10 @@ IMPLAUSIBLE = {'distance': lambda v: v > 200, 'ego_speed': lambda v: v > 60, 'le
 STEADY = 0.5                                   # m/s2: speeding up above, slowing down below -STEADY
 TIME_PAIRS = [('grid', 'ctrl_grid'), ('sep_time', 'ctrl_sep'), ('sep_camera', 'ctrl_sep')]
 MODEL_PAIRS = [('qwen-drive-1.0-4b', 'qwen3.5-4b')]   # model_1 - model_2 (user, 2026-10-28)
+# exploratory, model_1 - model_2: with thinking - without (user, 2026-10-29 / 10-30), on the conditions both have
+EXPLORATORY_MODEL_PAIRS = [('qwen3.6-27b', 'qwen3.6-27b-nothink')]
+DIFF_COLUMNS = ['comparison', 'model_1', 'condition_1', 'model_2', 'condition_2', 'quantity', 'stat', 'grouping',
+                'value_1', 'value_2', 'diff', 'diff_lo', 'diff_hi', 'nboot', 'clear']
 E1_GAP = 0.01        # m: exploratory E1 (user, 2026-10-29), below every true gap
 WITHIN = 1.25        # exploratory: a distance within 25 % (larger / smaller below this)
 
@@ -153,7 +166,17 @@ def main():
     ap.add_argument('--group_by', default='time_of_day')
     ap.add_argument('--n_boot', type=int, default=2000)
     ap.add_argument('--seed', type=int, default=20261021)
+    ap.add_argument('--only_conditions', action='append', default=[], metavar='MODEL=COND[,COND...]',
+                    help='a model asked about these conditions only (exactly these); may be given for several models')
     a = ap.parse_args()
+    only = {}
+    for spec in a.only_conditions:
+        m, _, cs = spec.partition('=')
+        cs = [c for c in cs.split(',') if c]
+        if not m or not cs or m in only or any(c not in av.CONDITIONS for c in cs):
+            sys.exit(f'--only_conditions {spec}: expected MODEL=COND[,COND...] with conditions of {list(av.CONDITIONS)}, '
+                     f'each model once')
+        only[m] = [c for c in av.CONDITIONS if c in cs]
     group_by = [c for c in a.group_by.split(',') if c] if a.scene_labels else []
     os.makedirs(a.out_dir, exist_ok=True)
     t0 = time.time()
@@ -176,6 +199,16 @@ def main():
         n = len(req.loc[req.model == m, ['segment', 'frame_idx']].drop_duplicates())
         if n != len(frames):
             raise ValueError(f'{m} asked about {n} frames, the union is {len(frames)}')
+    # conditions per model: all five, but exactly those of --only_conditions for a model named there
+    conds = {m: only.get(m, list(av.CONDITIONS)) for m in models}
+    for m, cs in only.items():
+        if m not in models:
+            print(f'--only_conditions {m}: not in this run')
+            continue
+        has = set(req.loc[req.model == m, 'condition'])
+        if has != set(cs):
+            sys.exit(f'{m}: conditions {sorted(has)} in its file; --only_conditions says exactly {cs}')
+    mc = [(m, c) for m in models for c in conds[m]]
 
     # --- frames, true SSMs, truth, groupings (as analyze_vlm_ssm.py)
     n_asked = len(frames)
@@ -219,7 +252,7 @@ def main():
     est = {}
     for (m, c, q), sub in fr.groupby(['model', 'condition', 'quantity']):
         est[(m, c, q)] = sub.set_index(['segment', 'frame_idx'])['estimate'].reindex(mi).to_numpy(float)
-    cells = [(m, c, q) for m in models for c in av.CONDITIONS for q in QUANTS]
+    cells = [(m, c, q) for m, c in mc for q in QUANTS]
     missing_cells = [k for k in cells if k not in est]
     if missing_cells:
         sys.exit(f'cells without any request: {missing_cells[:5]}')
@@ -241,7 +274,7 @@ def main():
 
     # --- the model's SSMs
     perc, pmiss, perc_e1, neg_gap_of = {}, [], {}, {}
-    for m, c in itertools.product(models, av.CONDITIONS):
+    for m, c in mc:
         five = [est[(m, c, q)] for q in ('distance', 'ego_speed', 'lead_speed', 'ego_accel', 'lead_accel')]
         p, counts, neg_gap_of[(m, c)] = perceived_ssms(*five, offset)
         perc[(m, c)] = p
@@ -258,7 +291,7 @@ def main():
     # --- risk scores of the risk analysis (same frames)
     rs = pd.read_csv(os.path.join(a.risk_analysis, 'vlm_frame_scores.csv'), float_precision='round_trip')
     risk = {}
-    for m, c in itertools.product(models, av.CONDITIONS):
+    for m, c in mc:
         s = rs[(rs.model == m) & (rs.condition == c)].set_index(['segment', 'frame_idx'])['score_mean']
         if len(s):
             v = s.reindex(mi).to_numpy(float)
@@ -266,6 +299,7 @@ def main():
                 sys.exit(f'{a.risk_analysis}: no risk scores for {m} {c} on these frames')
             risk[(m, c)] = v
     risk_models = sorted({m for m, _ in risk})
+    check_models = [m for m in risk_models if (m, 'grid') in risk]      # the risk check is on grid
     lead_use = ssm['TTC_use']                          # the seven lead-vehicle SSMs share it (no reversing)
     # exploratory E2: every model of the risk analysis; the image-free answer for the errors
     risk_all = {}
@@ -278,7 +312,7 @@ def main():
             risk_all[(m, c)] = v
     e2_vars = {(m, c): [('true_distance', truth['distance']), ('true_ego_speed', truth['ego_speed'])]
                + ([('model_distance', est[(m, c, 'distance')]), ('model_ego_speed', est[(m, c, 'ego_speed')])]
-                  if m in models else []) for m, c in risk_all}
+                  if c in conds.get(m, []) else []) for m, c in risk_all}
     base = {q: float(np.median(truth[q][~np.isnan(truth[q])])) for q in QUANTS}
 
     # --- all statistics for one resample (idx: frame positions; gb: group labels of those positions)
@@ -325,7 +359,7 @@ def main():
                             res[(tag + '_risk_c', m, c, s, gn)] = tc
 
         perceived_taus(perc, 'p')
-        for m in risk_models:
+        for m in check_models:
             st = av.all_stats(risk[(m, 'grid')][idx], {k: v[idx] for k, v in ssm.items()}, ids[idx], gb)
             for s in av.SSMS:
                 for gn in gnames:
@@ -430,6 +464,8 @@ def main():
 
     for m in models:
         for c1, c2 in TIME_PAIRS:
+            if c1 not in conds[m] or c2 not in conds[m]:
+                continue
             for q in QUANTS:
                 for gn in gnames:
                     diff_row('time', m, c1, m, c2, q, 'tau_b', gn, ('tau', m, c1, q, gn), ('tau', m, c2, q, gn))
@@ -438,7 +474,7 @@ def main():
         if m1 not in models or m2 not in models:
             print(f'model comparison {m1} - {m2}: skipped, not in this run')
             continue
-        for c in av.CONDITIONS:
+        for c in [c for c in av.CONDITIONS if c in conds[m1] and c in conds[m2]]:
             for q in QUANTS:
                 for gn in gnames:
                     diff_row('model', m1, c, m2, c, q, 'tau_b', gn, ('tau', m1, c, q, gn), ('tau', m2, c, q, gn))
@@ -478,7 +514,7 @@ def main():
         return x == y or (np.isnan(x) and np.isnan(y))
 
     rows = []
-    for m in risk_models:
+    for m in check_models:
         for s in av.SSMS:
             for gn in gnames:
                 v, lo, hi, nv = with_ci(('risk_check', m, s, gn))
@@ -554,6 +590,23 @@ def main():
                      share_within_25pct_nboot=nv)
         rows.append(r)
     pd.DataFrame(rows).to_csv(os.path.join(a.out_dir, 'exploratory_quantity_errors.csv'), index=False)
+    # exploratory (user, 2026-10-30): with thinking - without, as MODEL_PAIRS, on the conditions both models have
+    rows, pairs_done = [], []
+    for m1, m2 in EXPLORATORY_MODEL_PAIRS:
+        if m1 not in models or m2 not in models:
+            print(f'exploratory model comparison {m1} - {m2}: skipped, not in this run')
+            continue
+        shared = [c for c in av.CONDITIONS if c in conds[m1] and c in conds[m2]]
+        pairs_done.append((m1, m2, shared))
+        for c in shared:
+            for q in QUANTS:
+                for gn in gnames:
+                    diff_row('thinking_minus_no_thinking', m1, c, m2, c, q, 'tau_b', gn, ('tau', m1, c, q, gn),
+                             ('tau', m2, c, q, gn))
+                diff_row('thinking_minus_no_thinking', m1, c, m2, c, q, 'median_abs_error', 'all', ('mae', m1, c, q),
+                         ('mae', m2, c, q))
+    pd.DataFrame(rows, columns=DIFF_COLUMNS).to_csv(
+        os.path.join(a.out_dir, 'exploratory_thinking_minus_no_thinking.csv'), index=False)
 
     # --- params.txt
     with open(os.path.join(a.out_dir, 'params.txt'), 'w', encoding='utf-8') as f:
@@ -563,12 +616,14 @@ def main():
                 f'scene_labels = {os.path.abspath(a.scene_labels) if a.scene_labels else "(none)"}\n')
         for m in models:
             f.write(f'model {m}: {int((req.model == m).sum())} requests on the frames kept ({files[m]})\n')
+        if only:
+            f.write(f'only these conditions (--only_conditions): {only}; in this run: {[m for m in only if m in models]}\n')
         f.write(f'frames asked {n_asked}; closing in more slowly than {a.closing_min} m/s (above 0): {int(slow.sum())}, '
                 f'left out; frames {n_frames} in {len(seg_list)} segments\n')
         f.write(f'bootstrap: {a.n_boot} resamples of whole segments, seed {a.seed} (the risk analysis\'s); sha256 of the '
                 f'drawn segment indices {draws_hash.hexdigest()}\n')
         f.write(f'risk analysis intervals recomputed from these resamples (grid, {len(av.SSMS)} SSMs x {len(gnames)} '
-                f'groupings per model, models {risk_models}): {int(rc.identical.sum()) if len(rc) else 0} of {len(rc)} '
+                f'groupings per model, models {check_models}): {int(rc.identical.sum()) if len(rc) else 0} of {len(rc)} '
                 f'identical to its agreement.csv\n')
         f.write(f'lead_ssms parameters: {PARAMS}\n')
         f.write('implausible (counted only): distance > 200 m, speed > 60 m/s, |acceleration| > 10 m/s2; '
@@ -585,6 +640,9 @@ def main():
                 f'distance within 25 %: estimate above 0 and larger / smaller below {WITHIN}\n')
         f.write('image-free answer (median of the truth over the frames analysed, the same in every resample): '
                 + ', '.join(f'{q} {base[q]!r}' for q in QUANTS) + '\n')
+        f.write('with thinking - without (user, 2026-10-30; exploratory_thinking_minus_no_thinking.csv): '
+                + ('; '.join(f'{m1} - {m2} on {sh}' for m1, m2, sh in pairs_done) if pairs_done
+                   else f'{EXPLORATORY_MODEL_PAIRS} not in this run') + '\n')
     print(f'\nframes {n_frames}; risk check {int(rc.identical.sum()) if len(rc) else 0}/{len(rc)} identical; '
           f'done in {time.time() - t0:.0f} s; outputs in {os.path.abspath(a.out_dir)}')
 
