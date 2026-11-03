@@ -47,6 +47,10 @@ the pictures, and what its reading implies for the lead-vehicle SSMs.
    EXPLORATORY_MODEL_PAIRS, Qwen3.6-27B with thinking - without, on the conditions both have (sep_camera), as
    MODEL_PAIRS: tau-b in every grouping, median absolute error ('all'), the same resamples, each cell its own frames.
    The two differ in the sampling as well (each its own recommended values).
+ - More replies of a model in a second file (user, 2026-11-03: Qwen3.6-27B with thinking on grid, run after the results
+   without thinking; analysed only in an exploratory version, the formal analysis is the one without it):
+   --extra_quantities MODEL=FILE adds its lines to the model; a request or a condition in both files stops the run.
+   --note TEXT is written into params.txt and exploratory_params.txt (e.g. that the whole run is exploratory).
 
 Inputs: <vlm_scores>/<model>/<run>_quantities_<model>.jsonl(.gz) for every model folder that has one; the truth csv of
 code/quantity_truth.py for (at least) these frames; frame_ssm.csv; the risk analysis subfolder of the same frames
@@ -54,6 +58,7 @@ code/quantity_truth.py for (at least) these frames; frame_ssm.csv; the risk anal
 usage: python -I analyze_quantities.py <vlm_scores> <truth.csv> <frame_ssm.csv> <risk analysis subfolder> <out_dir>
                                        [--run main] [--closing_min 0.1] [--scene_labels <csv>] [--group_by time_of_day]
                                        [--n_boot 2000] [--seed 20261021] [--only_conditions MODEL=COND[,COND...]]
+                                       [--extra_quantities MODEL=FILE] [--note TEXT]
 """
 import argparse
 import glob
@@ -168,6 +173,9 @@ def main():
     ap.add_argument('--seed', type=int, default=20261021)
     ap.add_argument('--only_conditions', action='append', default=[], metavar='MODEL=COND[,COND...]',
                     help='a model asked about these conditions only (exactly these); may be given for several models')
+    ap.add_argument('--extra_quantities', action='append', default=[], metavar='MODEL=FILE',
+                    help='more replies of a model in a second file; a request or a condition in both files stops the run')
+    ap.add_argument('--note', default=None, help='a line for params.txt and exploratory_params.txt')
     a = ap.parse_args()
     only = {}
     for spec in a.only_conditions:
@@ -182,17 +190,32 @@ def main():
     t0 = time.time()
 
     # --- replies
-    parts, files = [], {}
+    parts, files = {}, {}
     for d in sorted(glob.glob(os.path.join(a.vlm_scores, '*', ''))):
         name = os.path.basename(d.rstrip('/\\'))
         f = av.jsonl_file(d, f'{a.run}_quantities_{name}')
         if f:
-            parts.append(read_quantities(f, name))
+            parts[name] = read_quantities(f, name)
             files[name] = f
-            print(f'read {name}: {len(parts[-1])} requests ({time.time() - t0:.0f} s)')
+            print(f'read {name}: {len(parts[name])} requests ({time.time() - t0:.0f} s)')
     if not parts:
         sys.exit(f'no {a.run}_quantities_<model>.jsonl(.gz) in the model folders of {a.vlm_scores}')
-    req = pd.concat(parts, ignore_index=True)
+    extra = {}                                           # model -> (file, its conditions)
+    for spec in a.extra_quantities:
+        m, _, f = spec.partition('=')
+        if not m or not f or m in extra or m not in parts or not os.path.isfile(f):
+            sys.exit(f'--extra_quantities {spec}: expected MODEL=FILE for a model with a {a.run}_quantities file here '
+                     f'and an existing file, each model once')
+        x = read_quantities(f, m)                        # a request twice in the file stops it
+        key = ['segment', 'frame_idx', 'condition', 'quantity', 'repeat']
+        both_c = sorted(set(parts[m].condition) & set(x.condition))
+        both_r = int(pd.MultiIndex.from_frame(x[key]).isin(pd.MultiIndex.from_frame(parts[m][key])).sum())
+        if both_c or both_r:
+            sys.exit(f'{m}: {f} overlaps {files[m]}: conditions in both {both_c}, requests in both {both_r}')
+        parts[m] = pd.concat([parts[m], x], ignore_index=True)
+        extra[m] = (f, set(x.condition))
+        print(f'read {m}, more: {len(x)} requests from {f} ({time.time() - t0:.0f} s)')
+    req = pd.concat(list(parts.values()), ignore_index=True)
     models = sorted(files)
     frames = req[['segment', 'frame_idx']].drop_duplicates().sort_values(['segment', 'frame_idx']).reset_index(drop=True)
     for m in models:
@@ -611,11 +634,18 @@ def main():
     # --- params.txt
     with open(os.path.join(a.out_dir, 'params.txt'), 'w', encoding='utf-8') as f:
         f.write(f'analyze_quantities.py run {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+        if a.note:
+            f.write(f'note: {a.note}\n')
         f.write(f'vlm_scores = {os.path.abspath(a.vlm_scores)}\ntruth = {os.path.abspath(a.truth)}\n'
                 f'frame_ssm = {os.path.abspath(a.frame_ssm)}\nrisk analysis = {os.path.abspath(a.risk_analysis)}\n'
                 f'scene_labels = {os.path.abspath(a.scene_labels) if a.scene_labels else "(none)"}\n')
         for m in models:
             f.write(f'model {m}: {int((req.model == m).sum())} requests on the frames kept ({files[m]})\n')
+            if m in extra:
+                xf, xc = extra[m]
+                n_x = int(((req.model == m) & req.condition.isin(xc)).sum())
+                f.write(f'  of which from {files[m]}: {int((req.model == m).sum()) - n_x}; from {xf} '
+                        f'(--extra_quantities, conditions {sorted(xc)}): {n_x}\n')
         if only:
             f.write(f'only these conditions (--only_conditions): {only}; in this run: {[m for m in only if m in models]}\n')
         f.write(f'frames asked {n_asked}; closing in more slowly than {a.closing_min} m/s (above 0): {int(slow.sum())}, '
@@ -632,6 +662,8 @@ def main():
             vals, cnt = np.unique(groupings[gn], return_counts=True)
             f.write(f'grouping {gn}: {len(vals)} groups\n')
     with open(os.path.join(a.out_dir, 'exploratory_params.txt'), 'w', encoding='utf-8') as f:
+        if a.note:
+            f.write(f'note: {a.note}\n')
         f.write('exploratory analyses (user, 2026-10-29, after seeing the 4B results), on the resamples above\n')
         f.write(f'E1: frames whose estimated gap is negative get a gap of {E1_GAP} m instead of being missing\n')
         f.write(f'E2: risk scores (score_mean) of {sorted({m for m, _ in risk_all})} against the true distance and '
