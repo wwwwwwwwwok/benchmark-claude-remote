@@ -25,7 +25,10 @@ Inputs
    speed - own lead speed;
  - scene: <scene_labels.csv> (labels/scene_labels.csv): time_of_day and location (Waymo's), weather (the user's, one of
    WEATHER, every segment labelled);
- - road users around: <nearby.csv> of count_nearby.py (pedestrians + cyclists, vehicles within 10, 20, 30, 50 m).
+ - road users around: <nearby.csv> of count_nearby.py (pedestrians + cyclists, vehicles within 10, 20, 30, 50 m): the
+   main version counts what is in the cameras' view, occluded objects included (a projected 3D box); the sensitivity
+   version (user, 2026-11-03) only objects with at least 1 lidar point in their 3D box. Item 2 and every fit of item 4
+   with N_R are done with both; the lidar version's tables are the *_lidar1.csv ones ("至少 1 个激光点").
 
 Analyses, per model x condition
  1 exploratory_chain.csv: the models with own estimates x the seven SSMs x 'all', 'segment', copied as text: risk score
@@ -100,6 +103,7 @@ QNAMES = ['distance', 'ego_speed', 'lead_speed', 'closing_speed', 'ego_accel', '
 TRUE_CUES = [f'true_{q}' for q in QNAMES]
 OWN_CUES = [f'model_{q}' for q in QNAMES]
 NEAR_CUES = [f'{k}_{r}m' for r in RADII for k in ('ped_cyc', 'vehicle')]
+NEAR_CUES_L = [c + '_lidar1' for c in NEAR_CUES]               # at least 1 lidar point (sensitivity version)
 K_TRUE = ['true_distance', 'true_ego_speed', 'true_closing_speed', 'true_ego_accel', 'true_lead_accel']
 K_OWN = ['model_distance', 'model_ego_speed', 'model_closing_speed', 'model_ego_accel', 'model_lead_accel']
 E2_VARS = ['true_distance', 'true_ego_speed', 'model_distance', 'model_ego_speed']
@@ -312,8 +316,9 @@ def main():
     if (nb['_merge'] != 'both').any():
         sys.exit(f'{int((nb["_merge"] != "both").sum())} frames are not in {a.nearby}')
     for r in RADII:
-        cue[f'ped_cyc_{r}m'] = nb[f'n_ped_cyc_{r}m'].to_numpy(float)
-        cue[f'vehicle_{r}m'] = nb[f'n_vehicle_{r}m'].to_numpy(float)
+        for sfx in ('', '_lidar1'):
+            cue[f'ped_cyc_{r}m{sfx}'] = nb[f'n_ped_cyc_{r}m{sfx}'].to_numpy(float)
+            cue[f'vehicle_{r}m{sfx}'] = nb[f'n_vehicle_{r}m{sfx}'].to_numpy(float)
     qf = pd.read_csv(os.path.join(a.quantities, 'quantity_frames.csv'), float_precision='round_trip')
     own = {}
     for (m, c), g in qf.groupby(['model', 'condition']):
@@ -379,7 +384,8 @@ def main():
     fit_ok = {}
     for mc in cells:
         ok = ~np.isnan(risk[mc])
-        for v in [cue[k] for k in K_TRUE + NEAR_CUES] + hcols[mc] + ([own[mc][k] for k in K_OWN] if mc in own else []):
+        for v in [cue[k] for k in K_TRUE + NEAR_CUES + NEAR_CUES_L] + hcols[mc] + \
+                ([own[mc][k] for k in K_OWN] if mc in own else []):
             ok &= ~np.isnan(v)
         fit_ok[mc] = ok
     subsets = {}
@@ -446,13 +452,14 @@ def main():
                 rcache[key] = rank01(v[sel])
             return rcache[key]
 
-        def fit(target, y, cols, terms, fname):
+        def fit(target, y, cols, terms, fname, pre=''):
+            """pre 'L': a fit with the lidar version of N_R (keys r2L, coefL)."""
             coef, fv, r2 = ols(y, cols)
-            res[('r2', *target, fname)] = r2
+            res[('r2' + pre, *target, fname)] = r2
             for term, b in zip(['intercept'] + terms, coef):
-                res[('coef', *target, fname, term)] = b
+                res[('coef' + pre, *target, fname, term)] = b
             if diag is not None and np.isnan(coef).any():
-                diag[(*target, fname)] = why_undefined(cols, terms, coef)
+                diag[(pre, *target, fname)] = why_undefined(cols, terms, coef)
             return coef, fv, r2
 
         ssm_b = {s: ssm_r[s][idx] for s in LEAD7}
@@ -462,10 +469,10 @@ def main():
             for s in LEAD7:                                   # the check against agreement.csv
                 for gn, v in tau(x, ssm_b[s], ok).items():
                     res[('check', *mc, s, gn)] = v
-            for name in TRUE_CUES + NEAR_CUES + (OWN_CUES if mc in own else []):
+            for name in TRUE_CUES + NEAR_CUES + (OWN_CUES if mc in own else []) + NEAR_CUES_L:
                 v = (own[mc][name] if name.startswith('model_') else cue[name])[idx]
                 for gn, t in tau(x, v, ok & ~np.isnan(v)).items():
-                    res[('cue', *mc, name, gn)] = t
+                    res[('cueL' if name.endswith('_lidar1') else 'cue', *mc, name, gn)] = t
             for (kind, part), sub in subsets[mc].items():
                 sb = sub[idx] & ok
                 for s in LEAD7:
@@ -504,6 +511,16 @@ def main():
                     out[f'K+S+N{r}+H'][2] - out[f'K+S+N{r}'][2]
                 res[('diff', *mc, f'ego speed coefficient: K+S+N{r} - K')] = \
                     out[f'K+S+N{r}'][0][ego] - out['K'][0][ego]
+            # the same fits with the lidar version of N_R (at least 1 lidar point)
+            NL = {r: [ranked(f'ped_cyc_{r}m_lidar1', cue[f'ped_cyc_{r}m_lidar1'][idx], sel),
+                      ranked(f'vehicle_{r}m_lidar1', cue[f'vehicle_{r}m_lidar1'][idx], sel)] for r in RADII}
+            nl_terms = {r: [f'ped_cyc_{r}m_lidar1', f'vehicle_{r}m_lidar1'] for r in RADII}
+            for r in RADII:
+                a_ = fit(tgt, y, K + S + NL[r], K_TRUE + s_terms + nl_terms[r], f'K+S+N{r}', 'L')
+                b_ = fit(tgt, y, K + S + NL[r] + H, K_TRUE + s_terms + nl_terms[r] + h_terms, f'K+S+N{r}+H', 'L')
+                res[('diffL', *mc, f'N{r} added: R2(K+S+N{r}) - R2(K+S)')] = a_[2] - out['K+S'][2]
+                res[('diffL', *mc, f'H added: R2(K+S+N{r}+H) - R2(K+S+N{r})')] = b_[2] - a_[2]
+                res[('diffL', *mc, f'ego speed coefficient: K+S+N{r} - K')] = a_[0][ego] - out['K'][0][ego]
             if mc in own:
                 Ko = [rank01(own[mc][k][idx][sel]) for k in K_OWN]
                 r2o = fit(tgt, y, Ko, K_OWN, 'K_own')[2]
@@ -513,6 +530,7 @@ def main():
             fit(tgt, yw, Kw, K_TRUE, 'within: K')
             for r in RADII:
                 fit(tgt, yw, Kw + [demean(v, g) for v in N[r]], K_TRUE + n_terms[r], f'within: K+N{r}')
+                fit(tgt, yw, Kw + [demean(v, g) for v in NL[r]], K_TRUE + nl_terms[r], f'within: K+N{r}', 'L')
             res[('between', 'risk', *mc)] = between_share(y, g)
             key = sel.tobytes()                             # lens model: the SSMs on the same frames, on K
             if key not in efit:
@@ -570,36 +588,43 @@ def main():
                     ssm=k[2] if k[1] == 'ssm' else '')
 
     nf = {mc: int(fit_ok[mc].sum()) for mc in cells}
-    # --- 4: rule tables
-    rows = []
-    for k in keys:
-        if k[0] == 'coef':
-            v, lo, hi, nv = with_ci(k)
-            rows.append(dict(**target_cols(k), fit=k[4], term=k[5], coef=v, coef_lo=lo, coef_hi=hi, nboot=nv))
-    write('exploratory_rule_coefficients.csv', rows)
-    rows = []
-    for k in keys:
-        if k[0] == 'r2':
-            v, lo, hi, nv = with_ci(k)
-            rows.append(dict(**target_cols(k), fit=k[4], frames=nf[(k[2], k[3])] if k[1] == 'risk' else n, r2=v,
-                             r2_lo=lo, r2_hi=hi, nboot=nv))
-    write('exploratory_rule_r2.csv', rows)
-    rows = []
-    for k in keys:
-        if k[0] == 'diff':
-            v, lo, hi, nv = with_ci(k)
-            rows.append(dict(model=k[1], condition=k[2], comparison=k[3], frames=nf[(k[1], k[2])], diff=v, diff_lo=lo,
-                             diff_hi=hi, nboot=nv, clear=bool(lo > 0 or hi < 0) if not np.isnan(lo) else False))
-    write('exploratory_rule_differences.csv', rows)
-    rows = []
-    for (kind, m_or_s, c_, fname), why in diag.items():
-        for term, reason in why.items():
-            k = ('coef', kind, m_or_s, c_, fname, term)
-            rows.append(dict(**target_cols(k), fit=fname, term=term, reason=reason,
-                             resamples_defined=int((~np.isnan(boot[:, col[k]])).sum())))
-    und = pd.DataFrame(rows, columns=['target', 'model', 'condition', 'ssm', 'fit', 'term', 'reason',
-                                      'resamples_defined'])
-    und.to_csv(os.path.join(a.out_dir, 'exploratory_rule_undefined.csv'), index=False)
+    # --- 4: rule tables; pre '' the main version of N_R (in view, occluded included), 'L' at least 1 lidar point
+    und_n = {}
+    for pre, sfx in (('', ''), ('L', '_lidar1')):
+        rows = []
+        for k in keys:
+            if k[0] == 'coef' + pre:
+                v, lo, hi, nv = with_ci(k)
+                rows.append(dict(**target_cols(k), fit=k[4], term=k[5], coef=v, coef_lo=lo, coef_hi=hi, nboot=nv))
+        write(f'exploratory_rule_coefficients{sfx}.csv', rows)
+        rows = []
+        for k in keys:
+            if k[0] == 'r2' + pre:
+                v, lo, hi, nv = with_ci(k)
+                rows.append(dict(**target_cols(k), fit=k[4], frames=nf[(k[2], k[3])] if k[1] == 'risk' else n, r2=v,
+                                 r2_lo=lo, r2_hi=hi, nboot=nv))
+        write(f'exploratory_rule_r2{sfx}.csv', rows)
+        rows = []
+        for k in keys:
+            if k[0] == 'diff' + pre:
+                v, lo, hi, nv = with_ci(k)
+                rows.append(dict(model=k[1], condition=k[2], comparison=k[3], frames=nf[(k[1], k[2])], diff=v,
+                                 diff_lo=lo, diff_hi=hi, nboot=nv,
+                                 clear=bool(lo > 0 or hi < 0) if not np.isnan(lo) else False))
+        write(f'exploratory_rule_differences{sfx}.csv', rows)
+        rows = []
+        for (p_, kind, m_or_s, c_, fname), why in diag.items():
+            if p_ != pre:
+                continue
+            for term, reason in why.items():
+                k = ('coef' + pre, kind, m_or_s, c_, fname, term)
+                rows.append(dict(**target_cols(k), fit=fname, term=term, reason=reason,
+                                 resamples_defined=int((~np.isnan(boot[:, col[k]])).sum())))
+        u_ = pd.DataFrame(rows, columns=['target', 'model', 'condition', 'ssm', 'fit', 'term', 'reason',
+                                         'resamples_defined'])
+        u_.to_csv(os.path.join(a.out_dir, f'exploratory_rule_undefined{sfx}.csv'), index=False)
+        und_n[pre] = (u_, sum(1 for d_ in diag if d_[0] == pre))
+    und = und_n[''][0]
 
     checks = []
     # --- risk check
@@ -672,17 +697,18 @@ def main():
     if bad:
         failed.append('chain')
 
-    # --- 2: cues
-    rows = []
-    for k in keys:
-        if k[0] == 'cue':
-            mc, name, gn = (k[1], k[2]), k[3], k[4]
-            v_full = own[mc][name] if name.startswith('model_') else cue[name]
-            v, lo, hi, nv = with_ci(k)
-            rows.append(dict(model=mc[0], condition=mc[1], cue=name, grouping=gn,
-                             frames=int((~np.isnan(risk[mc]) & ~np.isnan(v_full)).sum()), tau_b=v, tau_b_lo=lo,
-                             tau_b_hi=hi, nboot=nv))
-    write('exploratory_cue_tau_b.csv', rows)
+    # --- 2: cues (the lidar version of the counts in exploratory_cue_tau_b_lidar1.csv)
+    for kk, fname_ in (('cue', 'exploratory_cue_tau_b.csv'), ('cueL', 'exploratory_cue_tau_b_lidar1.csv')):
+        rows = []
+        for k in keys:
+            if k[0] == kk:
+                mc, name, gn = (k[1], k[2]), k[3], k[4]
+                v_full = own[mc][name] if name.startswith('model_') else cue[name]
+                v, lo, hi, nv = with_ci(k)
+                rows.append(dict(model=mc[0], condition=mc[1], cue=name, grouping=gn,
+                                 frames=int((~np.isnan(risk[mc]) & ~np.isnan(v_full)).sum()), tau_b=v, tau_b_lo=lo,
+                                 tau_b_hi=hi, nboot=nv))
+        write(fname_, rows)
     mine = pd.read_csv(os.path.join(a.out_dir, 'exploratory_cue_tau_b.csv'), dtype=str, keep_default_na=False)
     e2 = pd.read_csv(os.path.join(a.quantities, 'exploratory_e2_risk_vs_distance_speed.csv'), dtype=str,
                      keep_default_na=False)
@@ -786,6 +812,13 @@ def main():
             f.write(f'S: {col_}, reference {info["reference"]!r} (the most '
                     f'{"segments" if col_ == "weather" else "frames"}); segments per category {info["segments"]}, '
                     f'frames {info["frames"]}\n')
+        empty = [k_ for k_, v_ in s_info['weather']['segments'].items() if v_ == 0]
+        f.write(f'S: weather classes with 0 segments here: {empty}; their dummies are all zero, so their coefficients '
+                'are undefined in every fit with S\n')
+        f.write('N_R (main version; exploratory_rule_*.csv, exploratory_cue_tau_b.csv): road users in the cameras\' '
+                'view, occluded ones included (a projected 3D box in one of the five cameras); sensitivity version '
+                '(*_lidar1.csv, "at least 1 lidar point"): only objects with at least 1 lidar point in their 3D box, '
+                'otherwise the same (item 2 and every fit of item 4 with N_R)\n')
         f.write(f'H: shares of the hazard types {av.HAZARD_TYPES} (reference {HAZ_REF}) and cameras {av.CAMERAS} '
                 f'(reference {CAM_REF}) among the replies with a listed one; left out per cell (not listed or none): '
                 f'hazard type {sorted(set(v_ for (m_, c_, k_), v_ in left_out.items() if k_ == "hazard_type"))}, '
@@ -796,10 +829,12 @@ def main():
                 f's_max * max(n, p) * {np.finfo(float).eps:.4g} are zero; a coefficient with a null-space component '
                 f'above {NULL_TOL:g} in absolute value is undefined; the others are the least-squares solution and R2 '
                 f'comes from the projection. Reasons compared within {EXACT_TOL:g}\n')
-        f.write(f'undefined at the point estimate (exploratory_rule_undefined.csv): {len(und)} coefficients in '
-                f'{len(diag)} fits; ' + ('; '.join(f'{t}: {c_}' for t, c_ in
-                                                   und.groupby('reason').size().sort_values(ascending=False).items())
-                                         if len(und) else 'none') + '\n')
+        for pre, sfx in (('', ''), ('L', '_lidar1')):
+            u_, nfits = und_n[pre]
+            f.write(f'undefined at the point estimate (exploratory_rule_undefined{sfx}.csv): {len(u_)} coefficients in '
+                    f'{nfits} fits; ' + ('; '.join(f'{t}: {c_}' for t, c_ in
+                                                   u_.groupby('reason').size().sort_values(ascending=False).items())
+                                         if len(u_) else 'none') + '\n')
         f.write('tertiles (np.quantile 1/3, 2/3): ' + ', '.join(f'{q} {c_[0]!r}, {c_[1]!r}' for q, c_ in cuts.items())
                 + '\n')
         f.write(f'checks not met: {failed if failed else "none"}\n')
@@ -807,7 +842,8 @@ def main():
           f'{os.path.abspath(a.out_dir)}')
     for c_ in checks:
         print('  ' + c_)
-    print(f'  undefined at the point estimate: {len(und)} coefficients in {len(diag)} fits')
+    for pre, sfx in (('', 'main version'), ('L', 'lidar version')):
+        print(f'  undefined at the point estimate, {sfx}: {len(und_n[pre][0])} coefficients in {und_n[pre][1]} fits')
     sys.exit(1 if failed else 0)
 
 
