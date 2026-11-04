@@ -567,6 +567,7 @@
   - 写进 `labels/scene_labels.csv`：243 行 = 我标的 241 段（labeled_by "user, weather_labeling page, 2026-11-03"）+ demo 里不在这 241 段的 2 段（原样）；demo 的 `14486517341017504003_3406_349_3426_349` 在里面，用我标的 dry，原来 Claude 的 dry 和说明挪进 weather_note。
   - 每类段数：主结果 238 段 dry 195、wet 7、rain 36；敏感性 241 段 dry 198、wet 7、rain 36；fog、unclear 都是 0。Waymo 标 rain 的 2 段我也标 rain；Waymo 标 sunny 的 239 段里 dry 198、wet 7、rain 34。
 - 找模型自己的规则（上面那条，探索性）：先写 `code/count_nearby.py`、`code/analyze_rules.py`，在假数据上核，报给我；我看过再跑。11-03 晚我定了：S 直接带天气、共线照通用规则（上面"我定（2026-11-03 晚…）"那条）。
+  - 11-03 22:00 两个程序写好，假数据测试全过（31553310；`docs/handoff.md` 第 2 节"找模型自己的规则"：怎么实现的、`objects_at` 用的是 3D 框投影（被挡住的也算）、那 7 格、测试、用时约 1 小时）。还没在真实数据上跑，等我看过；我同意了再 `sbatch /data/lab/cejli/sy/tmp_checks/rule_explore/run_real.sbatch`。
 - 定天气分组：标签 11-03 定了由我自己看图标；风险分析里分几类、怎么分组还没定。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。
 - 家里电脑：用另一个数据集测试。只要写一个转换脚本，输出和上面相同格式的每段文件，`wod_common.py` 和 `waymo_ssm_frames.py` 就能直接用。
