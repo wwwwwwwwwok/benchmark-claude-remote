@@ -591,6 +591,7 @@
 - 找模型自己的规则（上面那条，探索性）：先写 `code/count_nearby.py`、`code/analyze_rules.py`，在假数据上核，报给我；我看过再跑。11-03 晚我定了：S 直接带天气、共线照通用规则（上面"我定（2026-11-03 晚…）"那条）。
   - 11-03 22:00 两个程序写好，假数据测试全过（31553310；`docs/handoff.md` 第 2 节"找模型自己的规则"：怎么实现的、`objects_at` 用的是 3D 框投影（被挡住的也算）、那 7 格、测试、用时约 1 小时）。还没在真实数据上跑，等我看过；我同意了再 `sbatch /data/lab/cejli/sy/tmp_checks/rule_explore/run_real.sbatch`。
   - 11-03 22:30 照我看过 0b7b605 以后定的加了"至少 1 个激光点"的敏感性版本，第四轮假数据测试全过（31553365）；还是等我看过再跑。
-- 风险分析加"同一种天气"分组（上面"比较分组"里 11-03 那条）：事前核对过了（241 段都有天气，time_of_day 和 `scene_labels_waymo.csv` 一字不差）；包装脚本 `kamiak/main_run/analyze_weather.sh`、比较脚本 `kamiak/checks/compare_weather_grouping.py` 在假数据上测过（31553371）。排在规则分析正式运行之后：`sbatch --dependency=afterany:<规则分析的作业号> /data/lab/cejli/sy/tmp_checks/risk_weather/run_weather.sbatch`。`summarize.py` 把分组写死成 3 种，改不改等我定（先不跑它）。
+  - 11-04 我同意跑（上面"我定（2026-11-04，看过 c3da119 以后）"）。命令挪进 `kamiak/main_run/analyze_rules.sh`；01:26 交了 31554290（仓库 9dac997）。跑完照那条报。
+- 风险分析加"同一种天气"分组（上面"比较分组"里 11-03 那条）：事前核对过了（241 段都有天气，time_of_day 和 `scene_labels_waymo.csv` 一字不差）；包装脚本 `kamiak/main_run/analyze_weather.sh`、比较脚本 `kamiak/checks/compare_weather_grouping.py` 在假数据上测过（31553371）。11-04 01:26 交了 31554291（afterany:31554290，只用 CPU）。`summarize.py` 照我 11-04 定的改了两处，改前改后在 `after_qwen3.5-4b` 上 4 种用法逐字一样（srun 31554297）；天气那份跑完再用 srun 对它跑 summarize。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。
 - 家里电脑：用另一个数据集测试。只要写一个转换脚本，输出和上面相同格式的每段文件，`wod_common.py` 和 `waymo_ssm_frames.py` 就能直接用。

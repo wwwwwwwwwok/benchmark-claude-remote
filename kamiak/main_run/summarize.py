@@ -31,8 +31,12 @@ def order(sub):
     return ' > '.join(f'{k} {v:.3f}' for k, v in s.items())
 
 
+GROUP_ORDER = ['all', 'weather', 'time_of_day', 'segment']   # the groupings in the table, in this order (user, 2026-11-04)
+unknown = sorted(set(ag.grouping) - set(GROUP_ORDER))
+if unknown:
+    sys.exit(f'{d}: agreement.csv has the groupings {unknown}, not among {GROUP_ORDER}; stop')
 for model in ag.model.unique():
-    for g in ['all', 'time_of_day', 'segment']:
+    for g in [g for g in GROUP_ORDER if g in set(ag.grouping)]:
         sub = ag[(ag.model == model) & (ag.grouping == g)]
         if sub.empty:
             continue
@@ -66,8 +70,12 @@ for model in ag.model.unique():
 if len(sys.argv) > 2:
     other = pd.read_csv(os.path.join(sys.argv[2], 'agreement.csv'))
     print(f'\n=== SSM order, {os.path.basename(d.rstrip("/"))} vs {os.path.basename(sys.argv[2].rstrip("/"))}')
+    shared = [g for g in GROUP_ORDER if g in set(ag.grouping) and g in set(other.grouping)]
+    skipped = sorted((set(ag.grouping) | set(other.grouping)) - set(shared))
+    if skipped:                                         # compared: the groupings both folders have (user, 2026-11-04)
+        print(f'  groupings in one folder only, not compared: {skipped}')
     for model in ag.model.unique():
-        for g in ['all', 'time_of_day', 'segment']:
+        for g in shared:
             for c in CONDS:
                 a = ag[(ag.model == model) & (ag.grouping == g) & (ag.condition == c)].set_index('ssm')['tau_b_conflict']
                 b = other[(other.model == model) & (other.grouping == g) & (other.condition == c)].set_index('ssm')[
