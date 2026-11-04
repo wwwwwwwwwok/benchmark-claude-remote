@@ -75,8 +75,26 @@ Checks: exploratory_risk_check.csv and exploratory_params.txt; the run ends with
 made beforehand, so the results do not depend on N. BLAS runs single-threaded (unless the environment says otherwise),
 so the fits are the same whatever the machine's thread count.
 
+--oos (EXPLORATORY; user, 2026-11-04, decided before the rule analysis's results were seen): out-of-sample R2 instead of
+everything above (the 17 tables are not written; the same inputs, variables and resamples). The in-sample R2 can only
+grow when a group of cues is added, so in every resample "R2 added" is at least 0 and its interval cannot contain 0: the
+clear column of the S / N_R / H added rows tells nothing. Leave one segment out: for every segment, every fit of item 4
+on the risk score (K, K+S, K+S+N_R, K+S+N_R+H, K_own, N_R in both versions, within K and K+N_R) is fitted on the other
+segments' frames and predicts that segment's frames; ranks, dummies and H as in item 4 (ranks once on all the frames);
+the training fit is the minimum-norm least-squares solution (numpy lstsq, rcond None: singular values at most
+s_max * max(n, p) * machine epsilon count as zero; a coefficient that is undefined there takes its minimum-norm value,
+0 for a column of zeros). Out-of-sample R2 = 1 - sum over all frames of the squared prediction errors / sum of squares
+of the risk-score rank about its mean over all frames (may be negative); within segments every variable minus its
+segment's mean (the held-out segment's own), the denominator the sum of squares of the demeaned rank. Intervals: no
+refitting; per resample the drawn segments' error and total sums of squares (a segment drawn twice counts twice) are
+added and R2 computed from them; 2.5 / 97.5 % percentiles, none when fewer than 90 % are defined; they leave out the
+variability of the refitting itself. A group of cues is taken as useful only when the out-of-sample "R2 added" has its
+whole interval above 0. Outputs (same folder): exploratory_oos_r2.csv, exploratory_oos_differences.csv (and _lidar1),
+exploratory_oos_params.txt; the in-sample R2 beside (point estimates, checked against item 4's).
+
 usage: python -I analyze_rules.py <risk analysis subfolder> <quantities analysis subfolder> <frame_ssm.csv>
        <truth.csv> <scene_labels.csv> <nearby_counts.csv> <out_dir> [--n_boot 2000] [--seed 20261021] [--workers 1]
+       [--oos]
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
@@ -261,6 +279,126 @@ def read_hash_quantities(path):
     return (int(m.group(1)), int(m.group(2)), m.group(3)) if m else (None, None, None)
 
 
+# ------------------------------------------------------------------ --oos (user, 2026-11-04)
+def loso_predict(y, cols, g):
+    """Leave-one-segment-out predictions: for every segment code k of g, the minimum-norm least-squares fit of y on an
+    intercept and cols over the frames of the other segments (numpy lstsq, rcond None), applied to the frames of k."""
+    X = np.column_stack([np.ones(len(y))] + list(cols))
+    pred = np.empty(len(y))
+    for k in range(int(g.max()) + 1):
+        te = g == k
+        pred[te] = X[te] @ np.linalg.lstsq(X[~te], y[~te], rcond=None)[0]
+    return pred
+
+
+def oos(a, cells, own, fit_ok, risk, cue, s_cols, hcols, seg_code, seg_list, draws, point_in, t0, draws_sha):
+    """--oos: out-of-sample R2 of every risk-score fit of item 4, leaving one segment out (see the docstring); the
+    variables are built as in main's stats() at the point estimate, and their in-sample R2 is checked against it."""
+    counts = np.stack([np.bincount(np.searchsorted(seg_list, d), minlength=len(seg_list)) for d in draws])
+    res, rows_r, rows_d, failed = {}, [], [], []
+    n_same = n_cmp = folds = 0
+    for mc in cells:
+        sel = fit_ok[mc]
+        y = rank01(risk[mc][sel])
+        u, g = np.unique(seg_code[sel], return_inverse=True)
+        K = [rank01(cue[k][sel]) for k in K_TRUE]
+        S = [c[sel] for c in s_cols]
+        N = {r: [rank01(cue[f'ped_cyc_{r}m'][sel]), rank01(cue[f'vehicle_{r}m'][sel])] for r in RADII}
+        NL = {r: [rank01(cue[f'ped_cyc_{r}m_lidar1'][sel]), rank01(cue[f'vehicle_{r}m_lidar1'][sel])] for r in RADII}
+        H = [c[sel] for c in hcols[mc]]
+        yw, Kw = demean(y, g), [demean(k, g) for k in K]
+        designs = [('', 'K', y, K), ('', 'K+S', y, K + S)]
+        for r in RADII:
+            designs += [('', f'K+S+N{r}', y, K + S + N[r]), ('', f'K+S+N{r}+H', y, K + S + N[r] + H),
+                        ('L', f'K+S+N{r}', y, K + S + NL[r]), ('L', f'K+S+N{r}+H', y, K + S + NL[r] + H)]
+        if mc in own:
+            designs.append(('', 'K_own', y, [rank01(own[mc][k][sel]) for k in K_OWN]))
+        designs.append(('', 'within: K', yw, Kw))
+        for r in RADII:
+            designs += [('', f'within: K+N{r}', yw, Kw + [demean(v, g) for v in N[r]]),
+                        ('L', f'within: K+N{r}', yw, Kw + [demean(v, g) for v in NL[r]])]
+        for pre, fname, yy, cols in designs:
+            r2_in = ols(yy, cols)[2]
+            n_cmp += 1
+            n_same += bool(r2_in == point_in[('r2' + pre, 'risk', *mc, fname)])
+            pred = loso_predict(yy, cols, g)
+            folds += len(u)
+            sse, sst = np.zeros(len(seg_list)), np.zeros(len(seg_list))
+            sse[u] = np.bincount(g, (yy - pred) ** 2)
+            sst[u] = np.bincount(g, (yy - (0.0 if fname.startswith('within') else yy.mean())) ** 2)
+            rb = 1.0 - (counts @ sse) / (counts @ sst)
+            res[(pre, mc, fname)] = (r2_in, 1.0 - sse.sum() / sst.sum(), rb)
+            lo, hi, nv = ci(rb)
+            rows_r.append(dict(version=pre, target='risk', model=mc[0], condition=mc[1], fit=fname,
+                               frames=int(sel.sum()), segments=len(u), r2_in=r2_in, r2_oos=res[(pre, mc, fname)][1],
+                               r2_oos_lo=lo, r2_oos_hi=hi, nboot=nv))
+        comps = [('', 'S added: R2(K+S) - R2(K)', ('', 'K+S'), ('', 'K'))]
+        for pre in ('', 'L'):
+            for r in RADII:
+                comps += [(pre, f'N{r} added: R2(K+S+N{r}) - R2(K+S)', (pre, f'K+S+N{r}'), ('', 'K+S')),
+                          (pre, f'H added: R2(K+S+N{r}+H) - R2(K+S+N{r})', (pre, f'K+S+N{r}+H'), (pre, f'K+S+N{r}')),
+                          (pre, f'N{r} added within segments: R2(within: K+N{r}) - R2(within: K)',
+                           (pre, f'within: K+N{r}'), ('', 'within: K'))]
+        if mc in own:
+            comps.append(('', 'R2(K_own) - R2(K)', ('', 'K_own'), ('', 'K')))
+        for pre, comp, f2, f1 in comps:
+            b2, b1 = res[(f2[0], mc, f2[1])], res[(f1[0], mc, f1[1])]
+            lo, hi, nv = ci(b2[2] - b1[2])
+            ok = not np.isnan(lo)
+            rows_d.append(dict(version=pre, model=mc[0], condition=mc[1], comparison=comp, frames=int(sel.sum()),
+                               diff_in=b2[0] - b1[0], diff_oos=b2[1] - b1[1], diff_oos_lo=lo, diff_oos_hi=hi, nboot=nv,
+                               oos_interval_above_0=bool(ok and lo > 0), oos_interval_below_0=bool(ok and hi < 0)))
+    checks = [f'in-sample R2 of these {n_cmp} designs: {n_same} identical to item 4\'s point estimates (computed here)']
+    if n_same != n_cmp:
+        failed.append('designs')
+    for pre, sfx in (('', ''), ('L', '_lidar1')):
+        pd.DataFrame([{k: v for k, v in r.items() if k != 'version'} for r in rows_r if r['version'] == pre]) \
+            .to_csv(os.path.join(a.out_dir, f'exploratory_oos_r2{sfx}.csv'), index=False)
+        pd.DataFrame([{k: v for k, v in r.items() if k != 'version'} for r in rows_d if r['version'] == pre]) \
+            .to_csv(os.path.join(a.out_dir, f'exploratory_oos_differences{sfx}.csv'), index=False)
+        p = os.path.join(a.out_dir, f'exploratory_rule_r2{sfx}.csv')
+        mine = [(r['model'], r['condition'], r['fit'], r['r2_in']) for r in rows_r if r['version'] == pre]
+        if not os.path.exists(p):
+            checks.append(f'{os.path.basename(p)}: not in this folder, not compared')
+            continue
+        t = pd.read_csv(p, float_precision='round_trip')
+        t = t[t.target == 'risk'].set_index(['model', 'condition', 'fit']).r2
+        same = sum(1 for m, c, f_, v in mine if (m, c, f_) in t.index and t.loc[(m, c, f_)] == v)
+        checks.append(f'{os.path.basename(p)} in this folder: {same} of {len(mine)} in-sample R2 the same as there')
+        if same != len(mine):
+            failed.append(os.path.basename(p))
+    with open(os.path.join(a.out_dir, 'exploratory_oos_params.txt'), 'w', encoding='utf-8') as f:
+        f.write(f'EXPLORATORY (user, 2026-11-04, decided before the rule analysis\'s results were seen): out-of-sample R2 '
+                f'by leaving one segment out; analyze_rules.py --oos run {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+        for k_, v_ in (('risk analysis', a.risk), ('quantities analysis', a.quantities), ('frame_ssm', a.frame_ssm),
+                       ('truth', a.truth), ('scene labels', a.scene_labels), ('nearby counts', a.nearby)):
+            f.write(f'{k_} = {os.path.abspath(v_)}\n')
+        f.write('why: the in-sample R2 can only grow when cues are added, so in every resample "R2 added" is at least 0 '
+                'and its interval never contains 0; the clear column of the S / N_R / H added rows of '
+                'exploratory_rule_differences*.csv tells nothing. A group of cues is useful only when the out-of-sample '
+                '"R2 added" has its whole interval above 0 (oos_interval_above_0); the in-sample R2 only describes\n')
+        f.write(f'cells {len(cells)}; folds: every segment once per fit ({folds} fits on the other segments in all); '
+                'variables as in item 4, ranks once on all the frames\n')
+        f.write('training fit: minimum-norm least squares (numpy lstsq, rcond None: singular values <= s_max * max(n, p) '
+                '* machine epsilon count as zero); coefficients undefined there take their minimum-norm values (0 for a '
+                'column of zeros)\n')
+        f.write('R2 out of sample = 1 - sum of squared prediction errors / sum of squares of the risk-score rank about '
+                'its mean over all frames (may be negative); within segments: every variable minus its segment\'s own '
+                'mean, the denominator the sum of squares of the demeaned rank\n')
+        f.write(f'intervals: the {a.n_boot} resamples (seed {a.seed}, sha256 of the drawn segment indices {draws_sha}); '
+                'per resample the drawn segments\' error and total sums of squares are added (a segment drawn twice '
+                'counts twice) and R2 computed from them, without refitting; 2.5 / 97.5 % percentiles, none when fewer '
+                'than 90 % are defined. These intervals leave out the variability of the refitting itself\n')
+        for c_ in checks:
+            f.write(f'check: {c_}\n')
+        f.write(f'checks not met: {failed if failed else "none"}\n')
+    print(f'out of sample: {len(cells)} cells, {folds} leave-one-segment-out fits, done in {time.time() - t0:.0f} s; '
+          f'checks not met: {failed if failed else "none"}; outputs in {os.path.abspath(a.out_dir)}')
+    for c_ in checks:
+        print('  ' + c_)
+    sys.exit(1 if failed else 0)
+
+
 def main():
     ap = argparse.ArgumentParser()
     for name in ('risk', 'quantities', 'frame_ssm', 'truth', 'scene_labels', 'nearby', 'out_dir'):
@@ -268,9 +406,11 @@ def main():
     ap.add_argument('--n_boot', type=int, default=2000)
     ap.add_argument('--seed', type=int, default=20261021)
     ap.add_argument('--workers', type=int, default=1)
+    ap.add_argument('--oos', action='store_true', help='out-of-sample R2 (leave one segment out) only')
     a = ap.parse_args()
-    if os.path.exists(os.path.join(a.out_dir, 'exploratory_params.txt')):
-        sys.exit(f'{a.out_dir} has exploratory_params.txt already: give a new folder')
+    pfile = 'exploratory_oos_params.txt' if a.oos else 'exploratory_params.txt'
+    if os.path.exists(os.path.join(a.out_dir, pfile)):
+        sys.exit(f'{a.out_dir} has {pfile} already: give a new folder')
     os.makedirs(a.out_dir, exist_ok=True)
     t0 = time.time()
     failed = []
@@ -543,6 +683,11 @@ def main():
                 for stat, v in zip(LENS + ['dev'], lens(y, out['K'][1], e, fe)):
                     res[('lens', *mc, s, stat)] = v
         return res
+
+    if a.oos:
+        oos(a, cells, own, fit_ok, risk, cue, s_cols, hcols, seg_code, seg_list, draws, stats(ids, seg_code, seg_names),
+            t0, h.hexdigest())
+        return
 
     diag = {}
     point = stats(ids, seg_code, seg_names, diag)
