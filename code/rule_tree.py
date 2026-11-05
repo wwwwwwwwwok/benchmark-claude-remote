@@ -66,9 +66,22 @@ cuts: the share of cuts whose > side has the higher mean rank); params.txt. Chec
 first cut and the two below it equal the earlier run's exploratory_tree_stability.csv resample by resample, and the
 shares of the first cut its exploratory_tree_stability_summary.csv.
 
+--boosting OUT --ceiling FILE (EXPLORATORY, added after the trees and the ceiling were seen; user, 2026-11-05): instead
+of the outputs above (none of them is written; out_dir is then the folder of an earlier run of this program, only
+read), a more flexible model on the same cues and dependent variable, to tell whether little is reproduced because of
+the form of the function or because of the cues: sklearn.ensemble.HistGradientBoostingRegressor, in two settings and
+not tuned (BOOST): the default with random_state 0 and early_stopping False; and max_depth 3, learning_rate 0.05,
+max_iter 200, min_samples_leaf 50, the rest as the first. Fitted on A and B for every condition and on C for sep_camera.
+Out-of-sample R2 and interval as the trees above (leave one segment out; the resamples add the segments' sums, nothing
+refitted); the in-sample R2 of the fit on all the frames beside. OUT/exploratory_boosting_oos.csv, and
+exploratory_boosting_vs.csv: per condition and cues side by side the two settings, the depth-3 tree of the earlier run
+(its exploratory_tree_oos.csv), the linear fits (A: K; B: K+S+N10..N50; C: K_own; <rules>/exploratory_oos_r2.csv) and
+the ceiling of score_ceiling.py (FILE, its exploratory_ceiling.csv); exploratory_boosting_params.txt. OpenMP and BLAS
+run single-threaded (unless the environment says otherwise), so the fits do not depend on the machine's thread count.
+
 usage: python -I rule_tree.py <risk analysis subfolder> <quantities analysis subfolder> <frame_ssm.csv> <truth.csv>
        <scene_labels.csv> <nearby_counts.csv> <rule analysis subfolder> <out_dir> [--n_boot 2000] [--seed 20261021]
-       [--resampled_trees OUT]
+       [--resampled_trees OUT | --boosting OUT --ceiling FILE]
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
@@ -82,6 +95,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import scipy  # noqa: E402
 import sklearn  # noqa: E402
+from sklearn.ensemble import HistGradientBoostingRegressor  # noqa: E402
 from sklearn.tree import DecisionTreeRegressor  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -95,6 +109,9 @@ DEPTHS = [1, 2, 3, 4, 5]              # out of sample only, descriptive (3 is th
 LIN_TOL = 1e-12                       # the linear fits rebuilt here against exploratory_oos_r2.csv
 NODE_TOL = 1e-12                      # a node's mean here against scikit-learn's value
 LINEAR = {'A': ['K'], 'B': [f'K+S+N{r}' for r in ar.RADII], 'C': ['K_own']}
+BOOST = {'default': dict(random_state=0, early_stopping=False),                        # --boosting (user, 2026-11-05)
+         'conservative': dict(max_depth=3, learning_rate=0.05, max_iter=200, min_samples_leaf=50, random_state=0,
+                              early_stopping=False)}
 
 
 def grow(X, y, depth=MAX_DEPTH):
@@ -185,6 +202,108 @@ def all_cuts(tree, names):
 
     walk(0, '', 0)
     return out
+
+
+def grow_boost(X, y, setting):
+    return HistGradientBoostingRegressor(**BOOST[setting]).fit(X, y)
+
+
+def loso_boost(X, y, g, setting):
+    """Leave-one-segment-out predictions of the boosting model (BOOST[setting]), as loso_tree."""
+    pred = np.full(len(y), np.nan)
+    for k in range(int(g.max()) + 1):
+        te = g == k
+        pred[te] = grow_boost(X[~te], y[~te], setting).predict(X[te])
+    return pred
+
+
+def boosting(a, conds, X, names, risk, u, g, nseg, counts, failed, checks, t0, draws_sha):
+    """--boosting (EXPLORATORY, added after the trees and the ceiling were seen; user, 2026-11-05): see the docstring."""
+    import threadpoolctl
+    out = a.boosting
+    os.makedirs(out, exist_ok=True)
+    n = len(g)
+    cells = [(c, cs) for c in conds for cs in ('A', 'B')] + [(OWN_CONDITION, 'C')]
+    rows, unpredicted = [], 0
+    for c, cs in cells:
+        y = ar.rank01(risk[c])
+        sst = float(((y - y.mean()) ** 2).sum())
+        for setting in BOOST:
+            full = grow_boost(X[cs], y, setting)
+            pred = loso_boost(X[cs], y, g, setting)
+            unpredicted += int(np.isnan(pred).sum())
+            r2o, lo, hi, nv = r2_oos(y, pred, u, g, nseg, counts)
+            rows.append(dict(model=MODEL, condition=c, cues=cs, setting=setting, frames=n, segments=nseg,
+                             iterations=int(full.n_iter_),
+                             r2_in=1.0 - float(((y - full.predict(X[cs])) ** 2).sum()) / sst, r2_oos=r2o,
+                             r2_oos_lo=lo, r2_oos_hi=hi, nboot=nv))
+            print(f'boosting {c} {cs} {setting}: out of sample {r2o:.3f} [{lo:.3f}, {hi:.3f}] '
+                  f'({time.time() - t0:.0f} s)', flush=True)
+    checks.append(f'frames not predicted in the leave-one-segment-out runs of the boosting models: {unpredicted}')
+    if unpredicted:
+        failed.append('unpredicted frames (boosting)')
+    to = pd.read_csv(os.path.join(a.out_dir, 'exploratory_tree_oos.csv'), float_precision='round_trip')
+    to = to[(to.target == 'risk') & (to.model == MODEL) & (to.max_depth == MAX_DEPTH)]
+    oo = pd.read_csv(os.path.join(a.rules, 'exploratory_oos_r2.csv'), float_precision='round_trip')
+    oo = oo[(oo.target == 'risk') & (oo.model == MODEL)]
+    ce = pd.read_csv(a.ceiling, float_precision='round_trip')
+    ce = ce[ce.model == MODEL].set_index('condition')
+    vs = []
+    for c, cs in cells:
+        for r in rows:
+            if r['condition'] == c and r['cues'] == cs:
+                vs.append(dict(condition=c, cues=cs, measure=f'boosting, {r["setting"]}', value=r['r2_oos'],
+                               lo=r['r2_oos_lo'], hi=r['r2_oos_hi'], source='this run'))
+        t = to[(to.condition == c) & (to.cues == cs)]
+        if len(t) == 1:
+            vs.append(dict(condition=c, cues=cs, measure=f'tree, depth {MAX_DEPTH}', value=t.r2_oos.iloc[0],
+                           lo=t.r2_oos_lo.iloc[0], hi=t.r2_oos_hi.iloc[0], source='exploratory_tree_oos.csv'))
+        else:
+            failed.append(f'{c} {cs}: {len(t)} depth-{MAX_DEPTH} rows in exploratory_tree_oos.csv')
+        for f_ in LINEAR[cs]:
+            t = oo[(oo.condition == c) & (oo.fit == f_)]
+            if len(t) == 1:
+                vs.append(dict(condition=c, cues=cs, measure=f'{f_} (linear)', value=t.r2_oos.iloc[0],
+                               lo=t.r2_oos_lo.iloc[0], hi=t.r2_oos_hi.iloc[0], source='exploratory_oos_r2.csv'))
+            else:
+                failed.append(f'{c} {f_}: {len(t)} rows in exploratory_oos_r2.csv')
+        if c in ce.index:
+            vs.append(dict(condition=c, cues=cs, measure='ceiling 5r/(1+4r)', value=ce.loc[c, 'ceiling'],
+                           lo=ce.loc[c, 'ceiling_lo'], hi=ce.loc[c, 'ceiling_hi'], source=os.path.basename(a.ceiling)))
+        else:
+            failed.append(f'{c}: not in {a.ceiling}')
+    pd.DataFrame(rows).to_csv(os.path.join(out, 'exploratory_boosting_oos.csv'), index=False)
+    pd.DataFrame(vs).to_csv(os.path.join(out, 'exploratory_boosting_vs.csv'), index=False)
+    pools = [dict(user_api=p.get('user_api'), internal_api=p.get('internal_api'), num_threads=p.get('num_threads'))
+             for p in threadpoolctl.threadpool_info()]
+    with open(os.path.join(out, 'exploratory_boosting_params.txt'), 'w', encoding='utf-8') as f:
+        f.write(f'EXPLORATORY, added after the trees and the ceiling were seen (user, 2026-11-05): rule_tree.py --boosting '
+                f'run {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+        for k_, v_ in (('risk analysis', a.risk), ('quantities analysis', a.quantities), ('frame_ssm', a.frame_ssm),
+                       ('truth', a.truth), ('scene labels', a.scene_labels), ('nearby counts', a.nearby),
+                       ('rule analysis (exploratory_oos_r2.csv)', a.rules), ('earlier run of rule_tree.py', a.out_dir),
+                       ('ceiling', a.ceiling)):
+            f.write(f'{k_} = {os.path.abspath(v_)}\n')
+        f.write(f'versions: python {sys.version.split()[0]}, numpy {np.__version__}, pandas {pd.__version__}, scipy '
+                f'{scipy.__version__}, scikit-learn {sklearn.__version__}; thread pools {pools}\n')
+        for s_, kw in BOOST.items():
+            f.write(f'boosting, {s_}: HistGradientBoostingRegressor({kw}); all parameters '
+                    f'{HistGradientBoostingRegressor(**kw).get_params()}\n')
+        for cs in ('A', 'B', 'C'):
+            f.write(f'cues {cs} (own units, not ranked): {names[cs]}\n')
+        f.write(f'out of sample: leave one segment out ({nseg} folds), as analyze_rules.py --oos; R2 = 1 - SSE / SST '
+                f'about the mean over all frames; interval: the {a.n_boot} resamples (seed {a.seed}, sha256 of the '
+                f'drawn segment indices {draws_sha}), per resample the drawn segments\' SSE and SST added, nothing '
+                'refitted; 2.5 / 97.5 % percentiles, none when fewer than 90 % are defined\n')
+        f.write(f'beside: the depth-{MAX_DEPTH} tree of the earlier run, the linear fits {LINEAR}, the ceiling\n')
+        for c_ in checks:
+            f.write(f'check: {c_}\n')
+        f.write(f'checks not met: {failed if failed else "none"}\n')
+    print(f'done in {time.time() - t0:.0f} s; checks not met: {failed if failed else "none"}; outputs in '
+          f'{os.path.abspath(out)}')
+    for c_ in checks:
+        print('  ' + c_)
+    sys.exit(1 if failed else 0)
 
 
 def resampled_trees(a, conds, X, names, risk, draws, seg_frames, failed, checks, t0, draws_sha):
@@ -313,8 +432,22 @@ def main():
     ap.add_argument('--resampled_trees', metavar='OUT', default=None,
                     help='EXPLORATORY (added after the trees were seen): every cut of the A, B, C trees regrown on the '
                          'resamples, into OUT; out_dir is then an earlier run of this program, only read')
+    ap.add_argument('--boosting', metavar='OUT', default=None,
+                    help='EXPLORATORY (added after the trees and the ceiling were seen): HistGradientBoostingRegressor '
+                         'on the A, B, C cues, out of sample, into OUT; out_dir is then an earlier run, only read')
+    ap.add_argument('--ceiling', metavar='FILE', default=None,
+                    help='with --boosting: exploratory_ceiling.csv of score_ceiling.py, for the side-by-side table')
     a = ap.parse_args()
-    if a.resampled_trees:
+    if a.resampled_trees and a.boosting:
+        sys.exit('--resampled_trees and --boosting: one at a time')
+    if a.boosting:
+        if not (a.ceiling and os.path.exists(a.ceiling)):
+            sys.exit('--boosting needs --ceiling <exploratory_ceiling.csv of score_ceiling.py>')
+        if not os.path.exists(os.path.join(a.out_dir, 'exploratory_tree_oos.csv')):
+            sys.exit(f'--boosting: {a.out_dir} (an earlier run of this program) has no exploratory_tree_oos.csv')
+        if os.path.exists(os.path.join(a.boosting, 'exploratory_boosting_params.txt')):
+            sys.exit(f'{a.boosting} has exploratory_boosting_params.txt already: give a new folder')
+    elif a.resampled_trees:
         for f_ in ('exploratory_tree_stability.csv', 'exploratory_tree_stability_summary.csv'):
             if not os.path.exists(os.path.join(a.out_dir, f_)):
                 sys.exit(f'--resampled_trees: {a.out_dir} (an earlier run of this program) has no {f_}')
@@ -469,6 +602,9 @@ def main():
     print(f'linear check done ({time.time() - t0:.0f} s): {lin_n - len(lin_bad)} of {lin_n} the same', flush=True)
     if a.resampled_trees:                 # EXPLORATORY, added after the trees were seen (user, 2026-11-04)
         resampled_trees(a, conds, X, names, risk, draws, seg_frames, failed, checks, t0, h.hexdigest())
+        return
+    if a.boosting:                        # EXPLORATORY, added after the trees and the ceiling were seen (2026-11-05)
+        boosting(a, conds, X, names, risk, u, g, nseg, counts, failed, checks, t0, h.hexdigest())
         return
 
     # --- trees on all the frames, out of sample (risk: depths 1-5; SSMs: depth 3)
