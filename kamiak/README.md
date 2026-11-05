@@ -381,6 +381,7 @@ squeue -u $USER                 # 看任务状态；日志在 logs/
    最后一行应该打印 `3.13.x 2.3.5 2.3.3 22.0.0 7.34.1 1.16.3 3.10.7 12.0.0`。
    - 2026-10-21 装好了（作业 31350056，cn170）：打印的是 `3.13.16 2.3.5 2.3.3 22.0.0 7.34.1 1.16.3 3.10.7 12.0.0`。装完占 812 MB。
    - pip 自动装的依赖：contourpy 1.4.0、cycler 0.12.1、fonttools 4.67.0、kiwisolver 1.5.1、packaging 26.3、pyparsing 3.3.3、python-dateutil 3.0.0、pytz 2026.5、six 1.17.0、tzdata 2026.5。
+   - 2026-11-04 用户让 Claude 加 scikit-learn（Qwen3.6-27B 的决策树 `code/rule_tree.py` 要用）：`srun --partition=kamiak --account=cejli --cpus-per-task=2 --mem=8G --time=00:30:00 bash kamiak/checks/add_sklearn_waymo.sh <日志文件夹>`（作业 31562082，cn185，12 秒）。装的是 scikit-learn 1.9.1，pip 自动带进 joblib 1.6.0、threadpoolctl 3.7.0、narwhals 2.28.0、cloudpickle 3.1.2。原有的 20 个包先用 pip freeze 写成约束文件钉住，装前装后的 pip freeze 比过，一个没变（日志在 `/data/lab/cejli/sy/tmp_checks/env_sklearn/`）。
 
 ### 运行（在仓库根目录 `~/benchmark-claude-remote` 下）
 ```bash
