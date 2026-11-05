@@ -94,7 +94,7 @@ def design(truth, frames, distance_ref, decimals):
 
 def description(r, distance_ref):
     s = (f'Your car is going at {r.x_text} {UNIT_SPEED_FULL}. Directly ahead of you in your lane there is a vehicle '
-         f'going in the same direction at {r.z_text} meters per second. ')
+         f'facing the same direction as you. Its speed is {r.z_text} meters per second. ')        # user, 2026-11-05
     if distance_ref == 'camera':
         s += f'Measured along the lane, it is {r.y_text} meters from your front camera to the back of that vehicle.'
     else:
@@ -108,9 +108,18 @@ def messages_of(r, a):
     fmt_ = FORMAT if a.camera_field == 'keep' else FORMAT.replace(CAMERA_LINE, '')
     if a.camera_field == 'drop' and fmt_ == FORMAT:
         sys.exit('FORMAT: the main_hazard_camera line was not found')
-    user = [{'type': 'text', 'text': INTRO}, {'type': 'text', 'text': description(r, a.distance_ref)},
-            {'type': 'text', 'text': QUESTION + fmt_}]
+    # one text part (user, 2026-11-05): the model's chat template writes the parts of a content list one after the
+    # other with nothing between them, so the opening line, the description and the question are joined by newlines
+    user = [{'type': 'text', 'text': INTRO + '\n' + description(r, a.distance_ref) + '\n' + QUESTION + fmt_}]
     return [{'role': 'system', 'content': SYSTEMS[a.system]}, {'role': 'user', 'content': user}]
+
+
+def three_parts(r, a):
+    """The draft of 2026-11-05 (three text parts), kept only to show how the template renders it."""
+    fmt_ = FORMAT if a.camera_field == 'keep' else FORMAT.replace(CAMERA_LINE, '')
+    return [{'role': 'system', 'content': SYSTEMS[a.system]},
+            {'role': 'user', 'content': [{'type': 'text', 'text': INTRO}, {'type': 'text', 'text': description(r, a.distance_ref)},
+                                         {'type': 'text', 'text': QUESTION + fmt_}]}]
 
 
 def first_line(path):
@@ -128,10 +137,11 @@ def main():
     ap.add_argument('--truth', required=True)
     ap.add_argument('--frames', required=True, help='ssm_target_frames.csv of the main result (1,084 frames)')
     ap.add_argument('--out', required=True)
-    ap.add_argument('--system', choices=sorted(SYSTEMS), default='S1', help='undecided (user)')
-    ap.add_argument('--camera_field', choices=['keep', 'drop'], default='keep', help='undecided (user)')
-    ap.add_argument('--distance_ref', choices=['camera', 'bumper'], default='camera', help='undecided (user)')
-    ap.add_argument('--decimals', type=int, default=1, help='undecided (user)')
+    ap.add_argument('--system', choices=sorted(SYSTEMS), default='S1', help='user, 2026-11-05: S1')
+    ap.add_argument('--camera_field', choices=['keep', 'drop'], default='keep', help='user, 2026-11-05: keep')
+    ap.add_argument('--distance_ref', choices=['camera', 'bumper'], default='bumper',
+                    help='user, 2026-11-05: bumper (the gap\'s quantiles; the SSMs with offset 0)')
+    ap.add_argument('--decimals', type=int, default=1, help='user, 2026-11-05: 1 decimal; the analysis uses the numbers as written')
     ap.add_argument('--repeats', type=int, default=5)
     ap.add_argument('--show', type=int, default=3)
     ap.add_argument('--check_run', default=None, help='the 27B risk run\'s replies, to check the settings against')
