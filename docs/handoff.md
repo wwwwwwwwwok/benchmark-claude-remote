@@ -1430,6 +1430,36 @@
         - "车慢、车多、下雨就高分"的：车多 +0.258、下雨 +0.250（区间在 0 以上），自车速度 −0.667，和 TTC 的 τ-b −0.265；下雨 / 晴的平均分 58.9 / 38.9，车多 / 少 59.0 / 38.8。
       - 用时估计：约 5.7 小时，另加起服务和补答。
   - 11-05 一条命令开头误留了 `python3 -`，在登录节点上起了一个空的 python（没读进代码，约 2 分钟后停掉，没有残留进程），已告诉用户。
+  - **11-05 用户定的三件**（探索性；原话在 CLAUDE.md"梯度提升""第 2 步…用户 11-05 定""补线索"）：
+    - 一、梯度提升，只跑保守设定（作业 31580423，11-05 12:14–12:20；`rule_tree.py` 加了 `--boost_settings`，22e65e4）：
+      - 先在假数据上重跑保守设定，11 行和 31573542 的保守那几行一样；不加选项时的输出，假数据、真实数据都逐字节一样。
+      - 真实数据：输出 `analysis/rule_explore/tree_27b/boosting/<sub>/`，程序自己的核对都过；摘要 `tmp_checks/rule_explore/tree_27b/report_boost_real.out`。主结果，样本外 R²（保守梯度提升 / 3 层树 / 线性；满分 0.857–0.933）：
+        - A：grid 0.106 / 0.132 / 0.141，sep_time 0.069 / 0.107 / 0.079，sep_camera 0.104 / 0.101 / 0.064，ctrl_grid 0.135 / 0.182 / 0.199，ctrl_sep 0.097 / 0.135 / 0.124。
+        - B（线性取 K+S+N_R 4 种距离里最高的）：grid 0.272 / 0.229 / 0.223，sep_time 0.256 / 0.132 / 0.179，sep_camera 0.226 / 0.152 / 0.124，ctrl_grid 0.351 / 0.263 / 0.344，ctrl_sep 0.305 / 0.215 / 0.267。
+        - C：0.137 / 0.066 / 0.095。
+        - 样本内 0.345–0.689。敏感性最多差 0.013。
+      - 默认设定没在真实数据上跑。它在假数据上的结果（31573542）说明一千来帧时默认设定会过拟合：造规则的格样本内 0.887–0.925，样本外只有 0.396–0.484，比 3 层树低 0.03–0.13；纯噪声的格样本外 −0.19 到 −0.14。
+    - 二、第 2 步，做到交 GPU 作业之前：
+      - 渲染（`tmp_checks/text_vlm/render/render_template.py`，vllm_cu129 环境的 transformers 5.19.0，srun，只用 CPU；输出 `render_template.out`）：Qwen3.6-27B 的 chat template 把 content 里的各段直接首尾相接（`render_content` 逐项输出 item.text），vLLM 0.32 对它认的是 openai 格式（用 vLLM 自己的 `_detect_content_format` 核过）。所以三段的写法会变成 "right now.Your car is…"、"road is wet.How risky…"；改成一段、用换行接（d 46d4f77）。原来的 ctrl_sep 问法也是这样接的："taken now.Front-left camera:<|vision_start|><|image_pad|><|vision_end|>Front camera:…<|vision_end|>How risky…"：文字和图之间什么都没有。
+      - 改成定下的问法后重新空跑（`dry_run2.out`）：档位 X 2.0、4.5、6.3、8.1、13.7，Z 0.0、0.6、2.2、5.1、11.6，Y 9.2、18.1、26.6、35.2、52.6；625 个组合、3,125 条，175 个追不上；采样和 27B 风险那次第一行逐项一样。
+      - 两个假模型重测（`fake2/`，offset 0）：照样分开，数和 `fake/` 那次几乎一样（照 TTC 的 τ-b +0.797；车多、下雨的系数 −0.006、−0.006；另一个 +0.258、+0.250）。
+      - `kamiak/text_vlm.sbatch` 写好了：照 `qwen_vlm.sbatch` 里 qwen3.6-27b 那一段（服务参数逐项对过），先发请求，再起没有 --reasoning-parser 的服务补答；`bash -n` 查过。**没交**。31542229 用了 2 块 GPU（`squeue` 显示 gpu:2，sn18）。
+    - 三、补线索：`code/new_cues.py`（46d4f77），只算了量，还没拟合。
+      - 用到的现成函数：
+        - 自车车道：`wod_common.LaneMap(seg.map).match_sequence(seg.ego_map[:, :2], seg.yaw)`，和 `waymo_ssm_frames.process` 同一个调用。
+        - 限速：`map.parquet` 的 speed_limit_mph × 0.44704。
+        - 往前走：用 `LaneMap.lanes` 的中心线和 exits，新写的 `forward_paths`。
+        - 距离：人行横道用 matplotlib `Path`（起点在里面算 0）加线段求交；停车标志用 `wod_common.project` 投到它管的车道上；车道交叉用线段求交，离对方车道两端 1.0 m 以内的不算。
+        - 物体：`Segment.objects_at(k, 5 个相机)`，排除这一帧的前车（同 `count_nearby.py`）；速度是标注的 speed_x/y（全局坐标）转到本车坐标。
+        - 航向：`Segment.yaw` 取最接近 2.0 s 以前的那帧，`wod_common.wrap`。
+      - 我自己定的几处（要跟用户说清楚）：
+        - 交叉离端点 1.0 m 以内的不算；
+        - 停车标志只认它管的车道（908 个里 8 个没写车道，这 8 个找不到）；
+        - 横穿、对向、路上这几样计数也只数相机视野里的（同 `count_nearby.py`），排除前车；
+        - 2.0 s 以前的那帧要在 0.15 s 以内。
+      - 测试：造的几何 12 项全对（`tmp_checks/new_cues/test_new_cues.py`）。
+      - 真实数据（作业 31580661，59 秒）：自车车道和 frame_ssm 的 ego_lane 1,123 / 1,123 一样；在动 + 停着 = 现有车数 4,492 / 4,492；没有缺速度的物体。
+      - 分布在 `tmp_checks/new_cues/report_new_cues.out`；输出 `analysis/rule_explore/new_cues/new_cues.csv`。
   - 用户删的：`tmp_checks/rule_explore/fake/` 下的测试输出（第一轮的 `data/`、`risk/`、`quant/`、`rules1/`、`rules4/`、`stop_*`，停掉的第二轮 `run2/`，第三轮 `run3/`，第四轮 `run4/`），`fake_nearby/` 下的 `data/`、`nearby_counts.csv`、`data2/`、`out2/`；`tmp_checks/risk_weather/fake/`（天气分组的假数据测试，`run3/` 删之前先删它，它里面 `old/` 是指向 `run3/risk/` 的链接）。
 - **风险分析加"同一种天气"分组**（用户 2026-11-03 定；原话在 CLAUDE.md"比较分组"那条）：**跑完了**（作业 31554291，cn176，11-04 02:00:30–05:18:07，3 小时 17 分 37 秒，FAIL=0；结果在这一节最后一条）。
   - 事前核对（srun 31553366，`tmp_checks/risk_weather/precheck.py`，输出 `precheck.out`）：241 段每段都有天气（dry 198、rain 36、wet 7）；这 241 段在 `labels/scene_labels.csv` 里的 time_of_day、location、weather_waymo 和 `scene_labels_waymo.csv` 一字不差（time_of_day Day 200、Dawn/Dusk 21、Night 20）。
