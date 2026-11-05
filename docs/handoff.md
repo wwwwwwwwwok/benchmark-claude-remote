@@ -1423,6 +1423,13 @@
         | 减速带 | 91 | 256 |
 
       - 主结果 238 段的比例差不多。只查，没往下算。
+    - 五、第 2 步（只给文字和数字）：**只起草，没发送，没用 GPU**。问法、档位、分析计划在 CLAUDE.md"第 2 步…起草中，我还没定"。
+      - `code/run_text_vlm.py`：空跑过（srun；`tmp_checks/text_vlm/dry_run.out`）。625 个组合 × 5 次 = 3,125 条，500 个说场景、125 个不说，175 个追不上。采样和 27B 风险那次的第一行逐项一样：温度 1.0、top_p 0.95、top_k 20、max_tokens 24,576、模型名 qwen3.6-27b、没发 presence_penalty。补答照 `force_answer.py` 的做法，直接用它的 EARLY_STOPPING_TEXT。
+      - `code/analyze_text_vlm.py`：两个假模型都在 625 个组合 × 5 次上测过（`tmp_checks/text_vlm/fake/`，srun）。
+        - 照 TTC 打分的：和 TTC 的 τ-b +0.798 [+0.757, +0.833]；车多、下雨的系数 −0.006、−0.007，区间含 0；8 条截断里 6 条用补答，缺 2 条，数对了。
+        - "车慢、车多、下雨就高分"的：车多 +0.258、下雨 +0.250（区间在 0 以上），自车速度 −0.667，和 TTC 的 τ-b −0.265；下雨 / 晴的平均分 58.9 / 38.9，车多 / 少 59.0 / 38.8。
+      - 用时估计：约 5.7 小时，另加起服务和补答。
+  - 11-05 一条命令开头误留了 `python3 -`，在登录节点上起了一个空的 python（没读进代码，约 2 分钟后停掉，没有残留进程），已告诉用户。
   - 用户删的：`tmp_checks/rule_explore/fake/` 下的测试输出（第一轮的 `data/`、`risk/`、`quant/`、`rules1/`、`rules4/`、`stop_*`，停掉的第二轮 `run2/`，第三轮 `run3/`，第四轮 `run4/`），`fake_nearby/` 下的 `data/`、`nearby_counts.csv`、`data2/`、`out2/`；`tmp_checks/risk_weather/fake/`（天气分组的假数据测试，`run3/` 删之前先删它，它里面 `old/` 是指向 `run3/risk/` 的链接）。
 - **风险分析加"同一种天气"分组**（用户 2026-11-03 定；原话在 CLAUDE.md"比较分组"那条）：**跑完了**（作业 31554291，cn176，11-04 02:00:30–05:18:07，3 小时 17 分 37 秒，FAIL=0；结果在这一节最后一条）。
   - 事前核对（srun 31553366，`tmp_checks/risk_weather/precheck.py`，输出 `precheck.out`）：241 段每段都有天气（dry 198、rain 36、wet 7）；这 241 段在 `labels/scene_labels.csv` 里的 time_of_day、location、weather_waymo 和 `scene_labels_waymo.csv` 一字不差（time_of_day Day 200、Dawn/Dusk 21、Night 20）。

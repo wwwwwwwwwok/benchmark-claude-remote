@@ -651,7 +651,29 @@
     - 一（`rule_tree.py --boosting`）假数据测试没全过：默认设定在造规则的格上比 3 层树低 0.03–0.13，保守设定只差 0.025 以内。停了，没在真实数据上跑，等我定。
     - 二（`code/score_agreement.py`）、三（`code/reason_words.py`）测试过了，在真实数据上跑了（31573596）。
     - 四：地图已经读过，241 段的各类计数从现有的 `map.parquet` 数了。
-    - 五在起草。
+    - 五在起草（下面"第 2 步的分析计划"）。
+  - 第 2 步（只给文字和数字）的问法和分析计划：**起草中，我还没定**（Claude 11-05 起草；程序 `code/run_text_vlm.py`、`code/analyze_text_vlm.py`，只空跑、只在假回答上测过，没发送）：
+    - 问法：`run_vlm.py` 的风险问题，图换成一段描述。还没定的几处是 `run_text_vlm.py` 的选项，默认值是 Claude 的建议：
+      - system：S1 "You are an experienced driver. You are driving the car described below." / S2 "... the car in the situation described below." / S3 只留 "You are an experienced driver."；
+      - main_hazard_camera 留（keep）还是去掉（drop）；
+      - 距离：从前摄像头量（camera，同 quantities 的问法，档位取真值 distance 的分位数，算 SSM 时 gap = Y − 2.531 m）还是从车头量（bumper，档位取 gap 的分位数）；
+      - 数字写几位小数（默认 1 位：Z 的第一档写成 0.0 m/s）。
+    - 档位（主结果 1,084 帧的 10/30/50/70/90% 分位数，原值）：X 2.039、4.534、6.268、8.131、13.658 m/s；Z 0.006、0.606、2.198、5.093、11.623 m/s；Y（从前摄像头）11.731、20.670、29.140、37.747、55.141 m（从车头量是 9.203、18.144、26.612、35.220、52.612 m）。按 1 位小数写，Z ≥ X 的有 7 对，乘上 5 档 Y、5 种场景是 175 个组合。
+    - 分析（`analyze_text_vlm.py`）：
+      - 每个因素各档的平均分：说了场景的 500 个组合上算；X、Z、Y 另在不说场景的 125 个上算；区间是每个组合的 5 次回答有放回重抽 2,000 次。
+      - 满分：照 `score_ceiling.py`，在 500 个组合上算，区间按组合重抽。
+      - 名次回归（照规则分析，`analyze_rules.ols`）：分数名次 ~ X、Z、Y 的名次 + 车多（0/1）+ 下雨（0/1）；另一版用接近速度 X − Z 代替 Z。只用 500 个组合；样本内 R²（区间按组合重抽），旁边放按组合分 10 份交叉验证的 R²。
+      - 不说场景的 125 个：每个和它 4 种场景的平均比，再用 X、Z、Y 拟合，和 500 个的系数并排。
+      - SSM：用设计的数算 TTC、THW、DRAC、PSD、PICUD（`waymo_ssm_frames.lead_ssms`，项目里的参数，加速度取 0），追不上的放在"最安全"那头，和组合的平均分算 τ-b（500 个、125 个各算）。
+      - 树：同样设定（3 层、每片叶子至少 50 个组合），按组合分 10 份交叉验证的 R²。
+      - 和图像上的结果并排：
+        - 车速：K 里真自车速度的系数；
+        - 车多：风险分和 20 m 内车、行人加骑车个数的 τ-b；
+        - 下雨：K+S+N20 里 weather=rain 的系数。
+      - Claude 加的，还没经我同意：组合重抽、回归的 10 份交叉验证、125 个的比法。
+    - 假回答测试：两个假模型都分开了（`tmp_checks/text_vlm/fake/`）。
+    - 用时：按 27B 风险那次每条约 6.6 秒（28,075 条，51 小时）推，3,125 条约 5.7 小时，另加起服务和补答。
+    - 我看过再定跑不跑；要跑也等 grid 和后面排好的作业跑完、GPU 空出来。
 - 风险分析加"同一种天气"分组（上面"比较分组"里 11-03 那条）：事前核对过了（241 段都有天气，time_of_day 和 `scene_labels_waymo.csv` 一字不差）；包装脚本 `kamiak/main_run/analyze_weather.sh`、比较脚本 `kamiak/checks/compare_weather_grouping.py` 在假数据上测过（31553371）。11-04 01:26 交了 31554291（afterany:31554290，只用 CPU）。`summarize.py` 照我 11-04 定的改了两处，改前改后在 `after_qwen3.5-4b` 上 4 种用法逐字一样（srun 31554297）；天气那份跑完再用 srun 对它跑 summarize。
   - 11-04 05:18 跑完（31554291，3 小时 17 分，FAIL=0），和 `after_qwen3.5-4b` 的比较全过；srun 31558371 跑了 summarize（`after_qwen3.5-4b_weather/summary_main_vs_sensitivity.txt`、`summary_sensitivity.txt`，原来的每一行都在，只多了天气那几节）。结果在 `docs/handoff.md`"风险分析加'同一种天气'分组"那节最后一条，已报给我。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。
