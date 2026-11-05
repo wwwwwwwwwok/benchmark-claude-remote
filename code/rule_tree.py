@@ -53,8 +53,22 @@ and resamples (so the frames, the dependent variable, the cues and the resamples
 every node's frames and mean are scikit-learn's (n_node_samples, value); every frame is predicted once in each
 leave-one-segment-out run.
 
+--resampled_trees OUT (EXPLORATORY, added after the trees were seen; user, 2026-11-04): instead of the outputs above
+(none of them is written; out_dir is then the folder of an earlier run of this program, only read), the A and B trees
+of every condition and the C tree of sep_camera regrown on each of the resamples (the drawn frames, a segment drawn
+twice counted twice, the ranks taken anew among them), every cut recorded. OUT/exploratory_resampled_trees_*.csv:
+cuts (every cut of every tree: its position, 'first' and then one letter per step down, L the <= side and R the > side;
+cue, threshold, frames, the mean rank on either side), first (the share of resamples whose first cut is on each cue),
+second (the same for the cut below the first on either side, the three most frequent ranked; 'leaf' when that side is
+not cut), any (the share of resamples with a cut on the cue anywhere in the tree; for B also: any vehicle count, any
+pedestrian + cyclist count, rain, time of day, location), direction (per cue and group, over every cut and over the first
+cuts: the share of cuts whose > side has the higher mean rank); params.txt. Checks besides those above: the A trees'
+first cut and the two below it equal the earlier run's exploratory_tree_stability.csv resample by resample, and the
+shares of the first cut its exploratory_tree_stability_summary.csv.
+
 usage: python -I rule_tree.py <risk analysis subfolder> <quantities analysis subfolder> <frame_ssm.csv> <truth.csv>
        <scene_labels.csv> <nearby_counts.csv> <rule analysis subfolder> <out_dir> [--n_boot 2000] [--seed 20261021]
+       [--resampled_trees OUT]
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
@@ -154,14 +168,159 @@ def first_cuts(tree, names):
     return split(0), split(t.children_left[0]), split(t.children_right[0])
 
 
+def all_cuts(tree, names):
+    """Every cut of a fitted tree, top down: (position, depth, cue, threshold, frames, mean rank on the <= side, mean rank
+    on the > side); position 'first' for the first cut, then one letter per step down (L the <= side, R the > side)."""
+    t = tree.tree_
+    out = []
+
+    def walk(j, pos, depth):
+        le, gt = t.children_left[j], t.children_right[j]
+        if le == -1:
+            return
+        out.append((pos or 'first', depth, names[t.feature[j]], float(t.threshold[j]), int(t.n_node_samples[j]),
+                    float(t.value[le].ravel()[0]), float(t.value[gt].ravel()[0])))
+        walk(le, pos + 'L', depth + 1)
+        walk(gt, pos + 'R', depth + 1)
+
+    walk(0, '', 0)
+    return out
+
+
+def resampled_trees(a, conds, X, names, risk, draws, seg_frames, failed, checks, t0, draws_sha):
+    """--resampled_trees (EXPLORATORY, added after the trees were seen; user, 2026-11-04): see the docstring."""
+    out = a.resampled_trees
+    os.makedirs(out, exist_ok=True)
+    groups = {'any vehicle count': [k for k in names['B'] if k.startswith('vehicle_')],
+              'any pedestrian + cyclist count': [k for k in names['B'] if k.startswith('ped_cyc_')],
+              'rain': [k for k in names['B'] if k == 'weather=rain'],
+              'time of day': [k for k in names['B'] if k.startswith('time_of_day=')],
+              'location': [k for k in names['B'] if k.startswith('location=')]}
+    n_b = len(draws)
+    rows, first_a = [], []
+    for c, cs in [(c, cs) for c in conds for cs in ('A', 'B')] + [(OWN_CONDITION, 'C')]:
+        for b, draw in enumerate(draws):
+            idx = np.concatenate([seg_frames[s] for s in draw])
+            tree = grow(X[cs][idx], ar.rank01(risk[c][idx]))
+            for pos, depth, cue_, thr, fr, m_le, m_gt in all_cuts(tree, names[cs]):
+                rows.append(dict(condition=c, cues=cs, resample=b, frames=len(idx), position=pos, depth=depth, cue=cue_,
+                                 threshold=thr, node_frames=fr, mean_rank_le=m_le, mean_rank_gt=m_gt,
+                                 gt_higher=bool(m_gt > m_le)))
+            if cs == 'A':
+                (f_, t_), (lf, lt), (rf, rt) = first_cuts(tree, names['A'])
+                first_a.append(dict(condition=c, resample=b, frames=len(idx), first_cue=f_, first_cut=t_, left_cue=lf,
+                                    left_cut=lt, right_cue=rf, right_cut=rt))
+        print(f'resampled trees {c} {cs} done ({time.time() - t0:.0f} s)', flush=True)
+    cuts = pd.DataFrame(rows)
+
+    def at(c, cs, pos):
+        """The cue of the cut at pos in every resample: 'leaf' when that node is not cut, 'none' below a leaf."""
+        q = cuts[(cuts.condition == c) & (cuts.cues == cs)]
+        have = q[q.position == pos].set_index('resample').cue
+        parent = pos[:-1] if len(pos) > 1 else 'first'
+        up = set(q[q.position == parent]['resample']) if pos != 'first' else set(range(n_b))
+        return pd.Series([have.get(b, 'leaf' if b in up else 'none') for b in range(n_b)])
+
+    first, second, anyc, direc = [], [], [], []
+    for c, cs in [(c, cs) for c in conds for cs in ('A', 'B')] + [(OWN_CONDITION, 'C')]:
+        q = cuts[(cuts.condition == c) & (cuts.cues == cs)]
+        f = at(c, cs, 'first').value_counts()
+        for k in sorted(f.index, key=lambda k: (-f[k], k)):
+            first.append(dict(condition=c, cues=cs, first_cue=k, resamples=int(f[k]), share=f[k] / n_b))
+        for side, pos in (('<= side (L)', 'L'), ('> side (R)', 'R')):
+            s = at(c, cs, pos).value_counts()
+            for rank, k in enumerate(sorted(s.index, key=lambda k: (-s[k], k)), 1):
+                second.append(dict(condition=c, cues=cs, side=side, cue=k, resamples=int(s[k]), share=s[k] / n_b,
+                                   rank=rank, top3=rank <= 3))
+        members = [(k, [k]) for k in names[cs]] + (list(groups.items()) if cs == 'B' else [])
+        for k, ks in members:
+            hit = q[q.cue.isin(ks)]
+            anyc.append(dict(condition=c, cues=cs, cue_or_group=k, group=len(ks) > 1 or k in groups,
+                             resamples_with_a_cut=int(hit['resample'].nunique()), share=hit['resample'].nunique() / n_b))
+            for scope, h in (('every cut', hit), ('first cut', hit[hit.position == 'first'])):
+                direc.append(dict(condition=c, cues=cs, cue_or_group=k, group=len(ks) > 1 or k in groups, scope=scope,
+                                  cuts=len(h), gt_side_higher=int(h.gt_higher.sum()),
+                                  share_gt_side_higher=float(h.gt_higher.mean()) if len(h) else np.nan))
+
+    # --- checks against the earlier run (out_dir): the A trees' first cut and the two below it, the first-cut shares
+    old = pd.read_csv(os.path.join(a.out_dir, 'exploratory_tree_stability.csv'), float_precision='round_trip',
+                      keep_default_na=False, na_values=[''])
+    new = pd.DataFrame(first_a)
+    bad = 0
+    if len(old) != len(new) or list(old.columns) != list(new.columns):
+        bad = max(len(old), len(new))
+    else:
+        for col in new.columns:
+            x, y = old[col].to_numpy(), new[col].to_numpy()
+            if new[col].dtype.kind == 'f':
+                bad += int(sum(1 for u_, v_ in zip(x, y) if not (u_ == v_ or (np.isnan(u_) and np.isnan(v_)))))
+            else:
+                bad += int(sum(1 for u_, v_ in zip(x, y) if str(u_) != str(v_)))
+    checks.append(f'A trees: first cut and the two below it, resample by resample, against '
+                  f'{os.path.join(a.out_dir, "exploratory_tree_stability.csv")} ({len(new)} rows): {bad} values differ')
+    if bad:
+        failed.append('A trees against exploratory_tree_stability.csv')
+    sm = pd.read_csv(os.path.join(a.out_dir, 'exploratory_tree_stability_summary.csv'), float_precision='round_trip')
+    fa = pd.DataFrame(first)
+    fa = fa[fa.cues == 'A']
+    j = sm[['condition', 'first_cue', 'resamples', 'share']].merge(
+        fa[['condition', 'first_cue', 'resamples', 'share']], on=['condition', 'first_cue'], how='outer',
+        suffixes=('_old', '_new'), indicator=True)
+    bad_s = int((j['_merge'] != 'both').sum() + (j.resamples_old != j.resamples_new).sum()
+                + (j.share_old != j.share_new).sum())
+    checks.append(f'A trees: shares of the first cut against exploratory_tree_stability_summary.csv ({len(j)} rows): '
+                  f'{bad_s} differ')
+    if bad_s:
+        failed.append('A first-cut shares against exploratory_tree_stability_summary.csv')
+
+    cuts.to_csv(os.path.join(out, 'exploratory_resampled_trees_cuts.csv'), index=False)
+    for name, rows_ in (('first', first), ('second', second), ('any', anyc), ('direction', direc)):
+        pd.DataFrame(rows_).to_csv(os.path.join(out, f'exploratory_resampled_trees_{name}.csv'), index=False)
+    with open(os.path.join(out, 'exploratory_resampled_trees_params.txt'), 'w', encoding='utf-8') as f:
+        f.write(f'EXPLORATORY, added after the trees were seen (user, 2026-11-04): rule_tree.py --resampled_trees run '
+                f'{time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+        for k_, v_ in (('risk analysis', a.risk), ('quantities analysis', a.quantities), ('frame_ssm', a.frame_ssm),
+                       ('truth', a.truth), ('scene labels', a.scene_labels), ('nearby counts', a.nearby),
+                       ('rule analysis (exploratory_oos_r2.csv)', a.rules), ('earlier run of rule_tree.py', a.out_dir)):
+            f.write(f'{k_} = {os.path.abspath(v_)}\n')
+        f.write(f'versions: python {sys.version.split()[0]}, numpy {np.__version__}, pandas {pd.__version__}, scipy '
+                f'{scipy.__version__}, scikit-learn {sklearn.__version__}\n')
+        f.write(f'trees regrown on each of the {n_b} resamples (seed {a.seed}, sha256 of the drawn segment indices '
+                f'{draws_sha}; the drawn frames, a segment drawn twice counted twice, the ranks taken anew among them): '
+                f'A and B for {conds}, C for {OWN_CONDITION}; DecisionTreeRegressor(max_depth={MAX_DEPTH}, '
+                f'min_samples_leaf={MIN_LEAF}, random_state={TREE_SEED}), the rest default\n')
+        for cs in ('A', 'B', 'C'):
+            f.write(f'cues {cs} (own units, not ranked): {names[cs]}\n')
+        f.write(f'groups of B cues: {groups}\n')
+        f.write('position of a cut: first, then one letter per step down (L the <= side, R the > side); "leaf" when a '
+                'node is not cut, "none" below a leaf; direction: the > side has the higher mean rank (gt_higher)\n')
+        for c_ in checks:
+            f.write(f'check: {c_}\n')
+        f.write(f'checks not met: {failed if failed else "none"}\n')
+    print(f'done in {time.time() - t0:.0f} s; checks not met: {failed if failed else "none"}; outputs in '
+          f'{os.path.abspath(out)}')
+    for c_ in checks:
+        print('  ' + c_)
+    sys.exit(1 if failed else 0)
+
+
 def main():
     ap = argparse.ArgumentParser()
     for name in ('risk', 'quantities', 'frame_ssm', 'truth', 'scene_labels', 'nearby', 'rules', 'out_dir'):
         ap.add_argument(name)
     ap.add_argument('--n_boot', type=int, default=2000)
     ap.add_argument('--seed', type=int, default=20261021)
+    ap.add_argument('--resampled_trees', metavar='OUT', default=None,
+                    help='EXPLORATORY (added after the trees were seen): every cut of the A, B, C trees regrown on the '
+                         'resamples, into OUT; out_dir is then an earlier run of this program, only read')
     a = ap.parse_args()
-    if os.path.exists(os.path.join(a.out_dir, 'exploratory_tree_params.txt')):
+    if a.resampled_trees:
+        for f_ in ('exploratory_tree_stability.csv', 'exploratory_tree_stability_summary.csv'):
+            if not os.path.exists(os.path.join(a.out_dir, f_)):
+                sys.exit(f'--resampled_trees: {a.out_dir} (an earlier run of this program) has no {f_}')
+        if os.path.exists(os.path.join(a.resampled_trees, 'exploratory_resampled_trees_params.txt')):
+            sys.exit(f'{a.resampled_trees} has exploratory_resampled_trees_params.txt already: give a new folder')
+    elif os.path.exists(os.path.join(a.out_dir, 'exploratory_tree_params.txt')):
         sys.exit(f'{a.out_dir} has exploratory_tree_params.txt already: give a new folder')
     t0 = time.time()
     failed, checks = [], []
@@ -308,6 +467,9 @@ def main():
     if lin_bad:
         failed.append('linear check: ' + '; '.join(lin_bad))
     print(f'linear check done ({time.time() - t0:.0f} s): {lin_n - len(lin_bad)} of {lin_n} the same', flush=True)
+    if a.resampled_trees:                 # EXPLORATORY, added after the trees were seen (user, 2026-11-04)
+        resampled_trees(a, conds, X, names, risk, draws, seg_frames, failed, checks, t0, h.hexdigest())
+        return
 
     # --- trees on all the frames, out of sample (risk: depths 1-5; SSMs: depth 3)
     node_rows, oos_rows, text = [], [], []
