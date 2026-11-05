@@ -1376,6 +1376,53 @@
       - `tmp_checks/rule_explore/tree_27b/fake/` 下的 `risk/`、`rules/`、`tree/`（上一轮）和 `after_trees/`（第一次出错留下的空文件夹）、`after_trees2/`、`tree_rerun/`、`tree_rerun2/` 及其日志，一共 42 MB；
       - `fake_ceiling/` 下的 `risk/`、`out/` 及日志（13 MB）；
       - `rerun_real/`（2.5 MB）。
+  - **11-05 看过树、满分和树稳不稳以后加的五件**（探索性；用户 11-05 定，要求全文在 CLAUDE.md"我定（2026-11-05…）"那条）。一到四的结果：
+    - 一、更灵活的模型（`rule_tree.py --boosting OUT --ceiling FILE`，HistGradientBoostingRegressor 两种设定，样本外照 `--oos`；c9c0f700… 测的、4d67a2b 提交）：**假数据测试没全过，停了，没在真实数据上跑**（作业 31573542，cn175，每份约 7 分钟；输出 `tmp_checks/rule_explore/tree_27b/fake/boosting/`、日志 `boost-fake_31573542.out`）。
+      - 保守设定（max_depth 3、learning_rate 0.05、max_iter 200、min_samples_leaf 50）：
+        - 造规则的 3 格（A、B，两份）：样本外 R² 0.496–0.529，3 层树是 0.511–0.535，差不过 0.025，区间都在 0 以上；样本内 0.614–0.644。
+        - 纯噪声：−0.047 到 −0.026。
+        - C：0.336 / 0.352。
+      - 默认设定：
+        - 造规则的格：0.396–0.484，比 3 层树低 0.030–0.128；12 格里 10 格差过 0.05。样本内 0.887–0.925，说明它把噪声也拟合进去了。
+        - 纯噪声：−0.192 到 −0.142。
+        - C：0.251 / 0.258。
+      - 程序本身算得没错：另一种写法（直接循环每段）重算两格，最多差 1.6e-15；不加选项时的输出逐字节一样（`fake/tree_rerun3/`）。
+      - 等用户定：照两种设定在真实数据上跑（默认设定当作"更灵活的一端"来读），还是改设定或改测试的标准。
+    - 二、5 种输入之间排得像不像（`code/score_agreement.py`）：
+      - 现有的表里没有这种相关：风险分析的表都是分数对 SSM 的，或者模型之间、SSM 之间的差。
+      - 假数据测试过了（srun，`fake_agreement/`）：固定部分完全一样时，去掉随机部分的相关是 0.979–1.005；两两相关 0.5 时是 0.445–0.533（造出来的固定部分实际相关本身是 0.458–0.499，用名次算又会低一点）。
+      - 真实数据（作业 31573596，cn175，11-05 00:41–00:45，退出码 0；输出 `analysis/rule_explore/tree_27b/after_ceiling/agreement/`）：重算的满分和 `exploratory_ceiling.csv` 差 0。主结果：
+        - Spearman 0.681（grid × sep_camera）到 0.828（ctrl_grid × ctrl_sep）。
+        - 除以 √(满分 × 满分) 以后 0.771 到 0.928：sep_time × sep_camera 0.928 [0.891, 0.956] 最高；含 grid 或 ctrl_grid 和分开给图的配对最低（0.771）；10 对的区间都不到 1。
+        - 敏感性最多差 0.004。
+    - 三、理由里的词（`code/reason_words.py`，同一个作业，输出 `after_ceiling/words/`）：
+      - 读了 27B 风险那次的 28,075 条回答（用了 107 条补答），每一条的风险分、main_hazard 都和 tidy 表一样。手造句子的测试过了（`words_test/`）。
+      - 三档的帧数和切点（主结果）：
+        - sep_camera：低 363（分数 ≤ 23）、中 364、高 357（≥ 37）
+        - grid：369 / 376 / 339（≤ 18、≥ 33）
+        - sep_time：378 / 355 / 351（≤ 22、≥ 36）
+        - ctrl_grid：390 / 346 / 348（≤ 20、≥ 35）
+        - ctrl_sep：372 / 364 / 348（≤ 25、≥ 39）
+        - 至少 30 帧出现过的词 231–247 个。
+      - 5 种输入的高档比低档多的前 25 里都有：closely、collision、congested、creating、crossing、directly、heavy、left、risk、s、wet。
+      - 低档比高档多的前 25 里都有：ahead、clear、distance、driving、flowing、following、light、maintaining、safe、standard。
+      - 每种输入的前 25 带帧数和比例：`after_ceiling/words/<sub>/exploratory_words_top.csv`；摘要 `tmp_checks/rule_explore/tree_27b/report_agreement_words.out`。
+      - 敏感性：每种输入的前 25 有 23–25 个和主结果一样。
+    - 四、地图：
+      - 已经读过。`code/wod_v143_extract.py` 把每段的 map_features 存进 `tables/<split>/<段>/map.parquet`：车道、车道线、路边、停车标志、人行横道、减速带、车道口，带几何和车道的前后连接、限速。`code/wod_common.py` 的 `Segment.map` 读它，`LaneMap` 只用车道中心线。`code/waymo_ssm_frames.py` 用 `LaneMap` 做自车和前车的车道匹配（选前车的 map 法，沿车道的距离）。`check_v143_extract.py`、`make_map_viewer.py`、`make_scene_viewer.py`、`make_lead_labeling.py` 只拿来数数或画图。
+      - 从现有的 `map.parquet` 直接数（`tmp_checks/map_check/map_counts.py`，srun，没读原始数据），241 段：
+
+        | 类 | 有几段 | 一共多少个 |
+        |---|---|---|
+        | 车道 | 241 | 33,734 |
+        | 车道线 | 241 | 8,489 |
+        | 路边 | 241 | 9,093 |
+        | 车道口（driveway） | 239 | 12,417 |
+        | 人行横道 | 222 | 2,415 |
+        | 停车标志 | 180 | 908 |
+        | 减速带 | 91 | 256 |
+
+      - 主结果 238 段的比例差不多。只查，没往下算。
   - 用户删的：`tmp_checks/rule_explore/fake/` 下的测试输出（第一轮的 `data/`、`risk/`、`quant/`、`rules1/`、`rules4/`、`stop_*`，停掉的第二轮 `run2/`，第三轮 `run3/`，第四轮 `run4/`），`fake_nearby/` 下的 `data/`、`nearby_counts.csv`、`data2/`、`out2/`；`tmp_checks/risk_weather/fake/`（天气分组的假数据测试，`run3/` 删之前先删它，它里面 `old/` 是指向 `run3/risk/` 的链接）。
 - **风险分析加"同一种天气"分组**（用户 2026-11-03 定；原话在 CLAUDE.md"比较分组"那条）：**跑完了**（作业 31554291，cn176，11-04 02:00:30–05:18:07，3 小时 17 分 37 秒，FAIL=0；结果在这一节最后一条）。
   - 事前核对（srun 31553366，`tmp_checks/risk_weather/precheck.py`，输出 `precheck.out`）：241 段每段都有天气（dry 198、rain 36、wet 7）；这 241 段在 `labels/scene_labels.csv` 里的 time_of_day、location、weather_waymo 和 `scene_labels_waymo.csv` 一字不差（time_of_day Day 200、Dawn/Dusk 21、Night 20）。

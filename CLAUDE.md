@@ -647,6 +647,11 @@
   - 11-04 我同意跑样本外 R²：11:38 交了 31558360（`tmp_checks/rule_explore/run_oos.sbatch`，仓库 8ee269e），53 秒跑完，程序自己的核对都过（956 个拟合的样本内 R² 和点估计一样）；结果在 `docs/handoff.md` 同一节"样本外 R² 在真实数据上的结果"，已报给我。同一天照我说的补了：rear-end 帧的 τ-b 按所有给了区间的格重数（格数没变）；段间比例旁边写随机时的参照；handoff 里 H 的读法；两个 776 核对过，不是抄串。
   - 11-04 Qwen3.6-27B 的决策树（上面"我定（2026-11-04，在看到树之前定的…）"那条）：waymo 环境里没有 scikit-learn，报给我以后我让 Claude 装。17:03 用 srun 装了 scikit-learn 1.9.1（作业 31562082，`kamiak/checks/add_sklearn_waymo.sh`）：只多了它和 joblib 1.6.0、threadpoolctl 3.7.0、narwhals 2.28.0、cloudpickle 3.1.2，原有的 20 个包一个没变。`code/rule_tree.py` 在假分数上测过（31562092，全过；`docs/handoff.md` 第 2 节"Qwen3.6-27B 的决策树"）。17:15 在真实数据上跑了（31562096，仓库 b68469d，50 秒，程序自己的核对都过：重建的 26 个线性拟合和 `exploratory_oos_r2.csv` 一样）。结果和第一部分（从现有的表里摘的）在 handoff 同一条，已报给我。
   - 11-04 看过树以后加的两项（上面"我定（2026-11-04，看过树以后加的…）"那条）：满分另写 `code/score_ceiling.py`；稳不稳给 `rule_tree.py` 加了选项 `--resampled_trees`。假数据测试都过了：满分 srun 31562346；稳不稳第一次程序出错（列名 resample 被当成 pandas 的方法），改了以后 srun 31562353 全过，不加选项的输出逐字节一样。18:07 在真实数据上跑了（31562357，仓库 bf12638，1 分 39 秒）：先重跑不加选项的 `rule_tree.py`，输出逐字节一样，程序自己的核对都过。结果在 `docs/handoff.md` 第 2 节"看过树以后加的两项"，已报给我；能删的测试文件也列在那里。
+  - 11-05 那五件（上面"我定（2026-11-05…）"那条），一到四已报给我（结果在 `docs/handoff.md` 第 2 节"11-05 看过树、满分和树稳不稳以后加的五件"）：
+    - 一（`rule_tree.py --boosting`）假数据测试没全过：默认设定在造规则的格上比 3 层树低 0.03–0.13，保守设定只差 0.025 以内。停了，没在真实数据上跑，等我定。
+    - 二（`code/score_agreement.py`）、三（`code/reason_words.py`）测试过了，在真实数据上跑了（31573596）。
+    - 四：地图已经读过，241 段的各类计数从现有的 `map.parquet` 数了。
+    - 五在起草。
 - 风险分析加"同一种天气"分组（上面"比较分组"里 11-03 那条）：事前核对过了（241 段都有天气，time_of_day 和 `scene_labels_waymo.csv` 一字不差）；包装脚本 `kamiak/main_run/analyze_weather.sh`、比较脚本 `kamiak/checks/compare_weather_grouping.py` 在假数据上测过（31553371）。11-04 01:26 交了 31554291（afterany:31554290，只用 CPU）。`summarize.py` 照我 11-04 定的改了两处，改前改后在 `after_qwen3.5-4b` 上 4 种用法逐字一样（srun 31554297）；天气那份跑完再用 srun 对它跑 summarize。
   - 11-04 05:18 跑完（31554291，3 小时 17 分，FAIL=0），和 `after_qwen3.5-4b` 的比较全过；srun 31558371 跑了 summarize（`after_qwen3.5-4b_weather/summary_main_vs_sensitivity.txt`、`summary_sensitivity.txt`，原来的每一行都在，只多了天气那几节）。结果在 `docs/handoff.md`"风险分析加'同一种天气'分组"那节最后一条，已报给我。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。
