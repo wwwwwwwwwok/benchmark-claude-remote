@@ -228,7 +228,7 @@ def boosting(a, conds, X, names, risk, u, g, nseg, counts, failed, checks, t0, d
     for c, cs in cells:
         y = ar.rank01(risk[c])
         sst = float(((y - y.mean()) ** 2).sum())
-        for setting in BOOST:
+        for setting in a.boost_settings.split(','):
             full = grow_boost(X[cs], y, setting)
             pred = loso_boost(X[cs], y, g, setting)
             unpredicted += int(np.isnan(pred).sum())
@@ -286,7 +286,10 @@ def boosting(a, conds, X, names, risk, u, g, nseg, counts, failed, checks, t0, d
             f.write(f'{k_} = {os.path.abspath(v_)}\n')
         f.write(f'versions: python {sys.version.split()[0]}, numpy {np.__version__}, pandas {pd.__version__}, scipy '
                 f'{scipy.__version__}, scikit-learn {sklearn.__version__}; thread pools {pools}\n')
+        f.write(f'settings run (--boost_settings): {a.boost_settings}\n')
         for s_, kw in BOOST.items():
+            if s_ not in a.boost_settings.split(','):
+                continue
             f.write(f'boosting, {s_}: HistGradientBoostingRegressor({kw}); all parameters '
                     f'{HistGradientBoostingRegressor(**kw).get_params()}\n')
         for cs in ('A', 'B', 'C'):
@@ -437,12 +440,17 @@ def main():
                          'on the A, B, C cues, out of sample, into OUT; out_dir is then an earlier run, only read')
     ap.add_argument('--ceiling', metavar='FILE', default=None,
                     help='with --boosting: exploratory_ceiling.csv of score_ceiling.py, for the side-by-side table')
+    ap.add_argument('--boost_settings', default=','.join(BOOST),
+                    help='with --boosting: which of BOOST, comma-separated (user, 2026-11-05: conservative only on the '
+                         'real data)')
     a = ap.parse_args()
     if a.resampled_trees and a.boosting:
         sys.exit('--resampled_trees and --boosting: one at a time')
     if a.boosting:
         if not (a.ceiling and os.path.exists(a.ceiling)):
             sys.exit('--boosting needs --ceiling <exploratory_ceiling.csv of score_ceiling.py>')
+        if not a.boost_settings or any(s_ not in BOOST for s_ in a.boost_settings.split(',')):
+            sys.exit(f'--boost_settings: one or more of {list(BOOST)}, comma-separated')
         if not os.path.exists(os.path.join(a.out_dir, 'exploratory_tree_oos.csv')):
             sys.exit(f'--boosting: {a.out_dir} (an earlier run of this program) has no exploratory_tree_oos.csv')
         if os.path.exists(os.path.join(a.boosting, 'exploratory_boosting_params.txt')):
