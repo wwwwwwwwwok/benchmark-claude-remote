@@ -126,11 +126,13 @@ def first_crosswalk(xy, s, polygons):
     return best
 
 
-def first_lane_crossing(xy, s, own, other_xy, tol=CROSS_TOL):
+def first_lane_crossing(xy, s, own, other_xy, tol=CROSS_TOL, min_angle=0.0, with_angle=False):
     """Arc length of the first proper crossing of the polyline with another lane's centre line: other_xy {lane: xy};
-    lanes in `own` left out; a hit closer than tol to either end of the other lane does not count. NaN none."""
+    lanes in `own` left out; a hit closer than tol to either end of the other lane does not count; with min_angle > 0
+    (--min_cross_angle, user 2026-11-05) a hit where the two centre lines meet at less than min_angle degrees (their
+    directions' angle folded to 0-90) does not count either. NaN none. with_angle: (arc length, that hit's angle)."""
     lo, hi = xy.min(0) - tol, xy.max(0) + tol
-    best = np.nan
+    best, best_ang = np.nan, np.nan
     for lane, q in other_xy.items():
         if lane in own or len(q) < 2:
             continue
@@ -141,10 +143,17 @@ def first_lane_crossing(xy, s, own, other_xy, tol=CROSS_TOL):
             continue
         pts = xy[i] + t[:, None] * (xy[i + 1] - xy[i])
         far = (np.hypot(*(pts - q[0]).T) > tol) & (np.hypot(*(pts - q[-1]).T) > tol)
+        r_, q_ = xy[i + 1] - xy[i], q[j + 1] - q[j]
+        cosv = np.abs((r_ * q_).sum(1)) / np.maximum(np.hypot(*r_.T) * np.hypot(*q_.T), 1e-12)
+        ang = np.degrees(np.arccos(np.clip(cosv, 0.0, 1.0)))
+        if min_angle > 0:
+            far = far & (ang >= min_angle)
         if far.any():
-            d = float((s[i] + t * (s[i + 1] - s[i]))[far].min())
-            best = d if np.isnan(best) else min(best, d)
-    return best
+            dd = s[i] + t * (s[i + 1] - s[i])
+            k = int(np.flatnonzero(far)[np.argmin(dd[far])])
+            if np.isnan(best) or dd[k] < best:
+                best, best_ang = float(dd[k]), float(ang[k])
+    return (best, best_ang) if with_angle else best
 
 
 def first_stop_sign(xy, s, pieces, lanes, signs, s0):
@@ -164,22 +173,28 @@ def first_stop_sign(xy, s, pieces, lanes, signs, s0):
     return best
 
 
-def events_ahead(lanes, lane0, s0, polys, signs, other_xy, max_len=MAX_AHEAD):
+def events_ahead(lanes, lane0, s0, polys, signs, other_xy, max_len=MAX_AHEAD, min_angle=0.0, with_angle=False):
     """Cues 2-4 from the ego's lane position: the nearest over the branches; nothing within max_len -> max_len.
-    Also the number of branches."""
+    Also the number of branches; with_angle: also cross_angle_deg, the angle at the crossing used (NaN if none)."""
     paths = forward_paths(lanes, lane0, s0, max_len)
-    dc, ds, dx = [], [], []
+    dc, ds, dx, da = [], [], [], []
     for xy, s, pieces in paths:
         own = {p[0] for p in pieces}
         dc.append(first_crosswalk(xy, s, polys))
         ds.append(first_stop_sign(xy, s, pieces, lanes, signs, s0))
-        dx.append(first_lane_crossing(xy, s, own, other_xy))
+        d_, a_ = first_lane_crossing(xy, s, own, other_xy, min_angle=min_angle, with_angle=True)
+        dx.append(d_)
+        da.append(a_)
     out = {}
     for name, v in (('dist_crosswalk', dc), ('dist_stop_sign', ds), ('dist_lane_crossing', dx)):
         v = np.array(v, float)
         v = v[~np.isnan(v) & (v <= max_len)]
         out[name] = float(v.min()) if len(v) else max_len
     out['n_branches'] = len(paths)
+    if with_angle:
+        v = np.array(dx, float)
+        ok = ~np.isnan(v) & (v <= max_len)
+        out['cross_angle_deg'] = float(np.array(da, float)[ok][np.argmin(v[ok])]) if ok.any() else np.nan
     return out
 
 
@@ -207,6 +222,9 @@ def main():
     ap = argparse.ArgumentParser()
     for name in ('segments', 'targets', 'frame_ssm', 'nearby', 'out_csv'):
         ap.add_argument(name)
+    ap.add_argument('--min_cross_angle', type=float, default=0.0,
+                    help='user 2026-11-05: lane crossings at less than this angle (deg) do not count (0: all count)')
+    ap.add_argument('--with_angle', action='store_true', help='also write cross_angle_deg, the angle at the crossing used')
     a = ap.parse_args()
     if os.path.exists(a.out_csv):
         sys.exit(f'{a.out_csv} exists already')
@@ -241,10 +259,13 @@ def main():
             if lane0 is None or lane0 not in lmap.lanes:
                 row.update(speed_limit_mps=np.nan, dist_crosswalk=np.nan, dist_stop_sign=np.nan,
                            dist_lane_crossing=np.nan, n_branches=0)
+                if a.with_angle:
+                    row['cross_angle_deg'] = np.nan
             else:
                 lim = lanes_df.loc[lane0, 'speed_limit_mph'] if lane0 in lanes_df.index else np.nan
                 row['speed_limit_mps'] = float(lim) * MPH if (not pd.isna(lim) and float(lim) > 0) else np.nan
-                row.update(events_ahead(lmap.lanes, lane0, float(ego_s[k]), polys, signs, other_xy))
+                row.update(events_ahead(lmap.lanes, lane0, float(ego_s[k]), polys, signs, other_xy,
+                                        min_angle=a.min_cross_angle, with_angle=a.with_angle))
             o = seg.objects_at(k, cameras=CAMERAS, types=TYPES)
             o = o[o['id'] != r.lead_map]
             v = o[['speed_x', 'speed_y', 'speed_z']].to_numpy(float)
@@ -285,6 +306,9 @@ def main():
             f.write(f'{k_} = {os.path.abspath(v_)}\n')
         f.write(f'MAX_AHEAD {MAX_AHEAD} m, CROSS_TOL {CROSS_TOL} m, moving >= {MOVING} m/s, heading change over '
                 f'{HEADING_DT} s (within {HEADING_TOL} s), mph {MPH} m/s, cameras {CAMERAS}\n')
+        if a.min_cross_angle > 0 or a.with_angle:
+            f.write(f'--min_cross_angle {a.min_cross_angle} deg (crossings at a smaller angle do not count), '
+                    f'--with_angle {a.with_angle}\n')
         for c_ in checks:
             f.write(f'check: {c_}\n')
         f.write(f'checks not met: {failed if failed else "none"}\n')
