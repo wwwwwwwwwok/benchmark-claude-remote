@@ -13,7 +13,10 @@ by Segment.to_map; the ego's lane by LaneMap.match_sequence (as waymo_ssm_frames
    either end: a lane ending behind the ego, say the ego lane's own predecessor, or beyond the branch's end does not
    count); the branch's own lanes left out (the "merge" new_cues.py leaves out of the lane crossings). The nearest over
    the branches; none within 100 m: 100; the ego on no mapped lane: missing.
- 3 large vehicles: not computed here (the user looks at the box lengths first).
+ 3 large vehicles: no threshold (the box lengths have no gap; user, 2026-11-06). With --max_length:
+   max_vehicle_length_30m, the box length of the longest vehicle in the cameras' view within 30 m (box centre), the
+   lead included (unlike every count here); no vehicle within 30 m: 0. Without the option the output is the same byte
+   for byte as before.
  4 n_ped_cyc_in_crosswalk_50m: pedestrians and cyclists within 50 m whose box centre (map frame) is inside a crosswalk
    polygon of the map (matplotlib Path.contains_point).
  5 n_ped_cyc_road_<R>m, n_ped_cyc_offroad_<R>m: count_nearby.py's pedestrians + cyclists within R = 10, 20, 30, 50 m
@@ -33,7 +36,7 @@ objects without a speed.
 Output <out_csv> (must not exist): one row per target frame (split, in_main, closing_below_0_1 kept from the list);
 <out_csv minus .csv>_params.txt beside it; exit code 1 when a check is not met.
 usage: python -I new_cues_e.py <segments folder> <targets csv (vlm_frames/comparison_lead7_targets.csv)> <frame_ssm.csv>
-       <nearby_counts.csv> <D's new cues csv (new_cues_min30.csv)> <out_csv>
+       <nearby_counts.csv> <D's new cues csv (new_cues_min30.csv)> <out_csv> [--max_length]
 """
 import argparse
 import os
@@ -57,6 +60,7 @@ CW_RADIUS = 50.0
 ROAD_TOL = 2.0
 INLANE_D, INLANE_DH = 1.5, 30.0
 FUTURE_DT, FUTURE_TOL = 3.0, 0.15
+LONG_RADIUS = 30.0                 # --max_length (user, 2026-11-06)
 N_SECOND, SEED_SECOND = 10, 20261106
 SPLIT_COLS = [f'n_ped_cyc_{w}_{r}m' for r in RADII for w in ('road', 'offroad')] + \
     [f'n_vehicle_stationary_{w}_{r}m' for r in RADII for w in ('inlane', 'other')]
@@ -146,6 +150,12 @@ def in_crosswalk(types, dist, P, polys, radius=CW_RADIUS):
     return n
 
 
+def max_length(types, dist, length, radius=LONG_RADIUS):
+    """--max_length: the largest box length of the vehicles within radius (the caller passes the lead too); 0 none."""
+    v = (types == 'vehicle') & (dist <= radius)
+    return float(length[v].max()) if v.any() else 0.0
+
+
 def heading_change_next(yaw, t, k, dt=FUTURE_DT, tol=FUTURE_TOL):
     """Item 7: yaw at the frame nearest t[k] + dt minus yaw now (degrees, wrapped, left positive); NaN when that frame
     is farther than tol from t[k] + dt."""
@@ -171,6 +181,7 @@ def main():
     ap = argparse.ArgumentParser()
     for name in ('segments', 'targets', 'frame_ssm', 'nearby', 'd_cues', 'out_csv'):
         ap.add_argument(name)
+    ap.add_argument('--max_length', action='store_true', help='user 2026-11-06: also max_vehicle_length_30m')
     a = ap.parse_args()
     if os.path.exists(a.out_csv):
         sys.exit(f'{a.out_csv} exists already')
@@ -209,8 +220,8 @@ def main():
                 row['dist_merge'], row['n_branches'] = np.nan, 0
             else:
                 row['dist_merge'], row['n_branches'] = merge_ahead(lmap.lanes, lane0, float(ego_s[k]))
-            o = seg.objects_at(k, cameras=CAMERAS, types=TYPES)
-            o = o[o['id'] != r.lead_map]
+            o_all = seg.objects_at(k, cameras=CAMERAS, types=TYPES)
+            o = o_all[o_all['id'] != r.lead_map]
             v = o[['speed_x', 'speed_y', 'speed_z']].to_numpy(float)
             if wc.SPEED_FRAME == 'global':
                 v = v @ seg.R[k]                      # global -> vehicle frame (R maps vehicle to global)
@@ -241,6 +252,10 @@ def main():
                         sum_st_bad += int(row[f'n_vehicle_stationary_inlane_{R}m'] +
                                           row[f'n_vehicle_stationary_other_{R}m'] !=
                                           int(dc.loc[(sname, k), f'n_vehicle_stationary_{R}m']))
+            if a.max_length:                          # the lead included (user, 2026-11-06)
+                row['max_vehicle_length_30m'] = max_length(
+                    o_all['type'].to_numpy(), np.hypot(o_all['cx'].to_numpy(float), o_all['cy'].to_numpy(float)),
+                    o_all['length'].to_numpy(float))
             if (sname, k) in second and lmap.ok and len(P):
                 d2, h2 = nearest_lane_second_way(lmap, P)
                 second_dev_d = max(second_dev_d, float(np.abs(d2 - dl).max()))
@@ -286,6 +301,10 @@ def main():
                 f'line; in a lane: within {INLANE_D} m and {INLANE_DH} deg; stationary: ground speed < {MOVING} m/s; '
                 f'heading change over the next {FUTURE_DT} s (within {FUTURE_TOL} s); radii {RADII}; cameras {CAMERAS}; '
                 f'large vehicles (item 3) not computed\n')
+        if a.max_length:
+            f.write(f'--max_length: max_vehicle_length_30m, the longest vehicle box within {LONG_RADIUS} m in the '
+                    f'cameras\' view, the lead included, 0 without a vehicle (user, 2026-11-06); frames with one of '
+                    f'7.0 m or more: {int((out.max_vehicle_length_30m >= 7.0).sum())} of {len(out)}\n')
         for c_ in checks:
             f.write(f'check: {c_}\n')
         f.write(f'checks not met: {failed if failed else "none"}\n')
