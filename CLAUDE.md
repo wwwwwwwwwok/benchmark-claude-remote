@@ -664,6 +664,7 @@
     - 跑：`kamiak/text_vlm.sbatch`（照 `qwen_vlm.sbatch` 里 qwen3.6-27b 那一段写的，`qwen_vlm.sbatch` 一字不改；先发请求，再起没有 --reasoning-parser 的服务补答）。写好、查过。31542229 用了 2 块 GPU。我 11-05 定：现在交，挂在 grid 后面。11-05 18:51 从仓库根目录交了 `sbatch --dependency=afterok:31542229 kamiak/text_vlm.sbatch`，作业 **31602667**。交的时候 sha256：`run_text_vlm.py` 5da50f09…、`run_vlm.py` 4fca1d03…、`force_answer.py` e0d810cf…、`text_vlm.sbatch` 12b9c04f…。这个作业跑完以前，这三个程序不改（作业开始时才读它们）；开始后核对日志里的 sha256 和这里一样。grid 超时重交以后：`scancel 31602667`，另交 `sbatch --dependency=afterok:<新 grid 作业号> kamiak/text_vlm.sbatch`（handoff 第 2 节 TIMEOUT 那条）；grid 因为别的原因停了，它会一直排着，等我定；grid 本身照旧不自动重交。跑完：先补答（作业里已经接着做），再照下面的计划分析，报我。渲染、空跑、测试有任何和预期不一样的地方，先停，报我。
     - 模板的事（我 11-05 定）：以前风险、物理量那几次，文字和图之间什么都没加（"taken now.Front-left camera:<图>…"），每帧、每种输入都一样，不重跑；论文里给问法时用渲染后的全文。有空时（srun，只用 CPU）把这几次用到的其它模型的模板也各渲染一条，记下怎么接的。
       - 11-05 渲染了（`docs/handoff.md` 第 2 节同一条）：Qwen3.6-27B（开思考、不思考）、Qwen-Drive-1.0-4B、Qwen3.5-4B 都是首尾直接相接；两个 InternVL 每张图写成 `<image>` 加一个换行，图前面的文字和图之间什么都没有。Qwen3-VL-32B 两个的模型文件夹删了，没渲染。vLLM 当时用的就是这几份模板（核过）。
+      - 11-05 Qwen3-VL-32B 两个也补上了（照记的版本只下了 `chat_template.json`、`tokenizer_config.json`，git blob id 对上）：也是首尾直接相接；Thinking 结尾多 `<think>\n`。
     - 分析（`analyze_text_vlm.py`）：
       - 每个因素各档的平均分：说了场景的 500 个组合上算；X、Z、Y 另在不说场景的 125 个上算；区间是每个组合的 5 次回答有放回重抽 2,000 次。
       - 满分：照 `score_ceiling.py`，在 500 个组合上算，区间按组合重抽。
