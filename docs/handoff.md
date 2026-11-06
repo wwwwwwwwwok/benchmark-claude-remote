@@ -1446,6 +1446,13 @@
       - `kamiak/text_vlm.sbatch` 写好了：照 `qwen_vlm.sbatch` 里 qwen3.6-27b 那一段（服务参数逐项对过），先发请求，再起没有 --reasoning-parser 的服务补答；`bash -n` 查过。31542229 用了 2 块 GPU（`squeue` 显示 gpu:2，sn18）。
       - 用户 11-05 定现在交：18:51 交了 **31602667**（`--dependency=afterok:31542229`）。交的时候 sha256：`run_text_vlm.py` 5da50f09…、`run_vlm.py` 4fca1d03…、`force_answer.py` e0d810cf…、`text_vlm.sbatch` 12b9c04f…；作业跑完以前这几个不改，开始后核对日志里的 sha256。grid 超时重交时它也要换（上面 TIMEOUT 那条）。
       - 模板的事（用户 11-05 定）：以前风险、物理量那几次，文字和图之间什么都没加（"taken now.Front-left camera:<图>…"），每帧、每种输入都一样，不重跑；论文里给问法时用渲染后的全文。
+      - 其它模型的模板各渲染了一条（11-05，srun，只用 CPU；`tmp_checks/text_vlm/render/render_all.py`，输出 `render_all.out`，全文在里面）：ctrl_sep 的风险请求照 `run_vlm.build` 组装，图换成 vLLM 交给模板的 `{"type": "image"}`（以前每次的 vLLM 日志都写 content format 'openai'），用 vllm_cu129 环境的 transformers 5.19.0 `apply_chat_template(chat_template=<文件>, add_generation_prompt=True)` 加上那次的模板参数。
+        - Qwen3.6-27B（`Qwen3.6-27B/chat_template.jinja`；开思考的风险、物理量，不思考的物理量加 `enable_thinking false`）：各段首尾直接相接，图是 `<|vision_start|><|image_pad|><|vision_end|>`："taken now.Front-left camera:<|vision_start|><|image_pad|><|vision_end|>Front camera:…<|vision_end|>How risky…"。结尾：开思考 `<|im_start|>assistant\n<think>\n`；不思考 `<|im_start|>assistant\n<think>\n\n</think>\n\n`。
+        - InternVL3.5-38B（`InternVL3_5-38B/chat_template.jinja`）和思考版（`kamiak/internvl_thinking_chat_template.jinja`）：文字原样接，每张图写成 `<image>` 加换行："taken now.Front-left camera:<image>\nFront camera:<image>\n…Right-side camera:<image>\nHow risky…"；图和后面的文字之间有一个换行，文字和后面的图之间什么都没有。结尾：不思考 `<|im_start|>assistant\n`；思考版 `<|im_start|>assistant\n<think>\n`。（`<image>` 之后由 vLLM 换成图片 token。）
+        - Qwen-Drive-1.0-4B 和 Qwen3.5-4B（都用 `Qwen-Drive-1.0-4B/chat_template.jinja`，`enable_thinking false`）：和 Qwen3.6-27B 不思考的一字不差，首尾直接相接，结尾 `<think>\n\n</think>\n\n`。
+        - Qwen3-VL-32B-Instruct 和 Thinking 没渲染：模型文件夹已经删了（版本和文件清单在 `kamiak/model_files/`）。
+        - vLLM 当时用的是不是这几份（`which_template.py`，输出 `which_template.out`）：vLLM 0.32 没给 `--chat-template` 时先用 AutoProcessor 的模板、再用 AutoTokenizer 的（`vllm/renderers/hf.py` 的 `resolve_chat_template`）。Qwen3.6-27B 两个都和 `chat_template.jinja` 一样；InternVL3.5-38B 的 AutoProcessor 读不起来（Qwen2Tokenizer 没有 start_image_token），所以用 AutoTokenizer 的，和 `chat_template.jinja` 一样；两个 4B 启动时给了 `--chat-template`。vLLM 自己的格式判断对这 4 份模板都是 'openai'。
+        - 这两个脚本和 `render_template.py`、车道交叉夹角的 `angle_report.py` 原样复制进了 `kamiak/checks/`。
     - 三、补线索：`code/new_cues.py`（46d4f77），只算了量，还没拟合。
       - 用到的现成函数：
         - 自车车道：`wod_common.LaneMap(seg.map).match_sequence(seg.ego_map[:, :2], seg.yaw)`，和 `waymo_ssm_frames.process` 同一个调用。
