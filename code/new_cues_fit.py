@@ -25,9 +25,15 @@ stationary vehicles within 20 m + WITHIN_NEW; in-sample R2 and coefficients with
 D's additive boosting on all the fit frames: partial dependence (every frame's prediction with one cue set to its 10,
 30, 50, 70, 90 % quantile, averaged).
 Outputs (out_dir): exploratory_d_*.csv, exploratory_d_params.txt; exit code 1 when a check is not met.
+Options added later (user, 2026-11-05, after D's results; without them every output is the same byte for byte, and
+they are written into the params only when given): --model <name> fits another model's risk scores (default
+qwen3.6-27b; the earlier tree B and boosting B results beside exist only for the models in those tables, so for the
+others only the two linear rows); --predictions also writes exploratory_d_predictions.csv, every fit frame's
+leave-one-segment-out prediction of every model and cue set with the rank score it predicts.
 usage: python -I new_cues_fit.py <risk subfolder> <quantities subfolder> <frame_ssm.csv> <truth.csv> <scene_labels.csv>
        <nearby_counts.csv> <new_cues.csv> <rule analysis subfolder> <tree subfolder> <boosting subfolder> <out_dir>
        [--control_crossing <new_cues csv of another definition>] [--workers 8] [--no_ceiling] [--no_linear_check]
+       [--model <name>] [--predictions]
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
@@ -61,6 +67,7 @@ SETS = ['B', 'D', 'Dn']
 NONLIN = ['tree', 'boost_full', 'boost_add']
 PD_Q = [0.1, 0.3, 0.5, 0.7, 0.9]
 LIN_TOL = 1e-12
+NEW_OPTS = {'model': rt.MODEL, 'predictions': False}   # added later: written into the params only when not these
 _W = {}
 
 
@@ -126,7 +133,11 @@ def main():
     ap.add_argument('--workers', type=int, default=1)
     ap.add_argument('--no_ceiling', action='store_true', help='fake scores: no ceiling (their repeats are not made up)')
     ap.add_argument('--no_linear_check', action='store_true', help='fake scores: the rule analysis is not of them')
+    ap.add_argument('--model', default=NEW_OPTS['model'], help='the model whose risk scores are fitted')
+    ap.add_argument('--predictions', action='store_true', help='also write exploratory_d_predictions.csv')
     a = ap.parse_args()
+    global MODEL
+    MODEL = a.model                                # every use below (scores, rule analysis rows, ceiling, output rows)
     if os.path.exists(os.path.join(a.out_dir, 'exploratory_d_params.txt')):
         sys.exit(f'{a.out_dir} has exploratory_d_params.txt already: give a new folder')
     t0 = time.time()
@@ -245,11 +256,13 @@ def main():
 
     # --- out of sample
     res = {}                                       # (condition, model, set) -> (sse, sst, r2_in)
+    preds = {}                                     # (condition, model, set) -> the leave-one-segment-out predictions
     for c in conds:
         for (s, r), cols in lin.items():
             pred = ar.loso_predict(y[c], cols, g)
             sse, sst = parts(y[c], pred, g, u, nseg)
             res[(c, f'linear_R{r}', s)] = (sse, sst, ar.ols(y[c], cols)[2])
+            preds[(c, f'linear_R{r}', s)] = pred
     print(f'linear done ({time.time() - t0:.0f} s)', flush=True)
     _W.update(X=X, y=y, g=g, Xraw=Xraw, score=score, names=names, draws=draws,
               seg_frames_fit={s_: np.flatnonzero(fit & (seg_names == s_)) for s_ in seg_list
@@ -268,6 +281,7 @@ def main():
         unpred += int(np.isnan(pred).sum())
         sse, sst = parts(y[c], pred, g, u, nseg)
         res[(c, kind, s)] = (sse, sst, r2_in)
+        preds[(c, kind, s)] = pred
     checks.append(f'frames not predicted in the leave-one-segment-out runs: {unpred}')
     if unpred:
         failed.append('unpredicted')
@@ -279,6 +293,17 @@ def main():
         rows.append(dict(model=MODEL, condition=c, fit=m, cues=s, frames=nf, r2_in=r2_in, r2_oos=p, r2_oos_lo=lo,
                          r2_oos_hi=hi, nboot=nv))
     pd.DataFrame(rows).to_csv(os.path.join(a.out_dir, 'exploratory_d_oos.csv'), index=False)
+    if a.predictions:
+        fits_ = [f'linear_R{r}' for r in RADII] + NONLIN
+        prow = []
+        for c in conds:
+            tab = {'model': MODEL, 'condition': c, 'segment': seg_names[idf],
+                   'frame_idx': frames['frame_idx'].to_numpy()[idf], 'y_rank': y[c]}
+            for m_ in fits_:
+                for s in SETS:
+                    tab[f'pred_{m_}_{s}'] = preds[(c, m_, s)]
+            prow.append(pd.DataFrame(tab))
+        pd.concat(prow, ignore_index=True).to_csv(os.path.join(a.out_dir, 'exploratory_d_predictions.csv'), index=False)
     comps = []
     for m in [f'linear_R{r}' for r in RADII] + NONLIN:
         comps += [(f'D - B, {m}', (m, 'D'), (m, 'B')), (f'Dn - B, {m}', (m, 'Dn'), (m, 'B')),
@@ -476,10 +501,13 @@ def main():
             vs.append(dict(condition=c, measure=f'earlier, all {n} frames: {f_} linear' +
                            (' (H from the same reply)' if f_.endswith('H') else ''),
                            value=q.r2_oos, lo=q.r2_oos_lo, hi=q.r2_oos_hi))
-        q = to[(to.target == 'risk') & (to.condition == c) & (to.cues == 'B') & (to.max_depth == 3)].iloc[0]
-        vs.append(dict(condition=c, measure=f'earlier, all {n} frames: tree B', value=q.r2_oos, lo=q.r2_oos_lo,
-                       hi=q.r2_oos_hi))
-        q = bo[(bo.condition == c) & (bo.cues == 'B') & (bo.setting == 'conservative')]
+        q = to[(to.target == 'risk') & (to.model == MODEL) & (to.condition == c) & (to.cues == 'B') &
+               (to.max_depth == 3)]
+        if len(q):                                 # the tree tables have Qwen3.6-27B only
+            q = q.iloc[0]
+            vs.append(dict(condition=c, measure=f'earlier, all {n} frames: tree B', value=q.r2_oos, lo=q.r2_oos_lo,
+                           hi=q.r2_oos_hi))
+        q = bo[(bo.model == MODEL) & (bo.condition == c) & (bo.cues == 'B') & (bo.setting == 'conservative')]
         if len(q):
             q = q.iloc[0]
             vs.append(dict(condition=c, measure=f'earlier, all {n} frames: boosting B (conservative)', value=q.r2_oos,
@@ -489,7 +517,12 @@ def main():
     with open(os.path.join(a.out_dir, 'exploratory_d_params.txt'), 'w', encoding='utf-8') as f:
         f.write(f'EXPLORATORY (user, 2026-11-05, decided before D\'s results were seen): new_cues_fit.py run '
                 f'{time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+        if MODEL != NEW_OPTS['model']:
+            f.write(f'model {MODEL}: fitted the same way on the user\'s request of 2026-11-05 (item 3), made after '
+                    f'{NEW_OPTS["model"]}\'s D results were seen\n')
         for k_, v_ in vars(a).items():
+            if k_ in NEW_OPTS and v_ == NEW_OPTS[k_]:
+                continue
             f.write(f'{k_} = {v_}\n')
         f.write(f'versions: python {sys.version.split()[0]}, numpy {np.__version__}, pandas {pd.__version__}, scipy '
                 f'{scipy.__version__}, scikit-learn {sklearn.__version__}\n')
