@@ -7,7 +7,8 @@
 # without --reasoning-parser, max_tokens 1024). Kept apart from the speed experiment (/data/lab/cejli/sy/speed_risk,
 # the teacher's account): its own output folder vlm_scores/qwen3.6-27b-accel/ and job name.
 # Time: about 51 h (the main 27B risk run); the camas GPU nodes have a maintenance reservation from 2026-11-12 10:30,
-# so --time-min lets Slurm start it with a shorter limit that ends before; a rerun resumes (finished requests skipped).
+# so a fixed 2 days 12 hours (no --time-min: with it Slurm cut the limit straight to the minimum, user 2026-11-09);
+# a rerun resumes (finished requests skipped).
 # Submit from the repository root:  sbatch kamiak/accel_risk.sbatch
 #SBATCH --job-name=accel-risk
 #SBATCH --partition=camas
@@ -15,7 +16,6 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=200G
 #SBATCH --time=2-12:00:00
-#SBATCH --time-min=12:00:00
 #SBATCH --output=logs/%x_%j.out
 
 set -euo pipefail
