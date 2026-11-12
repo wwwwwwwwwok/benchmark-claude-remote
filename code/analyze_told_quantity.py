@@ -60,9 +60,28 @@ agree; the sensitivity subfolder is reported alike):
      changed; all nine reported.
   4: the ego-speed coefficient difference (K) wholly above 0 = with the other quantities fixed, the speed's direction
      in the score turned positive.
+Options for the acceleration run (user, 2026-11-12; without them every output is the same as before, byte for byte):
+ --extra_cues a_ego  item 3 also for the true ego acceleration (truth_main.csv a_ego, as true_ego_accel): tau-b all,
+     time_of_day, segment of both models and new - base; checked: base 'all' and 'segment' = the rule analysis's
+     exploratory_cue_tau_b.csv (true_ego_accel), the same text. Item 4's K already holds the ego acceleration.
+ --told_abs  item 5 also counts the answers equal to |the told number| rounded half up to an integer.
+ --words2 w1,w2 --words2_label <name>  a second word class for the reasons, counted apart, 5 drawn per model.
+ --frame_cols v_ego  the frame table also holds these truth columns (before the told quantity's).
+ --reading accel --compare_root <the speed analysis folder>  the acceleration run's readings (fixed before its run,
+     user 2026-11-12), main sep_camera, main_1084, 'all', "every condition" only when at least 4 of 5 agree:
+  3, 4: the ego-acceleration tau-b difference, and the ego-acceleration coefficient difference in K: an interval that
+     leaves out 0 = telling the acceleration changed the way the acceleration enters the score, its direction
+     reported as it is (positive = higher score when accelerating, negative = higher score when slowing down); an
+     interval containing 0 = no change seen.
+  control: the ego-speed tau-b difference (all three groupings) and K's ego-speed coefficient difference of this run,
+     beside the speed run's (from <compare_root>/<sub>): an interval containing 0 = the speed run's shift came from the
+     content of its sentence, not from one more sentence; leaving out 0 = reported as it is.
+  1: expected beforehand: MTTC and CI (they use acceleration) better, the other seven little changed; all nine
+     reported as for the speed run.
+  2: D as before, beside the speed run's D.
 usage: python -I analyze_told_quantity.py <subfolder> <new model> <base model> <reasons csv of new> <reasons csv of
        base> <wrapper .py the job ran> <told csv the job read> <told column> --words w1,w2 --prefix exploratory_speed_
-       [--workers N]
+       [--workers N] [the acceleration options above]
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
@@ -92,6 +111,7 @@ CONDS = av.CONDITIONS
 G1 = ['all', 'weather', 'time_of_day', 'segment']
 G3 = ['all', 'time_of_day', 'segment']
 E2_VARS = {'true_ego_speed': 'v_ego', 'true_distance': 'distance'}
+EXTRA_NAME = {'a_ego': 'ego_accel', 'a_lead': 'lead_accel', 'v_lead': 'lead_speed'}   # as the rule analysis's cues
 K_LEAD = ['true_distance', 'true_ego_speed', 'true_lead_speed', 'true_ego_accel', 'true_lead_accel']
 EXPECT_BETTER = ['THW', 'PSD', 'PICUD', 'CI']
 EXPECT_SAME = ['TTC', 'DRAC']
@@ -142,7 +162,19 @@ def main():
     ap.add_argument('--seed', type=int, default=20261021)
     ap.add_argument('--sample_seed', type=int, default=20261112)
     ap.add_argument('--workers', type=int, default=1)
+    ap.add_argument('--extra_cues', default='', help="truth columns added to item 3, e.g. a_ego")
+    ap.add_argument('--told_abs', action='store_true', help='item 5: also |told number| rounded to an integer')
+    ap.add_argument('--words2', default='', help='a second word class for the reasons')
+    ap.add_argument('--words2_label', default='second word class')
+    ap.add_argument('--frame_cols', default='', help='truth columns added to the frame table, e.g. v_ego')
+    ap.add_argument('--reading', choices=['speed', 'accel'], default='speed')
+    ap.add_argument('--compare_root', default=None, help='the speed analysis folder, for --reading accel')
+    ap.add_argument('--compare_prefix', default='exploratory_speed_')
     a = ap.parse_args()
+    if a.reading == 'accel' and (not a.compare_root or 'a_ego' not in a.extra_cues.split(',')):
+        sys.exit('--reading accel needs --compare_root and --extra_cues a_ego')
+    extra3 = {f'true_{EXTRA_NAME[c]}': c for c in a.extra_cues.split(',') if c}
+    vars3 = list(E2_VARS) + list(extra3)
     sub = a.sub.rstrip('/')
     sname = os.path.basename(sub)
     A = os.path.join(a.waymo, 'analysis')
@@ -335,7 +367,7 @@ def main():
         for m in models:                                                   # 3
             for c in CONDS:
                 x = score[(m, c)][idx]
-                for var in E2_VARS:
+                for var in vars3:
                     y = cue[var][idx]
                     for gn, t in tau3(x, y, ~np.isnan(x) & ~np.isnan(y)).items():
                         res[('t3', m, c, var, gn)] = t
@@ -515,8 +547,13 @@ def main():
     e2 = {(d['condition'], d['variable'], d['grouping']): (ln, d) for ln, d in
           csv_rows(os.path.join(QUANT, 'exploratory_e2_risk_vs_distance_speed.csv')) if d['model'] == a.base}
     rows3, n_e2, n_e2_ok, n_e2_pt = [], 0, 0, 0
+    rcue = {}
+    if extra3:
+        rcue = {(d['condition'], d['cue'], d['grouping']): (ln, d) for ln, d in
+                csv_rows(os.path.join(RULE, 'exploratory_cue_tau_b.csv')) if d['model'] == a.base}
+    n_x = n_x_ok = n_x_pt = 0
     for c in CONDS:
-        for var in E2_VARS:
+        for var in vars3:
             for gn in G3:
                 kb, kn = ('t3', a.base, c, var, gn), ('t3', a.new, c, var, gn)
                 vals = {}
@@ -526,7 +563,14 @@ def main():
                     nfr = int((~np.isnan(score[(m, c)]) & ~np.isnan(cue[var])).sum())
                     rows3.append(dict(model=m, condition=c, variable=var, grouping=gn, frames=nfr, tau_b=point[k],
                                       tau_b_lo=lo, tau_b_hi=hi, nboot=nv, side=side(lo, hi)))
-                    if m == a.base:
+                    if m == a.base and var in extra3:
+                        if gn in ('all', 'segment'):
+                            ln, d = rcue[(c, var, gn)]
+                            n_x += 1
+                            n_x_ok += (str(nfr), txt(point[k]), txt(lo), txt(hi), str(nv)) == \
+                                (d['frames'], d['tau_b'], d['tau_b_lo'], d['tau_b_hi'], d['nboot'])
+                            n_x_pt += (str(nfr), txt(point[k])) == (d['frames'], d['tau_b'])
+                    elif m == a.base:
                         ln, d = e2[(c, var, gn)]
                         n_e2 += 1
                         n_e2_ok += (str(nfr), txt(point[k]), txt(lo), txt(hi), str(nv)) == \
@@ -537,6 +581,9 @@ def main():
                                   tau_b=point[kn] - point[kb], tau_b_lo=lo, tau_b_hi=hi, nboot=nv, side=side(lo, hi)))
     check(n_e2_ok == n_e2 == 30, f'base: {n_e2_ok} of {n_e2} rows the same text as {QUANT}/'
           f'exploratory_e2_risk_vs_distance_speed.csv (frames and point estimates alone: {n_e2_pt})')
+    if extra3:
+        check(n_x_ok == n_x == 10 * len(extra3), f'base, {list(extra3)} (all, segment): {n_x_ok} of {n_x} rows the same '
+              f'text as {RULE}/exploratory_cue_tau_b.csv (frames and point estimates alone: {n_x_pt})')
     f3 = write('speed_distance_tau_b.csv', rows3)
     for i, d in enumerate(rows3):
         say(f"  {f3} line {i + 2}: {d['condition']:10s} {d['variable']:14s} {d['grouping']:11s} {d['model']:30s} "
@@ -656,6 +703,21 @@ def main():
     for i, d in enumerate(rows5n):
         say(f"  {fn_} line {i + 2}: {d['model']:20s} {d['condition']:10s} answers equal to the told number rounded to an "
             f"integer: {d['equal_to_told_integer']} of {d['answers']} ({r(d['share'])})")
+    if a.told_abs:
+        tabs = {k: int(Decimal(v_.lstrip('-')).quantize(Decimal(1), rounding=ROUND_HALF_UP)) for k, v_ in told_text.items()}
+        ta_ = np.array([tabs[(s, int(k))] for s, k in zip(frames.segment, frames.frame_idx)])
+        rows5n2 = []
+        for m in models:
+            for c in CONDS:
+                x = ans[(m, c)]
+                ok = ~np.isnan(x)
+                eq = (x == ta_[:, None]) & ok
+                rows5n2.append(dict(model=m, condition=c, answers=int(ok.sum()), equal_to_abs_told_integer=int(eq.sum()),
+                                    share=float(eq.sum() / ok.sum())))
+        fn2 = write('told_number_abs_answers.csv', rows5n2)
+        for i, d in enumerate(rows5n2):
+            say(f"  {fn2} line {i + 2}: {d['model']:20s} {d['condition']:10s} answers equal to |the told number| rounded "
+                f"to an integer: {d['equal_to_abs_told_integer']} of {d['answers']} ({r(d['share'])})")
     words = [w_.strip() for w_ in a.words.split(',') if w_.strip()]
     wpat = re.compile(r'(?<![A-Za-z0-9])(?:' + '|'.join(re.escape(w_) for w_ in words) + r')(?![A-Za-z0-9])',
                       re.IGNORECASE)
@@ -690,6 +752,41 @@ def main():
     for i, d in enumerate(samples):
         say(f"  {fsm} line {i + 2}: {d['model']} draw {d['draw']}: {d['segment']} frame {d['frame_idx']} {d['condition']} "
             f"repeat {d['repeat']}: {d['reason']!r}")
+    if a.words2:                                     # a second word class, counted and drawn apart (the same way)
+        words2 = [w_.strip() for w_ in a.words2.split(',') if w_.strip()]
+        wpat2 = re.compile(r'(?<![A-Za-z0-9])(?:' + '|'.join(re.escape(w_) for w_ in words2) + r')(?![A-Za-z0-9])',
+                           re.IGNORECASE)
+        say(f'  reasons, {a.words2_label}: words {words2} (case-insensitive, whole words)')
+        rows5w2, samples2 = [], []
+        for m, path in ((a.base, a.reasons_base), (a.new, a.reasons_new)):
+            rs = pd.read_csv(path, dtype={'reason': str}, keep_default_na=False)
+            rs = rs[rs.model == m]
+            rs['frame_idx'] = rs['frame_idx'].astype(int)
+            rs = rs[pd.MultiIndex.from_frame(rs[['segment', 'frame_idx']]).isin(mi)].copy()
+            rs['hit'] = rs['reason'].map(lambda t_: bool(wpat2.search(t_)))
+            rs['has_reason'] = rs['reason'] != ''
+            rs['answered'] = rs['risk'] != ''
+            for c in CONDS + ['all conditions']:
+                g = rs if c == 'all conditions' else rs[rs.condition == c]
+                rows5w2.append(dict(model=m, condition=c, answers=int(g.answered.sum()),
+                                    with_reason=int(g.has_reason.sum()), with_a_word=int((g.hit & g.has_reason).sum()),
+                                    share=float((g.hit & g.has_reason).sum() / g.has_reason.sum())))
+            pool = rs[rs.hit & rs.has_reason].assign(ci=lambda t_: t_.condition.map(CONDS.index)) \
+                .sort_values(['ci', 'segment', 'frame_idx', 'repeat']).reset_index(drop=True)
+            pick = np.random.default_rng(a.sample_seed).choice(len(pool), size=min(5, len(pool)), replace=False)
+            for k_, i_ in enumerate(pick, 1):
+                p_ = pool.iloc[int(i_)]
+                samples2.append(dict(model=m, draw=k_, segment=p_['segment'], frame_idx=int(p_['frame_idx']),
+                                     condition=p_['condition'], repeat=int(p_['repeat']), forced=p_['forced'],
+                                     reason=p_['reason']))
+        fw2 = write('reason_words2.csv', rows5w2)
+        fsm2 = write('reason_samples2.csv', samples2)
+        for i, d in enumerate(rows5w2):
+            say(f"  {fw2} line {i + 2}: {d['model']:20s} {d['condition']:14s} reasons with a word {d['with_a_word']} of "
+                f"{d['with_reason']} ({r(d['share'])}); answers {d['answers']}")
+        for i, d in enumerate(samples2):
+            say(f"  {fsm2} line {i + 2}: {d['model']} draw {d['draw']}: {d['segment']} frame {d['frame_idx']} "
+                f"{d['condition']} repeat {d['repeat']}: {d['reason']!r}")
     for c in CONDS:
         for q_ in range(1, 6):
             sel = cls == q_
@@ -714,6 +811,8 @@ def main():
             f"[{r(d['new_rank_lo'])}, {r(d['new_rank_hi'])}]; new - base {r(d['diff_mean'])} [{r(d['diff_mean_lo'])}, "
             f"{r(d['diff_mean_hi'])}]")
     fr = frames.copy()
+    for fc in [c_ for c_ in a.frame_cols.split(',') if c_]:
+        fr[f'true_{fc}'] = tr[fc].to_numpy(float)
     fr[f'true_{a.told_column}'] = told_true
     for c in CONDS:
         for m in models:
@@ -734,17 +833,85 @@ def main():
             d = next(x for x in rows1 if x['condition'] == c and x['grouping'] == 'all' and x['ssm'] == s)
             return {'above 0': 'better', 'below 0': 'worse', 'contains 0': 'no change seen'}.get(d['side'], d['side'])
         return get
-    for s in av.SSMS:
-        main_, same = agree(r1(s))
-        exp = 'expected better' if s in EXPECT_BETTER else ('expected little change' if s in EXPECT_SAME else 'no expectation')
-        say(f'  1 {s:6s}: sep_camera {main_} ({exp}); the same in {len(same)} of 5 conditions {same}'
-            + ('; every condition' if len(same) >= 4 else ''))
-
     def r2(c):
         d = next(x for x in rows2 if x['condition'] == c)
         return {'below 0': 'changed the ranking beyond its own repeat-to-repeat differences',
                 'contains 0': 'no change beyond the repeat-to-repeat differences seen',
                 'above 0': 'between runs closer than within (no reading fixed)'}.get(d['D_side'], d['D_side'])
+
+    def every(same):
+        return '; every condition' if len(same) >= 4 else ''
+
+    if a.reading == 'accel':                          # the acceleration run's readings (user, 2026-11-12)
+        cmp = os.path.join(a.compare_root, sname)
+        cp = a.compare_prefix
+        c_rank = {d['condition']: (ln, d) for ln, d in csv_rows(os.path.join(cmp, cp + 'ranking.csv'))}
+        c_sd = {(d['condition'], d['grouping']): (ln, d) for ln, d in
+                csv_rows(os.path.join(cmp, cp + 'speed_distance_tau_b.csv'))
+                if ' - ' in d['model'] and d['variable'] == 'true_ego_speed'}
+        c_k = {d['condition']: (ln, d) for ln, d in csv_rows(os.path.join(cmp, cp + 'k_coefficients.csv'))
+               if d['version'] == 'K' and ' - ' in d['model'] and d['term'] == 'true_ego_speed'}
+        for s in av.SSMS:
+            main_, same = agree(r1(s))
+            exp = 'expected better' if s in ('MTTC', 'CI') else 'expected little change'
+            say(f'  1 {s:6s}: sep_camera {main_} ({exp}); the same in {len(same)} of 5 conditions {same}' + every(same))
+        main_, same = agree(r2)
+        say(f'  2 D: sep_camera {main_}; the same in {len(same)} of 5 {same}' + every(same))
+        for c in CONDS:
+            d = next(x for x in rows2 if x['condition'] == c)
+            ln, e = c_rank[c]
+            say(f"     {c:10s} D here {r(d['D'])} [{r(d['D_lo'])}, {r(d['D_hi'])}]; the speed run's {e['D']} "
+                f"[{e['D_lo']}, {e['D_hi']}] ({cmp}/{cp}ranking.csv line {ln})")
+
+        def accel_side(sd):
+            return {'above 0': 'changed: positive (higher score when accelerating)',
+                    'below 0': 'changed: negative (higher score when slowing down)',
+                    'contains 0': 'no change seen'}.get(sd, sd)
+
+        def ctrl_side(sd):
+            return {'contains 0': 'contains 0: the speed run\'s shift came from the content of its sentence',
+                    'above 0': 'leaves out 0 (above 0)', 'below 0': 'leaves out 0 (below 0)'}.get(sd, sd)
+
+        def diff3(c, var, gn):
+            return next(x for x in rows3 if x['condition'] == c and x['variable'] == var and x['grouping'] == gn
+                        and x['model'] == f'{a.new} - {a.base}')
+
+        def diff4(c, term):
+            return next(x for x in rows4c if x['version'] == 'K' and x['condition'] == c and x['term'] == term
+                        and x['model'] == f'{a.new} - {a.base}')
+        for gn in G3:
+            main_, same = agree(lambda c, gn=gn: accel_side(diff3(c, 'true_ego_accel', gn)['side']))
+            say(f'  3 ego-acceleration tau-b difference ({gn}): sep_camera {main_}; the same in {len(same)} of 5 {same}'
+                + every(same))
+        main_, same = agree(lambda c: accel_side(diff4(c, 'true_ego_accel')['side']))
+        say(f'  4 ego-acceleration coefficient difference (K): sep_camera {main_}; the same in {len(same)} of 5 {same}'
+            + every(same))
+        for gn in G3:
+            main_, same = agree(lambda c, gn=gn: ctrl_side(diff3(c, 'true_ego_speed', gn)['side']))
+            say(f'  control, ego-speed tau-b difference ({gn}): sep_camera {main_}; the same in {len(same)} of 5 '
+                f'{same}' + every(same))
+            for c in CONDS:
+                d = diff3(c, 'true_ego_speed', gn)
+                ln, e = c_sd[(c, gn)]
+                say(f"     {c:10s} here {r(d['tau_b'])} [{r(d['tau_b_lo'])}, {r(d['tau_b_hi'])}]; the speed run's "
+                    f"{e['tau_b']} [{e['tau_b_lo']}, {e['tau_b_hi']}] ({cmp}/{cp}speed_distance_tau_b.csv line {ln})")
+        main_, same = agree(lambda c: ctrl_side(diff4(c, 'true_ego_speed')['side']))
+        say(f'  control, ego-speed coefficient difference (K): sep_camera {main_}; the same in {len(same)} of 5 {same}'
+            + every(same))
+        for c in CONDS:
+            d = diff4(c, 'true_ego_speed')
+            ln, e = c_k[c]
+            say(f"     {c:10s} here {r(d['coef'])} [{r(d['coef_lo'])}, {r(d['coef_hi'])}]; the speed run's {e['coef']} "
+                f"[{e['coef_lo']}, {e['coef_hi']}] ({cmp}/{cp}k_coefficients.csv line {ln})")
+        say(f'\ndone in {time.time() - t0:.0f} s; checks not met: {len(failed)}' + (f': {failed}' if failed else ''))
+        rep.close()
+        sys.exit(1 if failed else 0)
+
+    for s in av.SSMS:
+        main_, same = agree(r1(s))
+        exp = 'expected better' if s in EXPECT_BETTER else ('expected little change' if s in EXPECT_SAME else 'no expectation')
+        say(f'  1 {s:6s}: sep_camera {main_} ({exp}); the same in {len(same)} of 5 conditions {same}'
+            + ('; every condition' if len(same) >= 4 else ''))
     main_, same = agree(r2)
     say(f'  2 D: sep_camera {main_}; the same in {len(same)} of 5 {same}' + ('; every condition' if len(same) >= 4 else ''))
 

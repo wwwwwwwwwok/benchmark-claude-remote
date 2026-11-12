@@ -10,7 +10,8 @@
 #    <out>/sensitivity_1123; code/extract_reasons.py for both models -> <out>/reasons_<model>.csv;
 #  3 code/analyze_told_quantity.py on both subfolders: tables exploratory_<run>_*.csv, report exploratory_<run>_report.out
 #    (the readings are in its docstring, fixed before the run).
-# The accel run's words for the reasons are not decided: give them as WORDS=... in the environment.
+# The accel run (user, 2026-11-12): acceleration words and, apart, brake words for the reasons; the ego acceleration
+# added to items 3 and the frame table; |told number|; its own readings, beside the speed run's numbers.
 # usage (from the repository root): sbatch kamiak/told_risk_analysis.sbatch speed|accel
 #SBATCH --job-name=told-risk
 #SBATCH --partition=kamiak
@@ -33,15 +34,18 @@ case $RUN in
         WRAP=/data/lab/cejli/sy/speed_risk/code/run_vlm_speed.py          # the copy the job ran
         TOLD_CSV=/data/lab/cejli/sy/speed_risk/ego_speed_main.csv        # the csv the job read
         COL=v_ego
-        WORDS='speed,m/s,meters per second,mph,km/h,fast,slow,slowly' ;;
-    accel)
+        WORDS='speed,m/s,meters per second,mph,km/h,fast,slow,slowly'
+        EXTRA=() ;;
+    accel)                                                               # user, 2026-11-12
         SRC=$L/vlm_scores/qwen3.6-27b-accel/main_accel_qwen3.6-27b
         NAME=qwen3.6-27b-accel
         OUT=$L/analysis/accel_risk_27b
         WRAP=$REPO/code/run_vlm_accel.py
         TOLD_CSV=$L/quantities/truth_main.csv
         COL=a_ego
-        WORDS=${WORDS:?give WORDS=... for the accel run} ;;
+        WORDS='acceleration,accelerating,accelerate,accelerates,accelerated,deceleration,decelerating,decelerate,decelerates,decelerated,speeding up,slowing down,m/s²,m/s^2,meters per second squared'
+        EXTRA=(--extra_cues a_ego --told_abs --words2 'brake,brakes,braking' --words2_label 'brake words'
+               --frame_cols v_ego --reading accel --compare_root "$L/analysis/speed_risk_27b") ;;
     *)
         echo "the first argument is speed or accel" >&2; exit 1 ;;
 esac
@@ -85,7 +89,7 @@ echo "step 2 done $(date '+%F %T')"
 
 # 3
 ARGS=("$NAME" "$BASE" "$OUT/reasons_$NAME.csv" "$OUT/reasons_$BASE.csv" "$WRAP" "$TOLD_CSV" "$COL"
-      --words "$WORDS" --prefix "$PREFIX" --workers 4)
+      --words "$WORDS" --prefix "$PREFIX" --workers 4 "${EXTRA[@]}")
 $PY -I code/analyze_told_quantity.py "$OUT/main_1084" "${ARGS[@]}" > "$OUT/main_1084_$RUN.log" 2>&1 &
 P5=$!
 $PY -I code/analyze_told_quantity.py "$OUT/sensitivity_1123" "${ARGS[@]}" > "$OUT/sensitivity_1123_$RUN.log" 2>&1 &
