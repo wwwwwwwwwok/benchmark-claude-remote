@@ -115,6 +115,20 @@ case "$MODEL" in
                     --default-chat-template-kwargs '{"enable_thinking": false}')
         SAMPLING=(--temperature 0.7 --top_p 0.8 --top_k 20 --max_tokens 1024)
         ;;
+    gemma-4-31b-it)   # google/gemma-4-31B-it rev 842da379 (user, 2026-11-12): thinking on through its own chat template
+                      # (enable_thinking true as the server default: the template puts <|think|> at the top of the
+                      # system turn and the reply starts with <|channel>thought ... <channel|>); our system prompt and
+                      # questions unchanged. --reasoning-parser gemma4 reads the same default and moves the thinking
+                      # into `reasoning`. Pictures: up to 560 visual tokens each (--mm-processor-kwargs; the
+                      # processor's default is 280): grid 532 + 2, front cameras 532 + 2, side cameras 544 + 2.
+                      # Sampling: its generation_config.json (1.0 / 0.95 / 64); --max_tokens 24576 and context 40960
+                      # as qwen3.6-27b. Forced answers: kamiak/force_answer.sbatch's gemma-4-31b-it case.
+        MODEL_DIR=/data/lab/cejli/sy/models/gemma-4-31B-it
+        SERVE_ARGS=(--max-model-len 40960 --reasoning-parser gemma4
+                    --default-chat-template-kwargs '{"enable_thinking": true}'
+                    --mm-processor-kwargs '{"max_soft_tokens": 560}')
+        SAMPLING=(--temperature 1.0 --top_p 0.95 --top_k 64 --max_tokens 24576)
+        ;;
     *) echo "unknown MODEL=$MODEL"; exit 1 ;;
 esac
 SERVED_NAME=$MODEL                                            # name recorded in every output line

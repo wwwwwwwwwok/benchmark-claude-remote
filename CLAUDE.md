@@ -810,5 +810,6 @@
   - 补答：用同一句英文，结尾换成 Gemma 的 `<channel|>`。条件：`force_answer.py` 不加新选项时，Qwen 的补答输出要和现在逐字节一样（跑回归测试）；先渲染一遍，确认原来的思考内容、那句英文、`<channel|>` 都在提示里，没被模板删掉；小试、试跑时报出要补答的条数和补完答出的条数。
   - 流程照以前加新模型的做法：小试 → 和官方 transformers 代码核对（提示 token、图片 token、像素值完全一样；贪心生成逐 token 比，标准同 Qwen-Drive 那次）→ 试跑（跑完把用时估计报给我，我确认后再开主实验）→ 主实验 → 补答 → 压缩 → 8 个模型的总分析。总分析里原来 7 个模型的行要和 `after_qwen3.5-4b` 逐行一样。每一步有一条不满足就停下报我。
   - 11-12 下载完（dtn，作业 31699642，7 分 41 秒），11/11 个文件和官方校验值一致（srun 31699792）；官方清单在 `kamiak/model_files/gemma-4-31B-it_842da37….json`。细节在 `docs/handoff.md` 第 2 节"Gemma 4 31B-it"。
+  - 11-12 准备：`force_answer.py` 加了 `--thinking_format gemma4`，不加时 Qwen 的补答输出逐字节一样（回归测试 srun 31699968）；`qwen_vlm.sbatch`、`force_answer.sbatch` 加了 `gemma-4-31b-it` 一段。CPU 核对过了（srun 31701039）：主实验和试跑的图只有 3 种尺寸，处理程序算的图片 token 和手算的表一样，整条提示 3,020 / 13,895 / 13,891 / 818 / 2,956 个 token，补答在模板这一层渲染对。官方模板会去掉每段文字两头的换行（标签和图片之间没有换行），是模板自己的写法，两边一样。家目录不够，试跑放 `/data/lab/cejli/sy/waymo_v143/vlm_scores/gemma-4-31b-it/`。官方那一步借 `benchmark` 环境里的 accelerate（只做了符号链接，没装包、没改环境）。GPU 核对作业 `kamiak/checks/gemma4_compare/gemma4_check.sbatch`（小试 → 补答渲染 → 和官方代码核对），过了才接试跑和试跑的补答。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。
 - 家里电脑：用另一个数据集测试。只要写一个转换脚本，输出和上面相同格式的每段文件，`wod_common.py` 和 `waymo_ssm_frames.py` 就能直接用。

@@ -20,6 +20,7 @@ set -euo pipefail
 CONDA_ENV=/data/lab/cejli/sy/conda_envs/vllm_cu129
 N_GPUS=2
 MODEL=${MODEL:?set MODEL=qwen3.6-27b or MODEL=qwen3-vl-32b-thinking}
+FA_ARGS=()                      # extra force_answer.py options (empty except for gemma-4-31b-it)
 
 case "$MODEL" in
     qwen3-vl-32b-thinking)
@@ -42,6 +43,16 @@ case "$MODEL" in
         MODEL_DIR=/data/lab/cejli/sy/models/Qwen3.6-27B
         SERVE_ARGS=(--max-model-len 40960 --gdn-prefill-backend triton)
         SAMPLING=(--temperature 1.0 --top_p 0.95 --top_k 20)
+        ;;
+    gemma-4-31b-it)   # user, 2026-11-12: the same sentence, closed by Gemma's <channel|> (force_answer.py
+                      # --thinking_format gemma4: the thinking goes back in the assistant message's reasoning field).
+                      # The run's enable_thinking default (the system turn starts with <|think|> as in the run) and
+                      # image budget; no --reasoning-parser, as for the other models.
+        MODEL_DIR=/data/lab/cejli/sy/models/gemma-4-31B-it
+        SERVE_ARGS=(--max-model-len 40960 --default-chat-template-kwargs '{"enable_thinking": true}'
+                    --mm-processor-kwargs '{"max_soft_tokens": 560}')
+        SAMPLING=(--temperature 1.0 --top_p 0.95 --top_k 64)
+        FA_ARGS=(--thinking_format gemma4)
         ;;
     *) echo "unknown MODEL=$MODEL (only the models that think)"; exit 1 ;;
 esac
@@ -76,4 +87,4 @@ python -I -u code/force_answer.py --pilot "$PILOT" \
     --sep_targets results/vlm_inputs_separate/targets.csv \
     --out "$OUT" \
     --base_url "http://localhost:$PORT/v1" --model "$SERVED_NAME" \
-    "${SAMPLING[@]}" --max_tokens 1024 --top_logprobs 5 --send "$@"
+    "${SAMPLING[@]}" "${FA_ARGS[@]}" --max_tokens 1024 --top_logprobs 5 --send "$@"

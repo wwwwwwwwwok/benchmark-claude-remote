@@ -21,7 +21,16 @@ Usage (see kamiak/force_answer.sbatch):
 
 Output: one JSON line per truncated reply, with its key and sampling settings, forced_answer=true, the thinking that was
 sent back (`reasoning`, as in the pilot file), the new answer (`text`, `parsed`), finish_reason, usage, latency and
-log-probabilities of the answer tokens. The pilot file is not changed."""
+log-probabilities of the answer tokens. The pilot file is not changed.
+
+--thinking_format gemma4 (Gemma 4 31B-it, user 2026-11-12; without the option everything is as before, Qwen's way):
+the same sentence, closed with Gemma's own end of thinking, <channel|>, instead of Qwen's </think>. Gemma's chat
+template deletes <|channel>...<channel|> from an assistant message's content, so the thinking goes in the assistant
+message's `reasoning` field (vLLM passes it to the template) with empty content; the template writes
+'<|channel>thought\\n' + reasoning + '\\n<channel|>', and continue_final_message ends the prompt right there. So the
+model sees <|channel>thought\\n{thinking}{GEMMA4_SENTENCE}\\n<channel|> and writes its answer next. Start that server
+with the run's --default-chat-template-kwargs '{"enable_thinking": true}' (the system turn starts with <|think|> as in
+the run) and without --reasoning-parser."""
 import argparse
 import json
 import os
@@ -38,6 +47,25 @@ sys.stdout.reconfigure(encoding='utf-8')
 # verbatim from the thinking-budget example in the Qwen quickstart docs (qwen.readthedocs.io, checked 2026-10-20)
 EARLY_STOPPING_TEXT = ('\n\nConsidering the limited time by the user, I have to give the solution based on the thinking '
                        'directly now.\n</think>\n\n')
+# --thinking_format gemma4 (user, 2026-11-12): the same sentence; Gemma's chat template adds '\n<channel|>' after it
+GEMMA4_SENTENCE = ('\n\nConsidering the limited time by the user, I have to give the solution based on the thinking '
+                   'directly now.')
+GEMMA4_CLOSE = '\n<channel|>'
+
+
+def forced_messages(parts, thinking, thinking_format='qwen', key=None):
+    """The request with the model's thinking sent back as the start of its turn, and the text that follows the thinking
+    in the prompt (recorded as early_stopping_text)."""
+    if thinking_format == 'qwen':
+        assert thinking and '<think>' not in thinking and '</think>' not in thinking, key
+        # the chat template turns "<think>\n...</think>" in an assistant message back into the thinking block,
+        # so the model sees: <think>\n{thinking}{EARLY_STOPPING_TEXT} and writes its answer next
+        prefill = '<think>\n' + thinking + EARLY_STOPPING_TEXT
+        return to_messages(parts) + [{'role': 'assistant', 'content': prefill}], EARLY_STOPPING_TEXT
+    assert thinking_format == 'gemma4', thinking_format
+    assert thinking and '<|channel>' not in thinking and '<channel|>' not in thinking, key
+    return (to_messages(parts) + [{'role': 'assistant', 'reasoning': thinking + GEMMA4_SENTENCE, 'content': ''}],
+            GEMMA4_SENTENCE + GEMMA4_CLOSE)
 
 
 def main():
@@ -56,6 +84,8 @@ def main():
     ap.add_argument('--top_logprobs', type=int, default=5)
     ap.add_argument('--timeout', type=float, default=3600)
     ap.add_argument('--send', action='store_true', help='actually send the requests (default: check only)')
+    ap.add_argument('--thinking_format', choices=['qwen', 'gemma4'], default='qwen',
+                    help="how the thinking goes back (default qwen, as before; gemma4: see the module's docstring)")
     a = ap.parse_args()
 
     cut = []
@@ -96,12 +126,8 @@ def main():
         by_time = [os.path.join(root_s, p) for p in r['images_by_time'].split(';')]
         sep_imgs = {cam: [by_time[i * 5 + c] for i in range(5)] for c, cam in enumerate(CAMERAS)}
         thinking = (old['reasoning'] or '').strip()
-        assert thinking and '<think>' not in thinking and '</think>' not in thinking, key
-        # the chat template turns "<think>\n...</think>" in an assistant message back into the thinking block,
-        # so the model sees: <think>\n{thinking}{EARLY_STOPPING_TEXT} and writes its answer next
-        prefill = '<think>\n' + thinking + EARLY_STOPPING_TEXT
-        messages = to_messages(build(old['condition'], grid_imgs, sep_imgs)) + [
-            {'role': 'assistant', 'content': prefill}]
+        messages, early_text = forced_messages(build(old['condition'], grid_imgs, sep_imgs), thinking,
+                                               a.thinking_format, key)
         print(f'{key[0][:6]} frame {key[1]} {key[2]} repeat {key[3]}: thinking {len(thinking):,} characters, '
               f'{old["usage"]["completion_tokens"]:,} tokens; prompt was {old["usage"]["prompt_tokens"]:,} tokens')
         if not a.send:
@@ -109,7 +135,7 @@ def main():
 
         rec = {k: old[k] for k in ('segment', 'frame_idx', 'condition', 'repeat', 'model', 'temperature', 'top_p',
                                    'top_k')}
-        rec.update(forced_answer=True, early_stopping_text=EARLY_STOPPING_TEXT, max_tokens=a.max_tokens,
+        rec.update(forced_answer=True, early_stopping_text=early_text, max_tokens=a.max_tokens,
                    original_max_tokens=old['max_tokens'], original_usage=old['usage'], reasoning=old['reasoning'])
         t0 = time.time()
         try:
