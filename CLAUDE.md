@@ -801,5 +801,14 @@
     - 11-10：周末跑完的两份核对、分析完，报给我了（`docs/handoff.md` 第 2 节"11-07 晚到 11-08 跑完的两份"）：27B 开思考的物理量 grid 那份（探索性；数值误差比 sep_camera 小，排先后不如 sep_camera）；第 2 步只给文字（3,125 条全读出；车越快分越高，和图像上方向相反；TTC 的 τ-b 0.72–0.87）。
 - 风险分析加"同一种天气"分组（上面"比较分组"里 11-03 那条）：事前核对过了（241 段都有天气，time_of_day 和 `scene_labels_waymo.csv` 一字不差）；包装脚本 `kamiak/main_run/analyze_weather.sh`、比较脚本 `kamiak/checks/compare_weather_grouping.py` 在假数据上测过（31553371）。11-04 01:26 交了 31554291（afterany:31554290，只用 CPU）。`summarize.py` 照我 11-04 定的改了两处，改前改后在 `after_qwen3.5-4b` 上 4 种用法逐字一样（srun 31554297）；天气那份跑完再用 srun 对它跑 summarize。
   - 11-04 05:18 跑完（31554291，3 小时 17 分，FAIL=0），和 `after_qwen3.5-4b` 的比较全过；srun 31558371 跑了 summarize（`after_qwen3.5-4b_weather/summary_main_vs_sensitivity.txt`、`summary_sensitivity.txt`，原来的每一行都在，只多了天气那几节）。结果在 `docs/handoff.md`"风险分析加'同一种天气'分组"那节最后一条，已报给我。
+- 我定（2026-11-12）：加 Gemma 4，用 `google/gemma-4-31B-it`，跑开思考的风险主实验，进 4.7。设置（我定的）：
+  - 版本固定在 842da3794eaa0b77d5f08bae87a17459d91ff475。下 11 个文件，不下 `.eval_results/mmmu_pro.yaml`（按设计没下，跑分记录，运行用不到）。
+  - 开思考：用对话模板的 enable_thinking=True，不改我们的系统提示和问题文字。vLLM 0.32.0 用服务端的 `--default-chat-template-kwargs '{"enable_thinking": true}'`，同一个值也传给 gemma4 思考解析器；`run_vlm.py` 不改。
+  - 采样用模型 generation_config.json 里的官方值：温度 1.0、top_p 0.95、top_k 64；max_tokens 24,576，上下文 40,960，2 卡并行。
+  - 图片 token 预算 560（`--mm-processor-kwargs '{"max_soft_tokens": 560}'`）；用真正的处理程序核对每种输入的图片 token 数，和手算的表比。
+  - 其余（5 种输入、5 次、1,123 帧，候选概率个数、补答的做法）都和 Qwen3.6-27B 主实验一样。
+  - 补答：用同一句英文，结尾换成 Gemma 的 `<channel|>`。条件：`force_answer.py` 不加新选项时，Qwen 的补答输出要和现在逐字节一样（跑回归测试）；先渲染一遍，确认原来的思考内容、那句英文、`<channel|>` 都在提示里，没被模板删掉；小试、试跑时报出要补答的条数和补完答出的条数。
+  - 流程照以前加新模型的做法：小试 → 和官方 transformers 代码核对（提示 token、图片 token、像素值完全一样；贪心生成逐 token 比，标准同 Qwen-Drive 那次）→ 试跑（跑完把用时估计报给我，我确认后再开主实验）→ 主实验 → 补答 → 压缩 → 8 个模型的总分析。总分析里原来 7 个模型的行要和 `after_qwen3.5-4b` 逐行一样。每一步有一条不满足就停下报我。
+  - 11-12 下载完（dtn，作业 31699642，7 分 41 秒），11/11 个文件和官方校验值一致（srun 31699792）；官方清单在 `kamiak/model_files/gemma-4-31B-it_842da37….json`。细节在 `docs/handoff.md` 第 2 节"Gemma 4 31B-it"。
 - 对比实验（多出来的 750 帧）以后再定跑不跑。
 - 家里电脑：用另一个数据集测试。只要写一个转换脚本，输出和上面相同格式的每段文件，`wod_common.py` 和 `waymo_ssm_frames.py` 就能直接用。
