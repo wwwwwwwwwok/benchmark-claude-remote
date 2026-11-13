@@ -11,6 +11,10 @@ qwen3.6-27b-accel_sep_camera - qwen3.6-27b_sep_camera, both score_mean).
   up, 0 = thought steady, negative = thought slowing down). Per group: frames, segments, mean score change; an interval
   for the groups with 30 frames or more (user). Two differences with intervals: told speeding up: thought slowing down
   - thought steady; told slowing down: thought steady - thought slowing down.
+3 check (user, 2026-11-13): the five true-acceleration classes of the acceleration run (cut points as
+  analyze_told_quantity.py: numpy quantiles 0.2 / 0.4 / 0.6 / 0.8 of the true acceleration over the 1,084 frames, class
+  = 1 + the number of cut points below): per class the range, frames and mean score change, which must be, as text,
+  those of exploratory_accel_told_classes.csv (sep_camera rows, lines 12-16: told_min, told_max, frames, diff_mean).
 Intervals: the main analysis's 2,000 resamples of whole segments (default_rng(20261021), one choice over the sorted
 segments per resample; frames enter as often as their segment is drawn), the statistic recomputed (the regression
 refitted) in every resample; 2.5 / 97.5 % percentiles (numpy linear), none when fewer than 90 % defined (analyze_rules.ci).
@@ -19,6 +23,7 @@ usage: python -I paper_sec45_est_accel.py <waymo_v143 folder> <sec44_frames.csv>
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ.setdefault(_v, '1')
+import csv  # noqa: E402
 import hashlib  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
@@ -133,7 +138,37 @@ for name, _, _ in DIFFS:
 print(f'  frames told 0.0: {int((ts == 0).sum())}; estimates of exactly 0: {int((es == 0).sum())}; all frames: mean '
       f'change {r(float(d.mean()))}')
 pd.DataFrame(rows2).to_csv(os.path.join(OUT, 'exploratory_sec45_est_accel_groups.csv'), index=False)
-print(f'\nwritten: exploratory_sec45_est_accel_regression.csv, _groups.csv in {OUT}')
+
+print('\n3. check: the five true-acceleration classes of the acceleration run (sep_camera)')
+
+
+def txt(x):
+    return '' if x is None or (isinstance(x, float) and np.isnan(x)) else repr(float(x))
+
+
+qcut = np.quantile(a, [0.2, 0.4, 0.6, 0.8])
+cls = 1 + sum((a > q_).astype(int) for q_ in qcut)
+p_cls = os.path.join(SUB, 'exploratory_accel_told_classes.csv')
+with open(p_cls, newline='', encoding='utf-8') as f:
+    rd = csv.DictReader(f)
+    tc = {int(x['told_class']): (rd.line_num, x) for x in rd if x['condition'] == 'sep_camera'}
+rows3, n_same = [], 0
+for c_ in range(1, 6):
+    sel = cls == c_
+    ln, x = tc[c_]
+    mine = (txt(float(a[sel].min())), txt(float(a[sel].max())), str(int(sel.sum())), txt(float(d[sel].mean())))
+    same = mine == (x['told_min'], x['told_max'], x['frames'], x['diff_mean'])
+    n_same += same
+    rows3.append(dict(told_class=c_, true_accel_min=float(a[sel].min()), true_accel_max=float(a[sel].max()),
+                      frames=int(sel.sum()), mean_change=float(d[sel].mean()), told_classes_line=ln, same_text=same))
+    print(f'  class {c_} (true acceleration {mine[0]} to {mine[1]} m/s2, {mine[2]} frames): mean change {mine[3]}; '
+          f'{os.path.basename(p_cls)} line {ln}: {x["told_min"]} to {x["told_max"]}, {x["frames"]} frames, diff_mean '
+          f'{x["diff_mean"]}; same text: {same}')
+check(n_same == 5, f'classes: range, frames and mean change recomputed = {os.path.basename(p_cls)} (sep_camera rows, '
+      f'lines {sorted(ln for ln, _ in tc.values())}): {n_same} of 5 the same text')
+print(f'  cut points (m/s2): {[repr(float(x)) for x in qcut]}')
+pd.DataFrame(rows3).to_csv(os.path.join(OUT, 'exploratory_sec45_est_accel_classes.csv'), index=False)
+print(f'\nwritten: exploratory_sec45_est_accel_regression.csv, _groups.csv, _classes.csv in {OUT}')
 print(f'checks not met: {len(failed)}')
 for w in failed:
     print('  ', w)
