@@ -39,7 +39,26 @@ Checks (the program stops when one is not met): 1 frames and segments per group 
   exploratory_sec45_est_speed_groups.csv; the acceleration 4 - 3 of the mean change = est_accel_groups.csv line 11.
 Outputs in <out_dir>: exploratory_groups_ssm_counts.csv, _tau_b.csv, _mean_change.csv, _group_differences.csv,
   _check.csv; groups_ssm_frames.csv (one row per frame, numbers only) and groups_ssm_frames_columns.txt.
+--pairs --ref <the out_dir of the run without --pairs> (user, 2026-11-13, after 6ea1cd9; EXPLORATORY; without the option
+  every output is the same as before, byte for byte): the same inputs, groups and checks up to the group counts, then
+  tau-b over classes of frame pairs: tau-b = S / sqrt(nx ny), S = concordant - discordant pairs, nx, ny = pairs untied in
+  the score, in the row, each summed over the pairs of the class (as the pooled "same group" tau-b of 4.3), same 11 rows.
+  Speed (1,084 frames, images only vs + speed): within (pairs inside the underestimated group plus pairs inside the
+  overestimated group) and across (one frame of each). Acceleration (version 2, 1,055 frames, images only vs + accel;
+  the told direction: groups 3, 4 speeding up, 5, 7 slowing down, 9, 10 zero): within (inside each of the 6 groups),
+  across with the same told direction, with different told directions, and among those told speeding up x told slowing
+  down. Per class images only, told, change; differences across - within (speed) and speeding up x slowing down - within
+  (acceleration) of the change. Among the speeding up x slowing down pairs: the share where the frame told speeding up
+  scores higher, lower, the same, for both runs and + accel - images only; for the 9 SSMs and the true speed the share
+  where the frame told speeding up is the more dangerous (faster), point estimates only. The same 2,000 resamples, every
+  statistic recomputed on the drawn frames (a frame drawn twice: the pair of its two copies is tied in both, so it adds
+  nothing), every difference within the resample, analyze_rules.ci. Checks (stop when not met): pairs per class as given
+  by the user; the classes' S, nx, ny add up to all pairs' (analyze_vlm_ssm.pair_counts on all frames); all pairs' tau-b
+  and each group's own tau-b = the run without --pairs (within 1e-12, and whether the text is the same); the user's
+  local point estimates and counts, the same text. Outputs in <out_dir>: exploratory_groups_ssm_pairs_tau_b.csv,
+  _differences.csv, _higher.csv, _check.csv (and exploratory_groups_ssm_counts.csv as without the option).
 usage: python -I paper_sec45_groups_ssm.py <waymo_v143 folder> <sec44_frames.csv> <sec45 folder> <out_dir> [--workers N]
+       [--pairs --ref <out_dir of the run without --pairs>]
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
@@ -171,6 +190,299 @@ def one(b):
     return np.array([rr.get(k, np.nan) for k in G['keys']], float)
 
 
+# ---------------------------------------------------------------------------------------------------- --pairs
+P = {}                                                            # data for the --pairs worker processes (fork)
+# pair codes: speed 0 within, 1 across; acceleration 0 within, 1 across with the same told direction, 2 told speeding
+# up x told slowing down, 3 the other pairs with different told directions (one frame told 0)
+CLS = {'speed': {'within': [0], 'across': [1], 'all': [0, 1]},
+       'accel': {'within': [0], 'across_same_told': [1], 'different_told': [2, 3], 'up_x_down': [2],
+                 'all': [0, 1, 2, 3]}}
+CLS_NAME = {'within': 'within groups', 'across': 'across the two groups', 'all': 'all pairs',
+            'across_same_told': 'across groups, the same told direction', 'different_told': 'different told directions',
+            'up_x_down': 'told speeding up x told slowing down'}
+PAIR_N = {('speed', 'within'): 310911, ('speed', 'across'): 276075, ('accel', 'within'): 130458,
+          ('accel', 'across_same_told'): 113325, ('accel', 'different_told'): 312202, ('accel', 'up_x_down'): 209088}
+PAIR_DIFFS = [('speed', 'across', 'within'), ('accel', 'up_x_down', 'within')]
+# the user's local point estimates: the same text; the two marked 15 were given to 15 significant digits (the first run
+# of --pairs stopped there, 31704812: rounded to 15 significant digits they are the same; user, 2026-11-13: accept them
+# as matching when rounded to 15 significant digits, the others the same text)
+USER_PT = [(('speed', 'within', 'THW'), '0.08340830014358655', 0), (('speed', 'across', 'THW'), '0.08395416093171847', 0),
+           (('speed', 'within', 'PSD'), '0.15396294060766805', 0), (('speed', 'across', 'PSD'), '0.15325468083277374', 0),
+           (('accel', 'within', 'CI'), '0.0003495514201248', 15), (('accel', 'up_x_down', 'CI'), '0.11959168676598457', 0),
+           (('accel', 'within', 'TTC'), '0.00396175379099819', 15), (('accel', 'up_x_down', 'TTC'), '-0.1174788620244554', 0)]
+USER_HIGHER = {'base': (108660, 96526, 3902), 'accel': (130710, 75008, 3370)}
+USER_DANGER = {'CI': 158912, 'TTC': 49754}
+HIGHER = ['up_higher', 'down_higher', 'same']
+DANGER_ROWS = av.SSMS + ['true_ego_speed']
+REF_ALL = {'speed': ('all 1,084 frames (= tab:told)', '+ speed'), 'accel': ('version 2: all 1,055 frames', '+ accel')}
+REF_GROUP = {'speed': ('speed group', '+ speed'), 'accel': ('acceleration group', '+ accel')}
+
+
+def pair_part(ii, part, point=False):
+    """S, nx, ny per pair code (exact integers in float64) of the frames ii (a frame may come more than once), for
+    images only and the told run, every row; for the acceleration part also who scores higher among the speeding up x
+    slowing down pairs."""
+    g = (P['speed_group'] if part == 'speed' else P['accel_group'])[ii]
+    p, q = np.triu_indices(len(ii), 1)
+    same_g = g[p] == g[q]
+    if part == 'speed':
+        code, K = (~same_g).astype(np.int64), 2
+    else:
+        dg = P['told_dir'][ii]
+        code = np.where(same_g, 0, np.where(dg[p] == dg[q], 1, np.where(dg[p] * dg[q] == -1, 2, 3))).astype(np.int64)
+        K = 4
+        m2 = code == 2
+        o = dg[p][m2]                                            # +1: the first frame of the pair is the one told speeding up
+    res = {'npairs': np.bincount(code, minlength=K).astype(float)}
+    sy, ny = {}, {}
+    for row in ROWS:
+        v = P['row'][row][ii]
+        sy[row] = np.sign(v[p] - v[q])
+        ny[row] = np.bincount(code, weights=np.abs(sy[row]), minlength=K)
+    if point:
+        gcode = np.where(same_g, g[p], 0).astype(np.int64)
+    for run in ('base', part):
+        x = P['score'][run][ii]
+        sx = np.sign(x[p] - x[q])
+        nx = np.bincount(code, weights=np.abs(sx), minlength=K)
+        for row in ROWS:
+            res[(run, row)] = (np.bincount(code, weights=sx * sy[row], minlength=K), nx, ny[row])
+            if point:
+                res[('group', run, row)] = (np.bincount(gcode, weights=sx * sy[row], minlength=12),
+                                            np.bincount(gcode, weights=np.abs(sx), minlength=12),
+                                            np.bincount(gcode, weights=np.abs(sy[row]), minlength=12))
+        if part == 'accel':
+            w = sx[m2] * o
+            res[('higher', run)] = (int((w > 0).sum()), int((w < 0).sum()), int((w == 0).sum()))
+    if part == 'accel' and point:
+        for row in DANGER_ROWS:
+            w = sy[row][m2] * o
+            res[('danger', row)] = (int((w > 0).sum()), int((w < 0).sum()), int((w == 0).sum()))
+    return res
+
+
+def tau_of(S, nx, ny):
+    return float(S / np.sqrt(nx * ny)) if nx * ny > 0 else np.nan
+
+
+def pair_values(res):
+    out = {}
+    for part, rr in res.items():
+        for cl, codes in CLS[part].items():
+            out[('npairs', part, cl)] = float(rr['npairs'][codes].sum())
+            for run in ('base', part):
+                for row in ROWS:
+                    S, nx, ny = rr[(run, row)]
+                    out[('tau', part, cl, run, row)] = tau_of(S[codes].sum(), nx[codes].sum(), ny[codes].sum())
+        if part == 'accel':
+            n2 = rr['npairs'][2]
+            for run in ('base', 'accel'):
+                for k, c in zip(HIGHER, rr[('higher', run)]):
+                    out[('share', run, k)] = c / n2 if n2 > 0 else np.nan
+    return out
+
+
+def one_pairs(b):
+    idx = np.concatenate([P['seg_frames'][s] for s in P['draws'][b]])
+    rr = pair_values({'speed': pair_part(idx, 'speed'), 'accel': pair_part(idx[P['v2'][idx]], 'accel')})
+    return np.array([rr.get(k, np.nan) for k in P['keys']], float)
+
+
+def run_pairs(a, O, D, check, stop_if_failed, failed, t0):
+    """--pairs: tau-b over classes of frame pairs (see the docstring)."""
+    P.update(D)
+    P['row'] = {**{s: D['ssm'][s + '_risk'] for s in av.SSMS}, 'true_ego_speed': D['v'], 'true_ego_accel': D['at']}
+    P['score'] = {'base': D['base'], 'speed': D['spd'], 'accel': D['acc']}
+    n = len(D['ids'])
+    ii = {'speed': np.arange(n), 'accel': np.arange(n)[D['v2']]}
+    print('\n' + '=' * 110 + f'\n--pairs (user, 2026-11-13; EXPLORATORY): tau-b = S / sqrt(nx ny) over classes of frame '
+          f'pairs; reference run {a.ref}\n\n2p. point estimates and checks')
+    pt = {part: pair_part(ii[part], part, point=True) for part in ('speed', 'accel')}
+    point = pair_values(pt)
+    for (part, cl), want in PAIR_N.items():
+        got = int(point[('npairs', part, cl)])
+        check(got == want, f'{part} {CLS_NAME[cl]}: {got} frame pairs; expected {want}')
+    n_ok = n_all = 0
+    dmax = 0.0
+    for part in ('speed', 'accel'):
+        for run in ('base', part):
+            for row in ROWS:
+                S, nx, ny = pt[part][(run, row)]
+                s0, tx0, ty0, _, _ = av.pair_counts(P['score'][run][ii[part]], P['row'][row][ii[part]], D['ids'][ii[part]])
+                n_all += 1
+                n_ok += (tx0 == nx.sum() and ty0 == ny.sum() and abs(s0 - S.sum()) < 1e-6
+                         and all(float(v_).is_integer() for v_ in np.concatenate([S, nx, ny])))
+                dmax = max(dmax, abs(s0 - S.sum()))
+    check(n_ok == n_all, f'the classes\' S, nx, ny (whole numbers) add up to all pairs\' (analyze_vlm_ssm.pair_counts on all '
+          f'frames: nx, ny the same, S within 1e-6) in {n_ok} of {n_all} (2 parts x 2 runs x 11 rows); largest |S '
+          f'difference| {dmax!r}')
+    ref = {(d['table'], d['group_no'], d['told_run'], d['row']): (ln, d)
+           for ln, d in csv_rows(os.path.join(a.ref, 'exploratory_groups_ssm_tau_b.csv'))}
+    rows_k = []
+
+    def compare(what, mine, ln, d, col):
+        rows_k.append(dict(what=what, mine=txt(mine), reference=d[col], difference=mine - float(d[col]),
+                           same_text=txt(mine) == d[col], source=f'{a.ref}/exploratory_groups_ssm_tau_b.csv', line=ln,
+                           column=col))
+
+    for part in ('speed', 'accel'):
+        tab, told = REF_ALL[part]
+        for row in ROWS:
+            ln, d = ref[(tab, '', told, SHOW.get(row, row))]
+            b_, t_ = point[('tau', part, 'all', 'base', row)], point[('tau', part, 'all', part, row)]
+            compare(f'{part} all pairs, images only, {row}', b_, ln, d, 'images_only')
+            compare(f'{part} all pairs, {told}, {row}', t_, ln, d, 'told')
+            compare(f'{part} all pairs, change, {row}', t_ - b_, ln, d, 'change')
+        tab, told = REF_GROUP[part]
+        groups = list(SPEED_GROUPS) if part == 'speed' else V2_GROUPS
+        for g in groups:
+            for row in ROWS:
+                ln, d = ref[(tab, str(g), told, SHOW.get(row, row))]
+                for run, col in (('base', 'images_only'), (part, 'told')):
+                    S, nx, ny = pt[part][('group', run, row)]
+                    compare(f'{part} group {g} inside, {col}, {row}', tau_of(S[g], nx[g], ny[g]), ln, d, col)
+    dm = max(abs(x['difference']) for x in rows_k)
+    check(dm <= 1e-12, f'all pairs\' tau-b (and change) and each group\'s own tau-b = the run without --pairs: largest '
+          f'|difference| {dm!r} over {len(rows_k)} values; the same text {sum(x["same_text"] for x in rows_k)}')
+    for (part, cl, row), want, digits in USER_PT:
+        b_, t_ = point[('tau', part, cl, 'base', row)], point[('tau', part, cl, part, row)]
+        mine = txt(t_ - b_) if digits == 0 else format(t_ - b_, f'.{digits}g')
+        how = 'the same text' if digits == 0 else f'{txt(t_ - b_)} rounded to {digits} significant digits'
+        alt = []
+        if mine != want:
+            for run in ('base', part):
+                S, nx, ny = [v_[CLS[part][cl]].sum() for v_ in pt[part][(run, row)]]
+                alt.append(f'{run}: S {S:g}, nx {nx:g}, ny {ny:g}, S/sqrt(nx)/sqrt(ny) {S / np.sqrt(nx) / np.sqrt(ny)!r}')
+        check(mine == want, f'user\'s local estimate: {part} {CLS_NAME[cl]} {row} change {mine} = {want} ({how})'
+              + (f' ({"; ".join(alt)})' if alt else ''))
+    for run in ('base', 'accel'):
+        got = pt['accel'][('higher', run)]
+        check(got == USER_HIGHER[run], f'user\'s local counts: told speeding up x told slowing down, {RUN_NAME[run]}: the '
+              f'frame told speeding up scores higher / lower / the same {got} = {USER_HIGHER[run]}')
+    for row, want in USER_DANGER.items():
+        got = pt['accel'][('danger', row)][0]
+        check(got == want, f'user\'s local counts: the frame told speeding up is the more dangerous in {row}: {got} = {want}')
+    stop_if_failed('before the resamples (--pairs)')
+
+    keys = list(point)
+    P['keys'] = keys
+    col = {k: i for i, k in enumerate(keys)}
+    print(f'\n3p. resamples: {N_BOOT}, {a.workers} worker(s)', flush=True)
+    tb = time.time()
+    out = []
+    with mp.get_context('fork').Pool(max(a.workers, 1)) as pool:
+        for i, row_ in enumerate(pool.imap(one_pairs, range(N_BOOT), chunksize=8)):
+            out.append(row_)
+            if (i + 1) % 250 == 0:
+                print(f'  [resample {i + 1}/{N_BOOT}, {(time.time() - tb) / (i + 1) * (N_BOOT - i - 1):.0f} s left]',
+                      flush=True)
+    boot = np.stack(out)
+    print(f'  done in {time.time() - tb:.0f} s')
+
+    def B(k):
+        return boot[:, col[k]]
+
+    rows_t, rows_d, rows_h = [], [], []
+    for part in ('speed', 'accel'):
+        for cl in CLS[part]:
+            for row in ROWS:
+                kb, kt = ('tau', part, cl, 'base', row), ('tau', part, cl, part, row)
+                lb, hb, nb = ar.ci(B(kb))
+                lt, ht, nt = ar.ci(B(kt))
+                lc, hc, nc = ar.ci(B(kt) - B(kb))
+                Sb, nxb, nyb = [v_[CLS[part][cl]].sum() for v_ in pt[part][('base', row)]]
+                St, nxt, nyt = [v_[CLS[part][cl]].sum() for v_ in pt[part][(part, row)]]
+                rows_t.append(dict(part=part, pair_class=CLS_NAME[cl], frame_pairs=int(point[('npairs', part, cl)]),
+                                   told_run=RUN_NAME[part], row=SHOW.get(row, row),
+                                   images_only=point[kb], images_only_lo=lb, images_only_hi=hb, images_only_nboot=nb,
+                                   images_only_side=side(lb, hb), told=point[kt], told_lo=lt, told_hi=ht, told_nboot=nt,
+                                   told_side=side(lt, ht), change=point[kt] - point[kb], change_lo=lc, change_hi=hc,
+                                   change_nboot=nc, change_side=side(lc, hc), S_images_only=int(Sb), nx_images_only=int(nxb),
+                                   ny_images_only=int(nyb), S_told=int(St), nx_told=int(nxt), ny_told=int(nyt)))
+    for part, c1, c0 in PAIR_DIFFS:
+        for row in ROWS:
+            k1b, k1t = ('tau', part, c1, 'base', row), ('tau', part, c1, part, row)
+            k0b, k0t = ('tau', part, c0, 'base', row), ('tau', part, c0, part, row)
+            ch1, ch0 = point[k1t] - point[k1b], point[k0t] - point[k0b]
+            lo, hi, nv = ar.ci((B(k1t) - B(k1b)) - (B(k0t) - B(k0b)))
+            rows_d.append(dict(comparison=f'{part}: change {CLS_NAME[c1]} - change {CLS_NAME[c0]}', row=SHOW.get(row, row),
+                               change_1=ch1, change_0=ch0, diff=ch1 - ch0, lo=lo, hi=hi, nboot=nv, side=side(lo, hi)))
+    n2 = int(point[('npairs', 'accel', 'up_x_down')])
+    for run in ('base', 'accel'):
+        for k, c in zip(HIGHER, pt['accel'][('higher', run)]):
+            lo, hi, nv = ar.ci(B(('share', run, k)))
+            rows_h.append(dict(what=f'score, {RUN_NAME[run]}', measure=k, pairs=c, of_pairs=n2, share=point[('share', run, k)],
+                               lo=lo, hi=hi, nboot=nv, side=''))
+    for k in HIGHER:
+        lo, hi, nv = ar.ci(B(('share', 'accel', k)) - B(('share', 'base', k)))
+        rows_h.append(dict(what='score, + accel - images only', measure=k, pairs=np.nan, of_pairs=n2,
+                           share=point[('share', 'accel', k)] - point[('share', 'base', k)], lo=lo, hi=hi, nboot=nv,
+                           side=side(lo, hi)))
+    for row in DANGER_ROWS:
+        up, down, same = pt['accel'][('danger', row)]
+        meas = 'up_faster' if row == 'true_ego_speed' else 'up_more_dangerous'
+        rows_h.append(dict(what=SHOW.get(row, row), measure=meas, pairs=up, of_pairs=n2, share=up / n2, lo=np.nan, hi=np.nan,
+                           nboot=np.nan, side='', down_count=down, same_count=same))
+
+    print('\n4p. checks with the intervals')
+    n_ci = n_ci_same = 0
+    dm = 0.0
+    for part in ('speed', 'accel'):
+        tab, told = REF_ALL[part]
+        for x in rows_t:
+            if x['part'] != part or x['pair_class'] != CLS_NAME['all']:
+                continue
+            ln, d = ref[(tab, '', told, x['row'])]
+            for c_ in ('images_only', 'told', 'change'):
+                for suf in ('_lo', '_hi'):
+                    n_ci += 1
+                    n_ci_same += txt(x[c_ + suf]) == d[c_ + suf]
+                    dm = max(dm, abs(x[c_ + suf] - float(d[c_ + suf])))
+                    rows_k.append(dict(what=f'{part} all pairs, {c_}{suf}, {x["row"]}', mine=txt(x[c_ + suf]),
+                                       reference=d[c_ + suf], difference=x[c_ + suf] - float(d[c_ + suf]),
+                                       same_text=txt(x[c_ + suf]) == d[c_ + suf],
+                                       source=f'{a.ref}/exploratory_groups_ssm_tau_b.csv', line=ln, column=c_ + suf))
+                n_ci += 1
+                n_ci_same += str(float(x[c_ + '_nboot'])) == d[c_ + '_nboot']
+    check(dm <= 1e-12, f'all pairs\' intervals (images only, told, change; and resamples used) = the run without --pairs: '
+          f'largest |difference| {dm!r}; the same text {n_ci_same} of {n_ci}')
+
+    pd.DataFrame(rows_t).to_csv(os.path.join(O, 'exploratory_groups_ssm_pairs_tau_b.csv'), index=False)
+    pd.DataFrame(rows_d).to_csv(os.path.join(O, 'exploratory_groups_ssm_pairs_differences.csv'), index=False)
+    pd.DataFrame(rows_h).to_csv(os.path.join(O, 'exploratory_groups_ssm_pairs_higher.csv'), index=False)
+    pd.DataFrame(rows_k).to_csv(os.path.join(O, 'exploratory_groups_ssm_pairs_check.csv'), index=False)
+
+    def star(lo, hi):
+        return '*' if side(lo, hi) in ('above 0', 'below 0') else ' '
+
+    print('\n' + '=' * 110 + '\ntau-b over classes of frame pairs (exploratory_groups_ssm_pairs_tau_b.csv); * = interval '
+          'leaves out 0')
+    last = None
+    for i, x in enumerate(rows_t):
+        if (x['part'], x['pair_class']) != last:
+            print(f"\n  {x['part']}: {x['pair_class']} ({x['frame_pairs']} frame pairs; images only vs {x['told_run']})")
+            last = (x['part'], x['pair_class'])
+        print(f"    line {i + 2}: {x['row']:17s} images only {star(x['images_only_lo'], x['images_only_hi'])}"
+              f"{r(x['images_only'])} [{r(x['images_only_lo'])}, {r(x['images_only_hi'])}] (n {x['images_only_nboot']}); "
+              f"told {star(x['told_lo'], x['told_hi'])}{r(x['told'])} [{r(x['told_lo'])}, {r(x['told_hi'])}] "
+              f"(n {x['told_nboot']}); change {star(x['change_lo'], x['change_hi'])}{r(x['change'])} "
+              f"[{r(x['change_lo'])}, {r(x['change_hi'])}] (n {x['change_nboot']})")
+    print('\ndifferences of the change between classes (exploratory_groups_ssm_pairs_differences.csv)')
+    for i, x in enumerate(rows_d):
+        print(f"  line {i + 2}: {x['comparison']}: {x['row']:17s} {star(x['lo'], x['hi'])}{r(x['diff'])} "
+              f"[{r(x['lo'])}, {r(x['hi'])}] (n {x['nboot']}; changes {r(x['change_1'])} and {r(x['change_0'])})")
+    print('\ntold speeding up x told slowing down: who is higher (exploratory_groups_ssm_pairs_higher.csv)')
+    for i, x in enumerate(rows_h):
+        print(f"  line {i + 2}: {x['what']}: {x['measure']}: {x['pairs']} of {x['of_pairs']} pairs, share "
+              f"{star(x['lo'], x['hi']) if x['side'] else ' '}{r(x['share'])} [{r(x['lo'])}, {r(x['hi'])}] (n {x['nboot']})"
+              + (f"; lower {x['down_count']}, the same {x['same_count']}" if 'down_count' in x else ''))
+    print(f'\nwritten in {O}: exploratory_groups_ssm_pairs_tau_b.csv, _differences.csv, _higher.csv, _check.csv')
+    print(f'done in {time.time() - t0:.0f} s; checks not met: {len(failed)}')
+    for w_ in failed:
+        print('  ', w_)
+    sys.exit(1 if failed else 0)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('waymo')
@@ -178,6 +490,8 @@ def main():
     ap.add_argument('sec45')
     ap.add_argument('out')
     ap.add_argument('--workers', type=int, default=1)
+    ap.add_argument('--pairs', action='store_true', help='tau-b over classes of frame pairs (see the docstring)')
+    ap.add_argument('--ref', default=None, help='with --pairs: the out_dir of the run without --pairs')
     a = ap.parse_args()
     A = os.path.join(a.waymo, 'analysis')
     RISK = os.path.join(A, 'after_qwen3.5-4b', 'main_1084')
@@ -189,7 +503,12 @@ def main():
     EST_S = os.path.join(a.sec45, 'exploratory_sec45_est_speed_groups.csv')
     SPA = os.path.join(a.sec45, 'exploratory_sec45_speed_ego_accel_tau_b.csv')
     O = a.out
-    if os.path.exists(os.path.join(O, 'exploratory_groups_ssm_tau_b.csv')):
+    if a.pairs:
+        if not a.ref or not os.path.exists(os.path.join(a.ref, 'exploratory_groups_ssm_tau_b.csv')):
+            sys.exit('--pairs needs --ref <the out_dir of the run without --pairs>')
+        if os.path.exists(os.path.join(O, 'exploratory_groups_ssm_pairs_tau_b.csv')):
+            sys.exit(f'{O}/exploratory_groups_ssm_pairs_tau_b.csv exists already: give a new folder')
+    elif os.path.exists(os.path.join(O, 'exploratory_groups_ssm_tau_b.csv')):
         sys.exit(f'{O}/exploratory_groups_ssm_tau_b.csv exists already: give a new folder')
     os.makedirs(O, exist_ok=True)
     t0 = time.time()
@@ -321,6 +640,13 @@ def main():
           f'{len(set(seg_names[v2]))} segments = {n} - {n_small}; expected {V2_FRAMES} / {V2_SEGMENTS}')
     pd.DataFrame(rows_c).to_csv(os.path.join(O, 'exploratory_groups_ssm_counts.csv'), index=False)
     stop_if_failed('at the group counts')
+    if a.pairs:
+        told_dir = np.zeros(n, int)
+        for g, spec in ACCEL_GROUPS.items():
+            told_dir[accel_group == g] = spec[0]
+        run_pairs(a, O, dict(ids=ids, ssm=ssm, v=v, at=at, base=base, spd=spd, acc=acc, speed_group=speed_group,
+                             accel_group=accel_group, v2=v2, told_dir=told_dir, seg_frames=seg_frames, draws=draws),
+                  check, stop_if_failed, failed, t0)
 
     # ---------------------------------------------------------------------------------------------- point estimates
     G.update(ids=ids, ssm=ssm, cue={'true_ego_speed': v, 'true_ego_accel': at}, score={'base': base, 'speed': spd,
