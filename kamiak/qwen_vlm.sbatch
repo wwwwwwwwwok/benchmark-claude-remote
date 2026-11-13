@@ -129,6 +129,19 @@ case "$MODEL" in
                     --mm-processor-kwargs '{"max_soft_tokens": 560}')
         SAMPLING=(--temperature 1.0 --top_p 0.95 --top_k 64 --max_tokens 24576)
         ;;
+    gemma-4-31b-it-nothink)   # the same model and everything as gemma-4-31b-it but thinking off (user, 2026-11-13; 4.7):
+                              # enable_thinking false is the only change. The template then leaves <|think|> out of the
+                              # system turn and ends the prompt with an empty <|channel>thought\n<channel|> (2 tokens
+                              # more). --reasoning-parser gemma4 kept (the same server as the thinking run): it reads
+                              # the same default, starts in content and only moves a reply into `reasoning` if the reply
+                              # opens a channel itself or starts with "thought\n" (vLLM 0.32 vllm/parser/gemma4.py;
+                              # kamiak/checks/gemma4_compare/render_nothink.py).
+        MODEL_DIR=/data/lab/cejli/sy/models/gemma-4-31B-it
+        SERVE_ARGS=(--max-model-len 40960 --reasoning-parser gemma4
+                    --default-chat-template-kwargs '{"enable_thinking": false}'
+                    --mm-processor-kwargs '{"max_soft_tokens": 560}')
+        SAMPLING=(--temperature 1.0 --top_p 0.95 --top_k 64 --max_tokens 24576)
+        ;;
     *) echo "unknown MODEL=$MODEL"; exit 1 ;;
 esac
 SERVED_NAME=$MODEL                                            # name recorded in every output line
