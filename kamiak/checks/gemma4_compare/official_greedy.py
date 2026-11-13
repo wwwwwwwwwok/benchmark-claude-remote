@@ -14,8 +14,11 @@ input projection gets (after 2 * (x - 0.5)), and of the patch positions; the ten
 --extra-path: a folder put first on sys.path before transformers is imported. The vllm_cu129 environment has no
 accelerate, which device_map needs; the folder holds only links to the accelerate package (1.14.0) of the benchmark
 environment (same Python 3.11), so no environment is changed and nothing is installed.
+--cast-pixels-bf16 (diagnosis, user 2026-11-12): the floating-point processor outputs (pixel_values) cast to bfloat16
+before the model sees them, as vLLM does (vllm/multimodal/processing/context.py _postprocess_output), so both sides'
+vision input is the same; without the option nothing changes.
 usage: python -I official_greedy.py <model folder> <requests json> <out folder> [--max-tokens 24576]
-           [--extra-path <folder>]
+           [--extra-path <folder>] [--cast-pixels-bf16]
 """
 import argparse
 import hashlib
@@ -36,6 +39,7 @@ ap.add_argument('req_json')
 ap.add_argument('out')
 ap.add_argument('--max-tokens', type=int, default=24576)
 ap.add_argument('--extra-path', default=None)
+ap.add_argument('--cast-pixels-bf16', action='store_true')
 args = ap.parse_args()
 if args.extra_path:
     sys.path.insert(0, args.extra_path)
@@ -96,7 +100,10 @@ for r in json.load(open(args.req_json)):
     assert len(runs) == len(imgs), (len(runs), len(imgs))
     dropped = sorted(k for k, v in enc.items() if not torch.is_tensor(v))
     enc = {k: v.to(dev) for k, v in enc.items() if torch.is_tensor(v)}
-    print(f'{cond}: model inputs {sorted(enc)} (not tensors, left out: {dropped})', flush=True)
+    if args.cast_pixels_bf16:                     # as vLLM: every floating-point processor output to the model dtype
+        enc = {k: (v.to(torch.bfloat16) if v.is_floating_point() else v) for k, v in enc.items()}
+    print(f'{cond}: model inputs {sorted(enc)} (not tensors, left out: {dropped})'
+          + (f'; dtypes { {k: str(v.dtype) for k, v in enc.items()} }' if args.cast_pixels_bf16 else ''), flush=True)
     rec = Top2()
     seen.clear()
     t0 = time.time()
