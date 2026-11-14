@@ -902,6 +902,34 @@
     - 同样参数重跑一次，所有表逐字节一样。
     - 做完把三等分的每段特征、最高减最低（区间不含 0 的）、趋势、两边的区分词，以及五等分、固定分数线哪些结论不一样，报给用户，数字带文件名和行号；表里四舍五入的写明，全精度在文件里。
     - 11-14 做了（`docs/handoff.md` 第 2 节"分数分段"）：`code/reason_scorebins.py`（48f8112），作业 31777535 两遍 12 张表逐字节一样，核对都过，帧数和计划一样（243 / 532 / 309；243 / 303 / 229 / 154 / 155）。"三种切法"按第二节读成两种（三段、五段），已报给我。
+  - 逐条答案（探索性；我 2026-11-14 定，下面是原话，英文原样；看到结果以后计划不改）：
+    New exploratory item for the reason analysis (Qwen3.6-27B, sep_camera, main set 1,084 frames, 5,420 answers). This section is only about how the VLM scores. No SSMs are involved. The unit is the single answer: each answer's reason paired with that same answer's score.
+
+    Step 0. Check first and report before computing anything else
+    In the answer-level clustering (commit 6add85e, k = 7, folder reason_27b/main_1084/), was each reason paired with its own answer's score, or with the frame's mean score over the 5 answers? Quote the line of code that does it.
+
+    Step 1. Score by theme, answer level
+    - Clusters: the existing k = 7 labels from 6add85e. Do not re-cluster.
+    - For each cluster: mean of the answers' own scores in the cluster minus the mean of all 5,420 answer scores. Also report n answers, n frames, n segments.
+    - Do the same for the round-3 keyword categories (folder main_1084_keywords/), answer-level mentions, with the same matching and negation rules as round 3. Do not change any rule.
+
+    Step 2. Within-frame comparison (image held fixed)
+    - For each cluster c: use only the frames whose 5 answers are split, meaning at least 1 answer in c and at least 1 not in c.
+    - Per frame: mean score of its answers in c minus mean score of its answers not in c. Average over frames, each frame weighted equally.
+    - Report n frames, n segments, the average difference, and how many of those frames have identical scores across all 5 answers.
+    - Do the same for each keyword category (mentioned vs not mentioned within the frame).
+    - Also report the number of frames whose 5 answers fall in a single cluster (expected 198).
+
+    Intervals (all steps)
+    95% intervals from a segment bootstrap: 2,000 resamples of the 238 segments with replacement, seed 20261021, percentile method with linear interpolation. Write them as "95% interval", never abbreviate as "CI" (CI is one of our SSMs).
+
+    Rules
+    - Label everything exploratory. Output folder reason_27b/main_1084_answers/, file prefix exploratory_answer_.
+    - Run on a compute node (sbatch or srun), never the login node. Python with -I.
+    - Do not open any camera image. Do not delete anything.
+    - Commit the code, ending the message with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    - Report exact values (full precision in the CSV, say where any rounding is done in the report), the commit hash, the job ID, and the file paths with row numbers for each table.
+    - 第 0 步（11-14 查过，已报给我）：6add85e 记录的 `code/reason_clusters.py`（sha256 687cfdfc…，此后没改）每条理由配的是它自己那次回答的分：第 257 行 `risk = td.risk.to_numpy(float)`（td 一行一条请求），第 302 行 `rc = risk[m]`（`m = cl == c`），第 326 行 `mean_minus_all=float(rc.mean() - overall)`；帧平均只在第 337–342 行的核对里用。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
