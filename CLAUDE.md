@@ -931,6 +931,14 @@
     - Report exact values (full precision in the CSV, say where any rounding is done in the report), the commit hash, the job ID, and the file paths with row numbers for each table.
     - 第 0 步（11-14 查过，已报给我）：6add85e 记录的 `code/reason_clusters.py`（sha256 687cfdfc…，此后没改）每条理由配的是它自己那次回答的分：第 257 行 `risk = td.risk.to_numpy(float)`（td 一行一条请求），第 302 行 `rc = risk[m]`（`m = cl == c`），第 326 行 `mean_minus_all=float(rc.mean() - overall)`；帧平均只在第 337–342 行的核对里用。
     - 11-14 做了（`docs/handoff.md` 第 2 节"逐条答案"）：`code/reason_answers.py`（18df73d；a0026c8 改成按 segment、frame_idx、repeat 对齐两张表），作业 31795051 两遍逐字节一样，19 项核对都过，已报给我。
+    - 第 3 步（我 2026-11-14 加的，下面是原话，英文原样；看到结果以后计划不改）：
+      Step 3. Frame-level clustering on concatenated reasons (robustness check for the frame-level themes)
+      - Per frame: join the 5 reasons into one text in run order, separated by a newline. Embed with all-mpnet-base-v2 (same settings as before). Frame score = mean of the 5 answers' scores.
+      - Before clustering, report how many frames exceed the model's 384-token limit (these would be truncated). If any do, report the count and do not change anything else.
+      - KMeans with the same k range and seed as in df630fb. Report the silhouette for every k and the chosen k.
+      - For the chosen k: n frames, n segments, mean score minus the mean of all frames, with the same segment-bootstrap 95% interval, plus 10 example frames per cluster (concatenated text, truncated to 300 characters).
+      - Agreement: ARI against the averaged-embedding frame clusters (df630fb, k = 4), and also at k = 4 for the concatenated version, whatever k is chosen.
+      - Same output folder and prefix (main_1084_answers/, exploratory_answer_concat_).
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
