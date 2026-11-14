@@ -90,6 +90,22 @@ case "$MODEL" in
                     --chat-template kamiak/internvl_thinking_chat_template.jinja)
         SAMPLING=(--temperature 0.6 --max_tokens 24576)
         ;;
+    internvl3.5-8b)   # OpenGVLab/InternVL3_5-8B rev 9bb6a56a (user, 2026-11-13; 4.7, model size within one family):
+                      # InternViT-300M + Qwen3-8B. Everything as internvl3.5-38b except the model folder (user: symmetric
+                      # with the 38B runs); its tokenizer, chat_template.jinja, preprocessor / processor configs,
+                      # generation_config.json and .py files have the same git hashes as the 38B's
+                      # (kamiak/model_files/), only config.json and the weight index differ.
+        MODEL_DIR=/data/lab/cejli/sy/models/InternVL3_5-8B
+        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code)
+        SAMPLING=(--temperature 0.8 --top_p 0.8 --max_tokens 1024)
+        ;;
+    internvl3.5-8b-thinking)   # the same 8B weights with thinking on: everything as internvl3.5-38b-thinking except the
+                               # model folder (no R1 system prompt, as the 38B main run; user, 2026-11-13)
+        MODEL_DIR=/data/lab/cejli/sy/models/InternVL3_5-8B
+        SERVE_ARGS=(--max-model-len 40960 --trust-remote-code --reasoning-parser deepseek_r1
+                    --chat-template kamiak/internvl_thinking_chat_template.jinja)
+        SAMPLING=(--temperature 0.6 --max_tokens 24576)
+        ;;
     qwen-drive-1.0-4b)   # Qwen/Qwen-Drive-1.0-4B rev 28484089 (2026-10-26, user's choice): Qwen3.5-4B fine-tuned for
                          # driving. Only its vision-language model, from the folder kamiak/checks/make_vlm_folder.py
                          # made (vLLM does not know the QwenDriveForPlanning wrapper; the tensors are the original's).
