@@ -630,6 +630,22 @@
   - 分数和 4.1 是同一份：用逐条表的分数重算每帧 5 次平均，和 vlm_frame_scores.csv 的 score_mean 逐帧一样；再算 sep_camera"全部"的 9 个 τ_b，和 after_gemma-4-31b-it/main_1084/agreement.csv 第 1001–1025 行（qwen3.6-27b）比，差 ≤ 1e-12。
   - 同样的参数重跑一次，簇编号和 t-SNE 坐标完全一样。
   - 做完把主 k、每簇的条数/帧数/段数、代表词、代表句、平均分和区间、hazard_type 占比、稳定性报给用户，数字带文件名和行号。
+
+  我 2026-11-13 改了二、三两节（还没写完程序、还没跑，原话如下；替换上面的二、三，其余各节不变）：
+
+  二、预处理
+  - 句向量直接用理由原文，不做任何改动。
+  - 另做一份给 TF-IDF 用（只用来给簇找代表词和做对照）：转小写，数字换成 num，去标点。停用词不用 scikit-learn 自带的表（它会删掉 no、not、without、many、several、front、behind、side 等对驾驶理由有意义的词），只用下面这张自定义表：a, an, the, is, are, was, were, be, been, being, am, it, its, this, that, these, those, there, here, of, to, in, on, at, by, for, with, from, as, and, or, but, so, than, then, which, who, whom, whose, what, while, also, has, have, had, do, does, did, will, would, could, should, may, might, can, i, you, he, she, they, we, my, your, their, our, his, her, them, us。再去掉说风险高低的词（上一版那张表不变）。否定词、数量词、方位词一律保留。
+  - TF-IDF：TfidfVectorizer，ngram_range=(1,2)，min_df=5，sublinear_tf=True，停用词在组词组之前去掉，其余默认。报词表大小。
+
+  三、聚类（主：句向量；对照：TF-IDF）
+  - 句向量模型：sentence-transformers/all-mpnet-base-v2。下载前先报给用户：仓库名、版本（commit）、文件大小、许可证，用户同意再下；在计算节点或数据传输节点上下，不要在登录节点。每条理由原文算一个向量（normalize_embeddings=True），CPU 即可。
+  - 主：句向量 → KMeans（n_init=20，random_state=20261113）。k 取 4 到 12 都跑，轮廓系数（余弦距离）最高的 k 当主结果，其余 k 的轮廓系数和每簇大小都列出来。
+  - 对照：TF-IDF → TruncatedSVD 降到 100 维（random_state=20261113）→ 每行归一化 → KMeans，k 范围相同；报主 k 下两种聚类的调整兰德指数（ARI）。
+  - 稳定性：主 k 下换 10 个 random_state（20261113 起连续 10 个）重跑句向量的 KMeans，和主结果比 ARI，报平均和范围。
+  - 代表词：每簇在 TF-IDF 那份里簇内平均权重最高的 10 个词或词组。
+  - t-SNE：在句向量上，perplexity=30，余弦距离，random_state=20261113，输出每条的二维坐标，只用来画图。
+  - params.txt 另记句向量模型的仓库名和版本。
 - 还没定：天气分组（标签 11-03 定了由我自己看图标，见上面）；以后要不要再加一个闭源模型对比。
 
 ## 下一步
