@@ -707,6 +707,120 @@
     - 同样参数重跑一次，簇编号、t-SNE 坐标和所有表逐字节一样。
     - 做完把主 k、每簇的帧数和段数、代表词、代表帧、分数和区间、SSM 风险百分位、场景线索占比、簇内 τ_b、η² 报给用户，数字带文件名和行号。
     - 11-13 做了（`docs/handoff.md` 第 2 节"理由分析"→"第二轮"）：作业 31765640 两遍逐字节一样，核对都过；主 k = 4。已报给我，簇的名字我来定。
+  - 第三轮（探索性；我 2026-11-13 定，下面是原话；看到结果以后计划不改）：
+    理由分析第三轮：预设类别（探索性；用户 2026-11-13 要的）。三部分：A. 模型自己选的 hazard_type 和 main_hazard_camera；B. 事先拟好的关键词类别；C. 思考文字。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片，只读模型回答里的文字和字段；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（"理由分析"那条下面新开"第三轮"）并单独提交，再写程序、再跑；看到结果以后计划不改。
+
+    来历：B 的关键词类别和规则是 2026-11-13 在看到前两轮聚类结果之前拟的，拟好以后没改过，这次原样用。只补了一条冲突规则（stop sign，见第三节），是落实"时态都算"时必须补的。看过聚类结果以后加的只有第六节"事后变体"，报告里单独标出。
+
+    一、数据
+    - 和前两轮同一份：Qwen3.6-27B 开思考风险主实验，sep_camera，主结果 1,084 帧（238 段），每帧 5 次，5,420 条答案（含补答 26 条）。只做这一份。
+    - 分数：每帧 5 次平均（vlm_frame_scores.csv 的 score_mean），就是 4.1 用的那份；每条答案自己的分数从同一份解析结果里取。
+    - 字段：hazard_type（允许值：rear-end、lane change or side、crossing or intersection、pedestrian or cyclist、oncoming、other、none）、main_hazard_camera（允许值：front-left、front、front-right、left-side、right-side、none）、main_hazard、reason，以及每条答案的思考文字。从算分数的同一份解析结果或原始输出里取，报告写明文件和字段名。补答那 26 条的思考文字是哪一段，照实写明，不另处理。
+    - hazard_type 和摄像头只做两步规整：去掉首尾空格、转小写。不在允许值里的记 invalid，原样列出每种写法和条数，不归并；缺字段的记 missing。
+    - 9 个 SSM 的风险百分位直接用第二轮 exploratory_reason_frames.csv 里的。场景线索用第二轮 _cues.csv 的同一批文件和列。
+    - 主结果都按帧：5 次是对同一帧的 5 次输出，合成一个。按答案的结果当对照。
+
+    二、A：hazard_type 和摄像头
+    1. 分布：每个值的答案条数和占比；invalid、missing 单列；hazard_type × 摄像头的交叉表（条数）。
+    2. 5 次稳不稳：每帧 5 次里最多的那个值出现 5/5、4/5、3/5、更少的帧数；Fleiss' kappa（以帧为单位，只用 5 次都有效的帧，报帧数）。摄像头同样做。
+    3. 每帧的类型（主）：取 5 次里最多的 hazard_type，并列记 mixed。每组报帧数、段数、最大那段占几帧；5 次平均分的均值、中位数、标准差（ddof 0）；减全部帧的均值；减 rear-end 组的均值。
+    4. 按答案（对照）：每条答案用自己的类型和自己的分数，每类报条数、平均分、减全部答案的均值、减 rear-end 的均值。
+    5. 摄像头：按每帧最多的摄像头分组（并列记 mixed），报帧数、平均分、减全部帧的均值；按答案同样做当对照。另报 rear-end 答案里各摄像头的占比。
+    6. 第 3 项的每个类型组：9 个 SSM 风险百分位的中位数和区间；真车距、真接近速度、自车车速的中位数和四分位距。
+    7. 第 3 项的每个类型组内：5 次平均分和 9 个 SSM 的 τ_b，只用组内帧对，算法和 4.3 分组一样（S / sqrt(nx·ny)）。另把 rear-end 组和其余所有帧分成两组，算两组 τ_b 的差。重点是 rear-end 组：它自己说主要危险是追尾，前车类 SSM 量的正是追尾。
+
+    三、B：关键词类别（2026-11-13 拟的，原样用）
+    查的文字：每条答案的 main_hazard 和 reason 合起来。
+    1. 行人/骑车人：pedestrian, person, people, child, cyclist, bicycle, bike, scooter
+    2. 人行横道/路口：crosswalk, crossing, intersection, junction
+    3. 前车/跟车：lead vehicle, vehicle ahead, car ahead, in front, following, tailgating
+    4. 距离：distance, gap, headway, closely, too close, close behind, close proximity
+    5. 刹车/减速：brake, braking, brake lights, slowing, decelerating, stopping
+    6. 车速/接近：speed, fast, slow, approaching, closing in, accelerating
+    7. 车流密度：traffic, congestion, congested, dense, queue, multiple vehicles, many vehicles
+    8. 变道/并线/侧面：lane change, merging, cut in, adjacent lane, beside, alongside
+    9. 转弯：turn, turning, left turn, right turn, U-turn, turn signal, blinker
+    10. 停放车辆：parked, parking
+    11. 信号灯/标志：traffic light, signal, red light, green light, stop sign, yield
+    12. 天气/光线：rain, wet, night, dark, glare, visibility, fog
+    13. 大车：truck, bus, van, trailer
+    14. 对向来车：oncoming, opposite direction
+    15. 假设性说法：could, might, may, possibly, potential, unpredictable, sudden, unexpected
+    16. 数字和单位：数字后面跟 m、meters、feet、seconds、mph、km/h
+    17. 摩托车：motorcycle, motorbike, motorcyclist
+    18. 施工/障碍物：construction, cones, barrier, road work, debris, obstacle
+    19. 遮挡/视线：occluded, blocked view, blind spot, limited visibility, obstructed
+    20. 静止/等待：stopped, stationary, waiting, idling, queued
+
+    规则：
+    - 不分大小写，按整词匹配（van 不匹配 advance，bus 不匹配 business）。词组中间是空格还是连字符都算（U-turn = U turn）。
+    - 单复数、时态都算：名词加复数（含 child → children 这类不规则的），动词加 -s、-ed、-ing（按拼写规则，比如 stop → stopped）。词组里的词同样变。生成的全部词形写进文件。
+    - 冲突规则：traffic light、traffic signal 只算信号灯/标志，不算车流密度。turn signal、blinker 只算转弯，不算信号灯/标志。不用单独的 close（close to the intersection 说的是位置）。stopped 只算静止/等待，不算刹车/减速。stop sign 只算信号灯/标志（这条是落实时态规则时补的：stopping 变出的 stop 会撞上它）。
+    - 除了上面的冲突规则，一个词可以同时算进几类（比如 limited visibility 既算天气/光线，也算遮挡/视线）。
+    - 否定：关键词前 3 个词以内有 no、not、without、none、never 的（比如 no pedestrians），算"否定提及"，单独计数，不算提到。同一条答案里这一类既有否定又有不否定的，算提到。
+    - 谈运动量：一条答案提到第 4、5、6 类里任意一类，就算这条谈了运动量。
+    - 按帧：5 次里至少 3 次提到，算这一帧提到（主）；至少 1 次当敏感性。谈运动量同样，按每条答案是否谈了运动量来数。
+
+    四、B 算什么
+    1. 每类：提到的答案条数和占比、否定提及的条数；按帧提到的帧数和段数（主和敏感性）。
+    2. 每类的分数：按帧，提到的帧减没提到的帧的平均分差（主和敏感性各一套）；按答案当对照，提到的答案减没提到的答案。否定提及的答案只报条数和平均分。
+    3. 每类的真实情况：按帧，提到和没提到的两组，各报真车距、真接近速度、自车车速、自车加速度（quantities/truth_main.csv 的 a_ego）的中位数和四分位距；有前车加速度的话也报。
+    4. 拿线索验证（按帧，主和敏感性）。每对报三个比例和各自的分子分母：说了的帧里真有的比例；真有的帧里它说了的比例；全部帧里真有的比例。
+       - 行人/骑车人 ↔ n_pedestrian_20m ≥ 1；另报 n_ped_cyc_on_road ≥ 1、n_ped_cyc_in_crosswalk_50m ≥ 1
+       - 人行横道/路口 ↔ n_ped_cyc_in_crosswalk_50m ≥ 1；D/E 里有"近人行横道/路口"的线索的话也报
+       - 大车 ↔ max_vehicle_length_30m ≥ 7.0 m
+       - 停放车辆 ↔ n_vehicle_stationary_other_20m ≥ 1
+       - 对向来车 ↔ n_oncoming_vehicle ≥ 1
+       - 变道/并线/侧面 ↔ n_side_vehicle ≥ 1
+       - 天气/光线里 rain、wet 两个词 ↔ weather 是 rain 或 wet；night、dark 两个词 ↔ time_of_day == Night
+       - 转弯 ↔ D/E 里的左转线索，没有就写没有
+       - 信号灯/标志：没有线索（v1.4.3 没有信号灯状态），跳过
+    5. 谈运动量的帧，分数是不是更跟 SSM 走（主和敏感性）：
+       - 帧分成"谈运动量"和"没谈"两组。每组报帧数、段数、平均分；9 个 SSM 风险百分位的中位数和区间；真车距、真接近速度、自车车速的中位数和四分位距。
+       - 每组里 5 次平均分和 9 个 SSM 的 τ_b（只用组内帧对，算法同二.7），两组相减。
+    6. 和之前的行为结果对照，不另算。报告里列一张小表，把有对应的类别（侧面并线的车、大车、人行横道上的人、左转、平稳跟车、路边停车、红灯）和之前 D/E 分析的方向并排放，写明之前那份是哪个模型、哪批帧、哪个文件。
+
+    五、C：思考文字
+    1. 同样 20 类、同样的规则，在每条答案的思考文字里查。每类报思考里提到的答案占比，和 main_hazard + reason 里的占比并排放。
+    2. 思考里有没有具体的估算：数字后面跟距离单位（m、meter(s)、metre(s)、ft、feet）、时间单位（s、sec、second(s)）、速度单位（mph、km/h、kph、m/s）。按距离、时间、速度分开，报有这种写法的答案占比；匹配到的写法和条数列进文件。
+    3. 按帧：5 次里至少 3 次的思考里有估算，算这一帧"算过"（主）；至少 1 次当敏感性。"算过"和"没算"两组，同四.5 一样报分数、SSM 风险百分位、组内 τ_b 和两组的差。
+
+    六、事后变体（看过前两轮聚类的代表句以后加的，报告里单独标出）
+    - approaching（含 approach、approaches、approached）后面 4 个词以内出现 intersection、junction、crosswalk、crossing、light、signal、sign、turn、corner、curve（含复数）的，不算车速/接近。这时说的是位置，不是在接近别的车。
+    - 补几个原来的规则匹配不到的词形：rainy、foggy（天气/光线），suddenly、potentially、unexpectedly（假设性说法），deceleration（刹车/减速），acceleration（车速/接近），signalized（信号灯/标志）。
+    - 只用变体重算两样：四.2 每类的分数差（按帧，主），以及四.5 两组的 τ_b 和差。和主结果并排报。
+
+    七、区间和次数
+    - 区间都用主分析那 2,000 次按段重抽（种子 20261021，同样的抽法，能复用下标最好）。每次在抽出的段里用全部帧或全部答案（重复抽到的段重复计）重算；取 2.5 / 97.5 百分位，线性插值。某次重抽里某组一帧都没有就记缺，报告缺了几次。
+    - 少于 50 帧的组，τ_b 只报数，不报区间，不下结论。少于 10 帧的类别，分数差只报数。
+    - 每一节写明一共比了几次、区间不含 0 的有几次、碰运气大约几次（次数 × 0.05）。
+
+    八、读法（现在定，跑完不改）
+    - 分数差的区间不含 0 = 提到这一类（或选这个类型）时，分数明显偏高或偏低。
+    - SSM 风险百分位中位数的区间整个在 50 以上 = 这个 SSM 也认为这组帧更危险；整个在 50 以下 = 认为更安全；含 50 = 分不出。
+    - 组内 τ_b 的区间读法同 4.1。两组 τ_b 之差的区间不含 0 = 两组的一致性不一样。
+    - 分组以后两组的 SSM 分布不同，组内的范围也可能更窄，所以两组 τ_b 的差不全是分组本身带来的。二.7、四.5、五.3 读的时候都要和两组的 SSM 分布一起看。
+    - 线索验证的比例只描述，不设门槛。
+    - 主结果和事后变体的结论不一样时，两个都写，不挑。
+    - 这些只说明"它说的话和打分的关系"，不说明它实际按什么打分。
+
+    九、抽样核对（给用户读）
+    - 20 类各随机抽 20 条提到这一类的答案（种子 20261113），再从五.2 匹配到的估算里抽 20 条。
+    - 放进 exploratory_keywords_sample.csv：类别、段、帧号、第几次、原文（关键词类别放 main_hazard + reason；估算放匹配处前后各 15 个词的思考原文），匹配到的词用 [[ ]] 标出，留一列空白给用户填 1（对）或 0（错）。
+    - 用户填完再算每类的准确率，只报，不改关键词。
+
+    十、输出
+    - 写到 /data/lab/cejli/sy/waymo_v143/analysis/reason_27b/main_1084_keywords/，文件分别以 exploratory_hazard_、exploratory_keywords_、exploratory_thinking_ 开头；params.txt 写关键词表、全部词形、规则、种子、程序 sha256。
+    - 逐条表（每条答案一行）：段、帧号、第几次、分数、是否补答、hazard_type、摄像头、20 类各自"提到 / 否定提及 / 没有"、是否谈运动量、思考里 20 类各自是否提到、思考里有没有距离 / 时间 / 速度估算。不放原文。
+    - 逐帧表：段、帧号、5 次平均分、最多的 hazard_type 和摄像头、20 类各自 5 次里提到几次、谈运动量的次数、思考里有估算的次数、9 个 SSM 风险百分位。不放原文。用户要拿去画图。
+
+    十一、验收
+    - 5,420 条答案、1,084 帧、238 段，每帧正好 5 条。
+    - 5 次平均分和 vlm_frame_scores.csv 的 score_mean 逐帧一样；全部帧对的 9 个 τ_b 和 after_gemma-4-31b-it/main_1084/agreement.csv 第 1001–1025 行比，差 ≤ 1e-12。
+    - hazard_type、摄像头各值加起来等于总条数。
+    - 风险百分位和第二轮逐帧表逐帧一样。
+    - 同样参数重跑一次，所有表逐字节一样。
+    - 做完把 A、B、C 和事后变体的主要结果报给用户，数字带文件名和行号；表里四舍五入的写明，全精度在文件里。
 - 还没定：天气分组（标签 11-03 定了由我自己看图标，见上面）；以后要不要再加一个闭源模型对比。
 
 ## 下一步
