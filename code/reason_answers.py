@@ -22,7 +22,7 @@ Step 2 (within frame): the frames whose 5 answers are split (at least 1 in the i
   percentiles (numpy, linear) over the resamples where the value is defined (the item has an answer / a split frame),
   the others counted as missing. No minimum size is applied (the plan has none).
 Checks (exit 1 when one is not met): 5,420 answers, 1,084 frames, 238 segments, 5 per frame; the two tables have the same
-  answers in the same order with the same risk and forced; every answer has a cluster 0..6 and a status for every class;
+  answers (their row orders differ: the keyword table is matched to the cluster table by segment, frame_idx, repeat) with the same risk and forced; every answer has a cluster 0..6 and a status for every class;
   frame means = vlm_frame_scores.csv score_mean (qwen3.6-27b, sep_camera) exactly; per cluster answers, frames, segments,
   mean - all and its interval = exploratory_reason_clusters.csv; per class the answers mentioned =
   exploratory_keywords_categories.csv; frames with all 5 in one cluster = the clustering's params line. The run script
@@ -86,9 +86,16 @@ def main():
     print('\n1. inputs')
     key = ['segment', 'frame_idx', 'repeat']
     check(len(ca) == 5420 and len(kw) == 5420, f'5,420 answers in both tables ({len(ca)}, {len(kw)})')
-    check(ca[key].equals(kw[key]), 'the same answers in the same order (segment, frame_idx, repeat)')
-    check(np.array_equal(ca.risk.to_numpy(float), kw.risk.to_numpy(float)) and ca.forced.equals(kw.forced),
-          'the same risk and forced in both tables')
+    ki = pd.MultiIndex.from_frame(ca[key])
+    kk = pd.MultiIndex.from_frame(kw[key])
+    check(ki.is_unique and kk.is_unique and set(ki) == set(kk),
+          'the same answers in both tables, each once (segment, frame_idx, repeat; the row orders differ, so the keyword '
+          'table is put in the cluster table\'s order by these keys)')
+    if failed:
+        sys.exit('input checks not met; nothing written')
+    kw = kw.set_index(key).reindex(ki).reset_index()
+    check(ca[key].equals(kw[key]) and np.array_equal(ca.risk.to_numpy(float), kw.risk.to_numpy(float)) and
+          ca.forced.equals(kw.forced), 'after matching by keys: the same risk and forced in both tables, answer by answer')
     check(not ca.risk.isna().any(), 'every answer has a score')
     cl = ca.cluster.to_numpy()
     check(not ca.cluster.isna().any() and set(cl.tolist()) <= set(range(K)), f'every answer has a cluster 0..{K - 1}')
@@ -111,8 +118,10 @@ def main():
     check(not fs.isna().any() and np.array_equal(fsm.to_numpy(), fs.to_numpy()),
           f'frame means of the answers\' scores = {p_fs} score_mean on 1,084 frames, exactly')
     overall = float(risk.mean())
+    if failed:
+        sys.exit('input checks not met; nothing written')
 
-    items = [('cluster', str(c), f'cluster {c}', cl == c) for c in range(K)]
+    items =[('cluster', str(c), f'cluster {c}', cl == c) for c in range(K)]
     cats = pd.read_csv(os.path.join(R3, 'exploratory_keywords_categories.csv'))
     names = dict(zip(cats.category, cats.name))
     items += [('keyword', str(c), names[c], (st[f'k{c:02d}'] == 'mentioned').to_numpy()) for c in range(1, 21)]
