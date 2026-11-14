@@ -22,7 +22,11 @@ lines 1001-1025 within 1e-12; the forced answers' thinking = the forced record's
 = round 3's exploratory_keywords_answers.csv; the distance and speed unit counts = round 3's
 exploratory_thinking_estimate_units.csv. The run script compares a second run byte for byte.
 usage: python -I reason_thinking_posthoc.py <waymo_v143 folder> <round-2 out_dir> <round-3 out_dir> <out_dir>
-       [--workers N]
+       [--workers N] [--distance-only]
+--distance-only (round 3 supplement 2, user 2026-11-14, post-hoc; CLAUDE.md "第三轮补充 2"): "estimated" uses only the
+distance matches (m, meter(s), metre(s), ft, feet); speed is still counted and reported as numbers only; the files start
+with exploratory_thinking_posthoc_distance_. Everything else (rules, intervals, checks, sample, formats) unchanged;
+without the option the output is as before.
 """
 import os
 for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
@@ -95,8 +99,12 @@ def main():
     ap.add_argument('round3')
     ap.add_argument('out')
     ap.add_argument('--workers', type=int, default=1)
+    ap.add_argument('--distance-only', action='store_true')
     a = ap.parse_args()
     L, R2, R3, O = a.waymo, a.round2, a.round3, a.out
+    DO = a.distance_only
+    PFX = 'exploratory_thinking_posthoc_distance_' if DO else globals()['PFX']
+    EW = 'distance' if DO else 'distance or speed'
     A, MD, FSSM = rc.paths(L)
     if os.path.exists(os.path.join(O, PFX + 'params.txt')):
         sys.exit(f'{O}/{PFX}params.txt exists already: give a new folder')
@@ -114,6 +122,8 @@ def main():
         prog_sha = hashlib.sha256(f.read()).hexdigest()
     with open(rk.__file__, 'rb') as f:
         rk_sha = hashlib.sha256(f.read()).hexdigest()
+    if DO:
+        print('--distance-only (round 3 supplement 2): "estimated" = distance units only; files ' + PFX + '*')
     print(f'round 3, post-hoc C (thinking estimates: distance and speed units only), {MODEL} {COND} (user, 2026-11-14; '
           f'EXPLORATORY, POST-HOC); run {time.strftime("%Y-%m-%d %H:%M:%S")}; program sha256 {prog_sha}; '
           f'reason_keywords.py sha256 {rk_sha}\n\n0. inputs', flush=True)
@@ -191,7 +201,7 @@ def main():
                 has[i, KINDS.index(kind)] = True
                 units[(kind, m.group(1))] += 1
                 spans[kind].append((i, m.start(), m.end()))
-    est = has.any(1)
+    est = has[:, 0].copy() if DO else has.any(1)
     cnt = est[rows5].sum(1)
     p_a3 = os.path.join(R3, 'exploratory_keywords_answers.csv')
     a3 = pd.read_csv(p_a3)
@@ -263,7 +273,8 @@ def main():
     # ------------------------------------------------------------------------------------------------- tables
     rows_e = [dict(what=f'answers whose thinking has a {k} estimate', count=int(has[:, j].sum()), of=len(td),
                    share=float(has[:, j].mean())) for j, k in enumerate(KINDS)]
-    rows_e.append(dict(what='answers whose thinking has a distance or speed estimate', count=int(est.sum()), of=len(td),
+    rows_e.append(dict(what=f'answers whose thinking has a {EW} estimate' + (' (counted as estimated)' if DO else ''),
+                       count=int(est.sum()), of=len(td),
                        share=float(est.mean())))
     for thr, lab in ((3, 'main'), (1, 'sensitivity')):
         rows_e.append(dict(what=f'frames estimated ({thr}+ of 5, {lab})', count=int((cnt >= thr).sum()), of=n,
@@ -271,8 +282,8 @@ def main():
         rows_e.append(dict(what=f'frames not estimated ({lab})', count=int((cnt < thr).sum()), of=n,
                            share=float((cnt < thr).mean())))
     rows_u = [dict(kind=k, unit=u, matches=c_) for (k, u), c_ in sorted(units.items())]
-    LAB = {'posthoc_est_main': ('estimated, distance or speed (3+ of 5)', 'not estimated'),
-           'posthoc_est_sens': ('estimated, distance or speed (1+ of 5)', 'not estimated')}
+    LAB = {'posthoc_est_main': (f'estimated, {EW} (3+ of 5)', 'not estimated'),
+           'posthoc_est_sens': (f'estimated, {EW} (1+ of 5)', 'not estimated')}
     rows_g, rows_p, rows_t = [], [], []
     for name, (lab1, lab0) in LAB.items():
         m = two[name]
@@ -317,7 +328,7 @@ def main():
     fr['score_mean'] = score
     fr['distance_estimate_answers'] = has[rows5, 0].sum(1)
     fr['speed_estimate_answers'] = has[rows5, 1].sum(1)
-    fr['distance_or_speed_estimate_answers'] = cnt
+    fr['distance_or_speed_estimate_answers'] = has.any(1)[rows5].sum(1) if DO else cnt
 
     def W(name, rows):
         pd.DataFrame(rows).to_csv(os.path.join(O, PFX + name), index=False)
@@ -347,6 +358,11 @@ def main():
                 f'default_rng({BOOT_SEED}), sha256 {hh.hexdigest()}; percentiles 2.5 / 97.5 (numpy linear) over the '
                 f'resamples where defined; no tau-b interval under {MIN_TAU} frames; sample default_rng({SEED}), '
                 f'{N_SAMPLE} distance then {N_SAMPLE} speed matches, 15 words either side\n')
+        if DO:
+            f.write('--distance-only (round 3 supplement 2, user 2026-11-14, post-hoc, after the user marked the sample: '
+                    'distance 18 / 20 real estimates, speed 4 / 20; CLAUDE.md "第三轮补充 2"): "estimated" uses only the '
+                    'distance units (m, meter(s), metre(s), ft, feet); speed is counted and reported as numbers only; '
+                    'the groups use distance_estimate_answers of the frames file; the rest as above\n')
     print('\n' + '=' * 110)
     for r_ in rows_e:
         print(f"  {r_['what']}: {r_['count']} of {r_['of']}")
