@@ -939,6 +939,7 @@
       - For the chosen k: n frames, n segments, mean score minus the mean of all frames, with the same segment-bootstrap 95% interval, plus 10 example frames per cluster (concatenated text, truncated to 300 characters).
       - Agreement: ARI against the averaged-embedding frame clusters (df630fb, k = 4), and also at k = 4 for the concatenated version, whatever k is chosen.
       - Same output folder and prefix (main_1084_answers/, exploratory_answer_concat_).
+      - 11-14 做了（`docs/handoff.md` 第 2 节"逐条答案"→"第 3 步"）：`code/reason_concat.py`（439a7dc），超过 384 token 的 0 帧；作业 31795104 两遍逐字节一样，核对都过，选中 k = 5，已报给我。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
