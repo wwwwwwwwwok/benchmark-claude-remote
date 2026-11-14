@@ -930,6 +930,7 @@
     - Commit the code, ending the message with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
     - Report exact values (full precision in the CSV, say where any rounding is done in the report), the commit hash, the job ID, and the file paths with row numbers for each table.
     - 第 0 步（11-14 查过，已报给我）：6add85e 记录的 `code/reason_clusters.py`（sha256 687cfdfc…，此后没改）每条理由配的是它自己那次回答的分：第 257 行 `risk = td.risk.to_numpy(float)`（td 一行一条请求），第 302 行 `rc = risk[m]`（`m = cl == c`），第 326 行 `mean_minus_all=float(rc.mean() - overall)`；帧平均只在第 337–342 行的核对里用。
+    - 11-14 做了（`docs/handoff.md` 第 2 节"逐条答案"）：`code/reason_answers.py`（18df73d；a0026c8 改成按 segment、frame_idx、repeat 对齐两张表），作业 31795051 两遍逐字节一样，19 项核对都过，已报给我。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
