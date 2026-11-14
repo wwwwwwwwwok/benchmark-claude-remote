@@ -940,6 +940,43 @@
       - Agreement: ARI against the averaged-embedding frame clusters (df630fb, k = 4), and also at k = 4 for the concatenated version, whatever k is chosen.
       - Same output folder and prefix (main_1084_answers/, exploratory_answer_concat_).
       - 11-14 做了（`docs/handoff.md` 第 2 节"逐条答案"→"第 3 步"）：`code/reason_concat.py`（439a7dc），超过 384 token 的 0 帧；作业 31795104 两遍逐字节一样，核对都过，选中 k = 5，已报给我。
+  - HDBSCAN 稳健性检查（探索性；我 2026-11-14 定，下面是原话，英文原样；看到结果以后计划不改）：
+    New exploratory item: HDBSCAN robustness check for the reason clustering (Qwen3.6-27B, sep_camera, main set). Run it on all three existing embedding sets. Do not re-embed and do not re-run KMeans.
+    - M1, answer level: the 5,420 answer embeddings from 6add85e. Score = each answer's own score.
+    - M2, frame level, concatenated text: the 1,084 embeddings from job 31795100. Score = score_mean.
+    - M3, frame level, averaged embeddings: the 1,084 embeddings from df630fb. Score = score_mean.
+    Before writing code, commit the plan text into CLAUDE.md under the reason analysis section, as you did for the last two items.
+
+    Package
+    The user approved installing umap-learn into the waymo env. Install it the same way scikit-learn was added before, not on the login node. Report the umap-learn, scikit-learn and numba versions.
+
+    Fixed settings (do not tune)
+    - UMAP: n_neighbors 15, n_components 5, min_dist 0.0, metric cosine, random_state 20261021. Input = the embeddings exactly as stored.
+    - HDBSCAN: sklearn.cluster.HDBSCAN on the UMAP output, metric euclidean, min_samples None (defaults to min_cluster_size), cluster_selection_method eom.
+    - min_cluster_size: M1 25, 50, 100 (main 50). M2 and M3 10, 20, 40 (main 20).
+    - Seed stability: for the main min_cluster_size of each method, re-run UMAP with random_state 20261022 and 20261023 (HDBSCAN unchanged). Report the pairwise ARI between the three seeds, computed on points that are non-noise in both runs, and the noise share of each run.
+
+    For every method x min_cluster_size, report
+    - Number of clusters, noise count and share, size of each cluster.
+    - ARI against the KMeans labels (M1 k = 7, M2 k = 5, M3 k = 4) on non-noise points only, plus the cross-tab including the noise row.
+    - If a setting gives 0 or 1 cluster, report that and skip its per-cluster tables.
+
+    For the main setting of each method, also report
+    - Per cluster and for the noise group: n answers (M1 only), n frames, n segments, mean score, mean score minus the overall mean (M1: mean of all 5,420 answer scores; M2/M3: mean of all 1,084 frames), with the 95% interval.
+    - 10 examples per cluster: the 10 points with the highest HDBSCAN probabilities_, ties broken by segment, frame_idx, repeat. Text truncated to 300 characters.
+    - M1 only: the within-frame comparison exactly as in Step 2 of the answer analysis. For cluster c, use frames with at least 1 answer in c and at least 1 not in c. Noise answers count as "not in c". Per-frame difference = mean score of answers in c minus mean score of answers not in c. Average over frames, each frame weighted equally. Report n frames, n segments, the 95% interval, and how many of those frames have identical scores across all 5 answers.
+
+    Intervals
+    95% intervals from the same segment bootstrap as before: 2,000 resamples of the 238 segments, seed 20261021, percentile method with linear interpolation, the same resampled segments as the main analysis. If a group is absent in some resamples, report how many and treat those as missing, as before. Write "95% interval", never abbreviate as "CI" (CI is one of our SSMs).
+
+    Rules
+    - Label everything exploratory. Output folder reason_27b/main_1084_hdbscan/, file prefix exploratory_hdbscan_.
+    - Check the sha256 of all earlier reason-analysis outputs before and after the run, and report that they are unchanged.
+    - Run twice and confirm the outputs are byte-identical.
+    - Run on a compute node (sbatch or srun), never the login node. Python with -I.
+    - Do not open any camera image. Do not delete anything.
+    - Commit the code, ending the message with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    - Report exact values (full precision in the CSV, say where any rounding is done in the report), the commit hashes, the job IDs, and the file paths with row numbers for each table.
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
