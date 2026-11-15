@@ -988,6 +988,7 @@
     - Run on a compute node (sbatch or srun), never the login node. Python with -I. Run twice and confirm the outputs are byte-identical. Do not open any camera image. Do not delete anything.
     - Commit the code, ending the message with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
     - Report the commit hash, the job ID, the file path and its sha256.
+    - 11-14 做了（`docs/handoff.md` 第 2 节"二维 UMAP 坐标"）：`code/reason_umap2d.py`（e57338d），作业 31805575 两遍逐字节一样，核对都过；`analysis/reason_27b/main_1084_umap2d/exploratory_umap2d_answers.csv` sha256 ec9f9675…，已报给我。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
