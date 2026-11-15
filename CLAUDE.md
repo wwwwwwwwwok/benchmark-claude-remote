@@ -989,6 +989,51 @@
     - Commit the code, ending the message with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
     - Report the commit hash, the job ID, the file path and its sha256.
     - 11-14 做了（`docs/handoff.md` 第 2 节"二维 UMAP 坐标"）：`code/reason_umap2d.py`（e57338d），作业 31805575 两遍逐字节一样，核对都过；`analysis/reason_27b/main_1084_umap2d/exploratory_umap2d_answers.csv` sha256 ec9f9675…，已报给我。
+  - LLM 标注理由（探索性；我 2026-11-15 定，下面是原话，英文原样；看到结果以后计划不改）：
+    New exploratory item: LLM annotation of the stated reasons (Qwen3.6-27B, sep_camera, main set, all 5,420 reasons). For each reason, an annotator model decides whether it mentions a PHYSICAL factor and whether it mentions an ENVIRONMENT factor. The two yes/no answers give four classes: physical only, environment only, both, neither. Commit this plan into CLAUDE.md under the reason analysis before writing code. Label everything exploratory.
+
+    Annotator model
+    - meta-llama/Llama-3.1-8B-Instruct in bf16, served with vLLM on one H100. Report the revision hash, the download size and the vLLM arguments. Check the free space in the group directory before downloading and report it.
+    - If agreement with the user's 200 labels turns out too low, we will switch to a pre-quantized FP8 version of Llama-3.3-70B-Instruct (about 70 GB). Do not download it now.
+    - The model is gated. The user will accept the licence on Hugging Face and log in on Kamiak themselves. Do not ask for, store or print the token. Tell the user when you are ready for this step.
+    - Greedy decoding (temperature 0), max_tokens 300, one request per reason, no other context. Do not give the annotator the score, the hazard_type, the theme or any other field. Send the reasons in a random order (seed 20261115).
+
+    Prompt (use exactly this text; the reason goes where {REASON} is)
+    [System]
+    You label short explanations written by a model that rated the risk of a driving scene. Decide whether the explanation mentions a PHYSICAL factor and whether it mentions an ENVIRONMENT factor. Judge only what the text says about the current scene.
+
+    PHYSICAL = the motion state of road users: distance or proximity (close, closely, near, gap, safe distance when describing the current gap), speed (fast, slow-moving), relative motion (approaching or closing in on a vehicle or person, cutting in, moving into the path), braking or deceleration or stopping (braking, brake lights, slowing down, a stopped or stationary vehicle in the lane), or time pressure (about to, imminent, suddenly).
+
+    ENVIRONMENT = what is in the scene, without its motion: the presence or type of road users (pedestrian, cyclist, bus, truck, oncoming car), road layout and infrastructure (intersection, crosswalk, traffic light and its colour, stop sign, lane, narrow or residential street, construction zone), parked vehicles, traffic density (dense or light traffic), weather, road surface, visibility or lighting. Saying that something is absent (the path is clear, no pedestrians) also counts as ENVIRONMENT.
+
+    Rules:
+    1. What the driver should do does not count (requiring the driver to slow down, maintain a safe distance, yield, be cautious).
+    2. Approaching a place (an intersection, a light, a stop sign) is ENVIRONMENT only. Approaching a vehicle or person is PHYSICAL.
+    3. Parked vehicles are ENVIRONMENT. Stopped, stationary or braking vehicles in the lane or in traffic are PHYSICAL.
+    4. General conclusions do not count (collision risk, potential hazard, risky situation).
+
+    Reply with JSON only:
+    {"physical": true or false, "physical_quote": "<exact words from the explanation, or empty>", "environment": true or false, "environment_quote": "<exact words from the explanation, or empty>"}
+
+    [User]
+    Explanation: {REASON}
+
+    Checks
+    - Every non-empty quote must be an exact substring of the reason (case-sensitive). Report how many fail. Re-ask those once with the same prompt, report what still fails, and do not use those labels.
+    - A label true with an empty quote, or false with a non-empty quote, also counts as a failure.
+    - Run twice and confirm byte-identical output.
+
+    Validation sample
+    - Draw 200 reasons at random (seed 20261115, without replacement) and write a CSV for the user with columns item, reason, physical, environment (the last two empty). No score, no theme, no Llama label. Put it in /data/lab/cejli/sy/waymo_v143/to_office/reason_labels/ so the user can download it. This sample can be written before the model run.
+
+    Outputs (folder reason_27b/main_1084_llm_labels/, prefix exploratory_llm_)
+    - One row per answer: segment, frame_idx, repeat, kmeans7, score, physical, environment, class, both quotes.
+    - Share of each of the 4 classes, with counts.
+    - Mean score per class minus the mean of all answers, with the segment-bootstrap 95% interval (2,000 resamples of the 238 segments, seed 20261021, as before). Write "95% interval", never "CI".
+    - The 4-class composition of each k-means theme (k = 7).
+    - Do not compute agreement with the user's labels yet. That comes when the user returns the file.
+
+    Rules as usual: compute nodes only (sbatch or srun), python -I, no camera images, nothing deleted, commit with the line Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>, and report commits, job IDs and file paths with row numbers.
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
