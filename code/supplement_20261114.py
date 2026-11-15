@@ -61,15 +61,20 @@ def sha(p):
         return hashlib.sha256(f.read()).hexdigest()
 
 
-def heatmap(L, O):
+def heatmap(L, O, folder='after_gemma-4-31b-it-nothink', order=None):
+    """order: the settings in this order (default: as they first appear in agreement.csv); added 2026-11-15 for the
+    11-setting figure, the defaults give the 2026-11-14 output unchanged."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    p_ag = os.path.join(L, 'analysis', 'after_gemma-4-31b-it-nothink', 'main_1084', 'agreement.csv')
+    p_ag = os.path.join(L, 'analysis', folder, 'main_1084', 'agreement.csv')
     ag = pd.read_csv(p_ag, dtype=str, keep_default_na=False)
     ag['line'] = np.arange(len(ag)) + 2
     a = ag[ag.grouping == 'all']
     models = list(dict.fromkeys(a.model))
+    if order is not None:
+        check(sorted(order) == sorted(models), f'heatmap: the given order names the {len(models)} settings in agreement.csv')
+        models = list(order)
     rows, bad = [], []
     for c in CONDS:
         for m in models:
@@ -82,7 +87,7 @@ def heatmap(L, O):
                 rows.append(dict(condition=c, model=m, ssm=s, ssm_label=LABEL.get(s, s), tau_b_conflict=r.tau_b_conflict,
                                  lo95=r.tau_b_conflict_lo, hi95=r.tau_b_conflict_hi, nboot=r.tau_b_conflict_nboot,
                                  agreement_csv_line=int(r.line)))
-    check(not bad and len(models) == 9 and len(rows) == 9 * 5 * 9,
+    check(not bad and len(models) == (9 if order is None else len(order)) and len(rows) == len(models) * 5 * 9,
           f'heatmap: {len(models)} settings x 5 formats x 9 SSMs, each with one value (missing {bad})')
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(O, 'exploratory_supp_heatmap_models_formats.csv'), index=False)
