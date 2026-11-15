@@ -9,7 +9,9 @@ computes it: main_hazard and reason of each answer cleaned as round 1 (reason_cl
 CountVectorizer(stop_words = round 1's custom list + the risk words, ngram_range (1, 2)), the two fields counted apart
 and added; alpha_w = the term's count over all 5,420 answers, alpha_0 their sum; delta = log((y_i + a_w) / (n_i + a_0 -
 y_i - a_w)) - log((y_j + a_w) / (n_j + a_0 - y_j - a_w)), z = delta / sqrt(1 / (y_i + a_w) + 1 / (y_j + a_w)); eligible:
-in 20+ answers and 5+ segments over all 5,420 answers; the 8 highest z (ties: term order). M3 groups are the 5 answers
+in 20+ answers and 5+ segments over all 5,420 answers; the 8 highest z (ties: term order); each term is also given with
+the number of the group's answers that use it, because with this prior a term used by neither side (here: mostly by
+noise answers, which are in neither) still gets z > 0, the more so for a small group. M3 groups are the 5 answers
 of each frame of the group. A one-sentence description of the group's 10 examples is Claude's reading, read from a
 separate file (docs/reason_hdbscan_descriptions.csv) written after the examples were read; it is not computed. The M1
 noise group's 10 examples follow the plan's rule (highest probabilities_, ties by segment, frame_idx, repeat); every
@@ -169,6 +171,8 @@ def main():
                              kmeans_overlap=f'{unit}: ' + '; '.join(f'k{int(a)} {int(b)}' for a, b in
                                                                    zip(c_.kmeans_cluster, c_['count'])),
                              top_8_terms='; '.join(vocab[w] for w in order),
+                             top_8_terms_answers_in_group='; '.join(f'{vocab[w]} ({int(ai[w])})' for w in order),
+                             terms_in_no_answer_of_group=int(sum(ai[w] == 0 for w in order)),
                              description_claude_reading=desc.get((m, name), '')))
     nz = np.flatnonzero(lab1 == -1)
     nz = sorted(nz, key=lambda i: (td.segment[i], int(td.frame_idx[i]), int(td['repeat'][i])))[:N_EX]
