@@ -978,6 +978,16 @@
     - Commit the code, ending the message with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
     - Report exact values (full precision in the CSV, say where any rounding is done in the report), the commit hashes, the job IDs, and the file paths with row numbers for each table.
     - 11-14 做了（`docs/handoff.md` 第 2 节"HDBSCAN 稳健性检查"）：umap-learn 0.6.0 装好（srun 31795130，只新增 5 个包）；`code/reason_hdbscan.py`（8cca289），作业 31795133 两遍逐字节一样，核对都过，之前 126 个输出文件 sha256 没变，已报给我。 追加的描述表（作业 31797267，两遍一样）也已报给我。
+  - 二维 UMAP 坐标（探索性，只为画图；我 2026-11-14 定，下面是原话，英文原样）：
+    New exploratory item, for a figure only: 2D UMAP coordinates of the 5,420 answer embeddings (Qwen3.6-27B, sep_camera, main set; the embeddings from 6add85e). Do not re-embed and do not re-cluster.
+    - UMAP: n_components 2, n_neighbors 15, min_dist 0.1, metric cosine, random_state 20261021. Input = the embeddings exactly as stored. Leave compatibility_layout at its default, as in the HDBSCAN run.
+    - Also run random_state 20261022 so we can see whether the picture changes with the seed.
+    - Write one CSV with one row per answer and these columns: segment, frame_idx, repeat, kmeans7 (the k = 7 label from 6add85e), score (that answer's own score), umap_x, umap_y (seed 20261021), umap_x_s2, umap_y_s2 (seed 20261022), tsne_x, tsne_y (the existing t-SNE coordinates from exploratory_reason_answers.csv). No reason text.
+    - Check that the rows align with the cluster table by segment, frame_idx and repeat, not by row order. Check that the kmeans7 counts are 607, 773, 897, 851, 1190, 614, 488 for clusters 0-6.
+    - Output folder reason_27b/main_1084_umap2d/, file exploratory_umap2d_answers.csv. Label it exploratory.
+    - Run on a compute node (sbatch or srun), never the login node. Python with -I. Run twice and confirm the outputs are byte-identical. Do not open any camera image. Do not delete anything.
+    - Commit the code, ending the message with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+    - Report the commit hash, the job ID, the file path and its sha256.
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
