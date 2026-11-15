@@ -16,7 +16,8 @@ set -eo pipefail
 : "${MODEL:?}" "${MODE:?}"
 D=/data/lab/cejli/sy/waymo_v143/vlm_scores/$MODEL
 C=/data/lab/cejli/sy/tmp_checks/internvl8b/$MODEL
-G38=/data/lab/cejli/sy/waymo_v143/vlm_scores/internvl3.5-38b$([ "$MODE" = on ] && echo -thinking)/main_internvl3.5-38b$([ "$MODE" = on ] && echo -thinking).jsonl.gz
+if [ "$MODE" = on ]; then SFX=-thinking; else SFX=; fi   # (an "[ ] && echo" here exited the job under set -e when MODE=off: 31795116)
+G38=/data/lab/cejli/sy/waymo_v143/vlm_scores/internvl3.5-38b$SFX/main_internvl3.5-38b$SFX.jsonl.gz
 SMOKE=$D/smoke_$MODEL.jsonl
 GT=results/vlm_inputs/targets.csv
 ST=results/vlm_inputs_separate/targets.csv
