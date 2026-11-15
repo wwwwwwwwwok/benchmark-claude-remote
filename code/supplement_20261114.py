@@ -4,7 +4,7 @@ as files, byte for byte, by name).
    analysis/after_gemma-4-31b-it-nothink/main_1084/agreement.csv (9 settings, 5 input formats, 9 SSMs in Table 1 order:
    TTC THW DRAC MTTC CI PICUD PSD 2D-TTC ACT); one panel per input format, one row per setting (in the order the settings
    first appear in agreement.csv), colour scale -0.5..0.5 (RdBu_r), values written in the cells (2 decimals, normal
-   weight). Writes the full-precision CSV it is drawn from (with each value's line in agreement.csv), PNG and PDF.
+   weight). Writes the full-precision CSV it is drawn from (with each value's line in agreement.csv), PNG and PDF. The candidate images: the last 5 paths of images_by_time in separate/targets_main.csv and the last path in grid/targets_main.csv (file names are zero-padded, e.g. step_025.jpg).
 2. Weather (labels/scene_labels.csv column weather: dry / wet / rain, the user's labels) and time of day (Waymo's
    time_of_day): segments and frames per class, and per weather x time of day, for the 1,084-frame main set
    (ssm_target_frames.csv of the risk analysis).
@@ -70,16 +70,20 @@ def heatmap(L, O):
     ag['line'] = np.arange(len(ag)) + 2
     a = ag[ag.grouping == 'all']
     models = list(dict.fromkeys(a.model))
-    rows = []
+    rows, bad = [], []
     for c in CONDS:
         for m in models:
             for s in SSMS:
                 r = a[(a.model == m) & (a.condition == c) & (a.ssm == s)]
-                check(len(r) == 1 and r.tau_b_conflict.iloc[0] != '', f'heatmap: {m} {c} {s} has one value')
+                if not (len(r) == 1 and r.tau_b_conflict.iloc[0] != ''):
+                    bad.append((m, c, s))
+                    continue
                 r = r.iloc[0]
                 rows.append(dict(condition=c, model=m, ssm=s, ssm_label=LABEL.get(s, s), tau_b_conflict=r.tau_b_conflict,
                                  lo95=r.tau_b_conflict_lo, hi95=r.tau_b_conflict_hi, nboot=r.tau_b_conflict_nboot,
                                  agreement_csv_line=int(r.line)))
+    check(not bad and len(models) == 9 and len(rows) == 9 * 5 * 9,
+          f'heatmap: {len(models)} settings x 5 formats x 9 SSMs, each with one value (missing {bad})')
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(O, 'exploratory_supp_heatmap_models_formats.csv'), index=False)
     fig, axes = plt.subplots(1, 5, figsize=(5 * 3.6 + 1.2, 0.42 * len(models) + 1.6), sharey=True)
@@ -214,22 +218,29 @@ def main():
         D = a.copy_to
         os.makedirs(D, exist_ok=False)
         tg = pd.read_csv(os.path.join(L, 'vlm_inputs', 'separate', 'targets_main.csv'))
+        tgg = pd.read_csv(os.path.join(L, 'vlm_inputs', 'grid', 'targets_main.csv'))
         shas = []
         for r in cand.itertuples():
             sub = os.path.join(D, f'{r.type}_{r.rank}_{r.segment}_{r.frame_idx}')
             os.makedirs(sub)
             t_row = tg[(tg.segment == r.segment) & (tg.frame_idx == r.frame_idx)]
             check(len(t_row) == 1, f'{r.segment} {r.frame_idx} in separate/targets_main.csv')
-            imgs = t_row.images_by_camera.iloc[0].split(';')
-            src = [os.path.join(L, 'vlm_inputs', 'separate', p) for p in imgs
-                   if p.endswith(f'_{r.frame_idx}.jpg') and p.split('/')[-1].rsplit('_', 1)[0] in CAMS]
-            check(len(src) == 5, f'{r.segment} {r.frame_idx}: 5 camera images at t')
-            src.append(os.path.join(L, 'vlm_inputs', 'grid', r.segment, f'step_{r.frame_idx}.jpg'))
+            # the time step t: the last 5 paths of images_by_time (one per camera, in CAMS order); the grid: the last path
+            last5 = t_row.images_by_time.iloc[0].split(';')[-5:]
+            g_row = tgg[(tgg.segment == r.segment) & (tgg.frame_idx == r.frame_idx)]
+            g_last = g_row.images.iloc[0].split(';')[-1]
+            ok = ([p.split('/')[-1].rsplit('_', 1)[0] for p in last5] == CAMS
+                  and len({p.rsplit('_', 1)[1] for p in last5}) == 1 and int(last5[0].rsplit('_', 1)[1][:-4]) == r.frame_idx
+                  and int(g_last.rsplit('_', 1)[1][:-4]) == r.frame_idx and len(g_row) == 1)
+            check(ok, f'{r.segment} {r.frame_idx}: 5 camera images at t and the grid image at t found in targets_main.csv')
+            src = [os.path.join(L, 'vlm_inputs', 'separate', p) for p in last5] + \
+                [os.path.join(L, 'vlm_inputs', 'grid', g_last)]
             for p in src:
                 dst = os.path.join(sub, os.path.basename(p))
                 shutil.copyfile(p, dst)
                 h1, h2 = sha(p), sha(dst)
-                check(h1 == h2, f'copied {p} -> {dst} (same sha256)')
+                if h1 != h2:
+                    check(False, f"copied {p} -> {dst}: sha256 differs")
                 shas.append(f'{h2}  {os.path.relpath(dst, D)}')
         cand.to_csv(os.path.join(D, 'candidates.csv'), index=False)
         with open(os.path.join(D, 'sha256.txt'), 'w') as fh:
