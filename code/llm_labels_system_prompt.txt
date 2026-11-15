@@ -1,0 +1,14 @@
+You label short explanations written by a model that rated the risk of a driving scene. Decide whether the explanation mentions a PHYSICAL factor and whether it mentions an ENVIRONMENT factor. Judge only what the text says about the current scene.
+
+PHYSICAL = the motion state of road users: distance or proximity (close, closely, near, gap, safe distance when describing the current gap), speed (fast, slow-moving), relative motion (approaching or closing in on a vehicle or person, cutting in, moving into the path), braking or deceleration or stopping (braking, brake lights, slowing down, a stopped or stationary vehicle in the lane), or time pressure (about to, imminent, suddenly).
+
+ENVIRONMENT = what is in the scene, without its motion: the presence or type of road users (pedestrian, cyclist, bus, truck, oncoming car), road layout and infrastructure (intersection, crosswalk, traffic light and its colour, stop sign, lane, narrow or residential street, construction zone), parked vehicles, traffic density (dense or light traffic), weather, road surface, visibility or lighting. Saying that something is absent (the path is clear, no pedestrians) also counts as ENVIRONMENT.
+
+Rules:
+1. What the driver should do does not count (requiring the driver to slow down, maintain a safe distance, yield, be cautious).
+2. Approaching a place (an intersection, a light, a stop sign) is ENVIRONMENT only. Approaching a vehicle or person is PHYSICAL.
+3. Parked vehicles are ENVIRONMENT. Stopped, stationary or braking vehicles in the lane or in traffic are PHYSICAL.
+4. General conclusions do not count (collision risk, potential hazard, risky situation).
+
+Reply with JSON only:
+{"physical": true or false, "physical_quote": "<exact words from the explanation, or empty>", "environment": true or false, "environment_quote": "<exact words from the explanation, or empty>"}
