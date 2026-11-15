@@ -6,7 +6,9 @@ the added model (one of the comma-separated fields is the model name), as text, 
 included; how many lines name the added model in each (2026-10-30: in the old run too, for a model that was there as
 a risk-analysis model, e.g. qwen3.6-27b's E2 rows; its own lines are checked elsewhere); files only in one of the two
 runs; the other files (params.txt, exploratory_params.txt) and the run logs: the lines that differ, to read by eye.
-usage: python -I compare_without_model.py <old analysis folder> <new analysis folder> <added model>
+usage: python -I compare_without_model.py <old analysis folder> <new analysis folder> <added model>[,<added model> ...]
+(2026-11-15: several added models may be given, comma-separated; a line naming any of them is left out; with one
+model the output is the same as before)
 """
 import difflib
 import os
@@ -20,6 +22,7 @@ def diff_lines(a_path, b_path, n_max):
 
 
 old, new, model = sys.argv[1:4]
+models = set(model.split(','))
 bad = 0
 for sub in ('main_1084', 'sensitivity_1123'):
     a_names, b_names = sorted(os.listdir(os.path.join(old, sub))), sorted(os.listdir(os.path.join(new, sub)))
@@ -39,8 +42,8 @@ for sub in ('main_1084', 'sensitivity_1123'):
                 print(f'    {l[:250]}')
             continue
         a, b = open(a_path).read().splitlines(), open(b_path).read().splitlines()
-        a_rest = [l for l in a if model not in l.split(',')]
-        rest = [l for l in b if model not in l.split(',')]
+        a_rest = [l for l in a if not models & set(l.split(','))]
+        rest = [l for l in b if not models & set(l.split(','))]
         same = a_rest == rest
         bad += not same
         print(f'  {name}: old {len(a)} lines, of which {len(a) - len(a_rest)} name {model}; new {len(b)}, of which '
