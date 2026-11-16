@@ -1148,6 +1148,17 @@
     5. Afterwards (not now): aggregate per answer and per frame (any of the 5 answers, and at least 3 of 5), by quantity and subject.
     Same rules as always: compute nodes only, python -I, no camera images, nothing deleted, commit with the Co-Authored-By line.
     - Claude 的做法（跑之前记下）：分句和图片时间标签照 11-16 量规模那次（`tmp_checks/reason_27b/thinking_quantities/size.py`，修过 Let's 那次）；数词整词匹配、不分大小写；一句里的数字或数词全落在时间标签里就不算。系统提示原样存成 `code/thinking_numbers_system_prompt.txt`（"[System]"、"[User]" 两行是标记，不发）。JSON 合格 = 第一个 JSON 对象里四个键是 true/false、subject 是五个值之一；不合格的重问一次，还不合格的不用。试跑 2,000 句 = `default_rng(20261116).choice(过筛句数, 2000, replace=False)`，按抽出的顺序发；给我标的 200 句 = `default_rng(20261116).choice(2000, 200, replace=False)`（在试跑那 2,000 句里抽，和 Llama 的结果无关，可以先写）。
+    - 11-16 试跑 31825331 过了（两遍逐字节一样，0 条不合格，每句 0.2860 秒，全量一遍约 21.0 小时）。
+    - 我定（2026-11-16，改计划；原因：我只剩大约 10 个小时，一条一条发两遍全量要约 42 小时；下面是原话，英文原样）：
+      The user has only about 10 hours, so the plan changes (record in CLAUDE.md with the reason):
+      1. First, a short timing test (about 10 minutes): run the 2,000 pilot sentences with 32 concurrent requests and prefix caching on, on one GPU. Report sentences per second and whether any reply differs from the sequential pilot.
+      2. If the projected full run fits in about 4 hours, run the full set ONCE with 32 concurrent requests, split into two halves on two GPUs (one vLLM server per GPU, same settings, same model revision). Same JSON validity check with one re-ask.
+      3. The byte-identity check of two full runs is dropped. Instead, report from step 1 the number of replies and label values that differ between the concurrent run and the sequential pilot on the same 2,000 sentences.
+      4. When the run finishes, apply the two subject rules already recorded (all quantities false -> NONE; LEAD and OTHER merged into OTHER_ROAD_USER) and aggregate per answer and per frame (any of 5, and at least 3 of 5) by quantity and subject. Report counts and shares.
+      If the timing test shows the full run would take much longer than 4 hours, stop and report before starting it.
+      Same rules as always: compute nodes only, python -I, no camera images, nothing deleted, commit with the Co-Authored-By line.
+    - 注：第 4 条说的两条 subject 规则，以前没有记进 CLAUDE.md 或 handoff；这里照这次的原话记下：四个量都是 false 的句子，subject 记成 NONE；LEAD 和 OTHER 合成 OTHER_ROAD_USER。只在汇总时改，Llama 的原始回答不动。
+    - Claude 的做法（跑之前记下）：`thinking_numbers.py run` 加 `--concurrency N`（不给时和以前一样一条一条发，输出不变）；并发时结果按文件顺序写，`_seconds.json` 记总的墙钟时间。前缀缓存：vLLM 默认开着，不加 `--no-enable-prefix-caching`。两半：264,144 句按 id 顺序前一半、后一半（`split`）。汇总（`aggregate`）：不合格的句子不算；每条回答用 5,420 条全集（没有过筛句子的回答算"没有"）；按量（距离、速度、加速度、时间、任一个）× subject（EGO、OTHER_ROAD_USER、UNCLEAR、任一个）报回答数和占比、帧数（5 次里至少 1 次、至少 3 次）和占比，另报句子层面的数。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
