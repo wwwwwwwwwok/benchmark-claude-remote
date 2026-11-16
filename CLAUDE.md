@@ -1036,6 +1036,46 @@
     Rules as usual: compute nodes only (sbatch or srun), python -I, no camera images, nothing deleted, commit with the line Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>, and report commits, job IDs and file paths with row numbers.
     - 我定（2026-11-15）：许可证已在 hf_cache 里那个 token 的账号上批了，不用重新登录。同意下载 Llama-3.1-8B-Instruct 版本 0e9e39f249a16976918f6564b8830bc894c89659（根目录的文件，不下 original/），dtn1 上 sbatch，下完逐个和官方校验值比。对话模板用官方的（带两行日期，选项 A）。请求一条一条地发。其余 vLLM 设置照计划。
     - 我定（2026-11-15，标核对样本的时候定的；改在算一致程度之前、任何结果用之前）：系统提示在第 4 条规则后面加第 5 条，其余一字不改："5. A vehicle mentioned only as the one that is braking, stopped or being approached does not count as ENVIRONMENT, and neither do its colour or ordinary car type (car, sedan, SUV, vehicle). Pedestrians, cyclists, buses, trucks, trams and other road users mentioned as present in the scene do count as ENVIRONMENT." 用新提示重跑标注（两遍、逐字节核对、同样的检查和输出）；旧的输出放 prompt_v1 子文件夹留作参照；重跑完以前不报结果。
+    - 我定（2026-11-15，标核对样本的时候定的；改在算一致程度之前、任何结果用之前；下面是原话，英文原样）：PHYSICAL/ENVIRONMENT 的提示（v1）和后来的第 5 条规则都作废，换成 v2。31819479（v1）的输出放 prompt_v1，31820567（v1 加第 5 条）的输出放 prompt_v1_rule5，都不报。
+      Change of plan for the LLM annotation (decided by the user while labelling the validation sample, before any agreement was computed; record it in CLAUDE.md with today's date). The PHYSICAL/ENVIRONMENT prompt (v1) and the rule 5 I sent earlier are replaced by the prompt below (v2). If job 31819479 has run, keep its outputs in a subfolder prompt_v1 and do not report them.
+
+      The annotator now gives three yes/no labels per reason: LEAD, OTHER, IMAGE_ONLY. Two schemes are derived from them:
+      - three-way: the three labels as they are;
+      - two-way: TRAJECTORY = LEAD or OTHER; IMAGE_ONLY as it is. Four classes: trajectory only, image only, both, neither.
+
+      Prompt v2 (use exactly this text; the reason goes where {REASON} is)
+      [System]
+      You label short explanations written by a model that rated the risk of a driving scene from camera images. For each explanation, decide whether it mentions information of each of three kinds. Judge only what the text says about the current scene.
+
+      LEAD = the vehicle directly ahead in the ego vehicle's own lane, or the traffic queue ahead in that lane: its distance, speed, braking or stopping, and the ego vehicle approaching, following or closing in on it. The ego vehicle's own speed, slowing or stopping also counts as LEAD.
+
+      OTHER = any other road user: pedestrians, cyclists, vehicles in adjacent or oncoming lanes, vehicles crossing, turning, merging or cutting in, parked vehicles, and how busy the traffic is around the ego vehicle. Their presence, position, size (bus, truck, tram), distance and motion all count as OTHER.
+
+      IMAGE_ONLY = information that object tracks (positions, sizes, speeds) cannot give and only the image can: weather, road surface, visibility, lighting or time of day; traffic lights and their colour, signs, road markings, crosswalks, special lanes (bus lane, bike lane, turn lane); the type of road or area (intersection, residential street, school zone, construction zone, parking lot, gas station); road furniture (barriers, cones, tram tracks, walls, curbs); special vehicles or their state (police car, warning lights, school bus, turn signals); and the appearance, behaviour or intent of people (pushing a stroller, children, looking at a phone, looking left).
+
+      Rules:
+      1. What the driver should do does not count (requiring the driver to slow down, maintain a safe distance, yield, be cautious).
+      2. General conclusions do not count (collision risk, potential hazard, risky situation).
+      3. Colour, make or model used only to say which road user is meant does not count (white, silver, Jeep, sedan, SUV).
+      4. Conditional events introduced by "if" do not count (if it brakes suddenly, if the gap is too small).
+      5. Brake lights count as braking: LEAD for the vehicle directly ahead, OTHER for any other vehicle.
+      6. Approaching a place (an intersection, a red light, a stop sign) is IMAGE_ONLY. Approaching the vehicle directly ahead is LEAD.
+      7. Saying that something is absent counts for its kind: "no pedestrians" is OTHER, "the road ahead is clear" is OTHER, "no traffic lights" is IMAGE_ONLY.
+      8. The intent or expected action of a road user counts as IMAGE_ONLY, because object tracks do not show it: preparing to cross, waiting to cross or to merge, about to step out, may step into the crosswalk, looking left, appearing to yield. What a road user is already doing (crossing, walking towards the roadway, turning across the path) counts as OTHER or LEAD.
+      Reply with JSON only:
+      {"lead": true or false, "lead_quote": "<exact words or empty>", "other": true or false, "other_quote": "<exact words or empty>", "image_only": true or false, "image_only_quote": "<exact words or empty>"}
+
+      [User]
+      Explanation: {REASON}
+
+      Everything else as in the earlier plan: Llama-3.1-8B-Instruct, official chat template, temperature 0, max_tokens 300, one request at a time, shuffled with seed 20261115; quotes must be exact substrings, label/quote consistency check, one re-ask, failures reported and not used; two runs byte-identical.
+
+      Outputs (folder reason_27b/main_1084_llm_labels/, prefix exploratory_llm_v2_)
+      - One row per answer: segment, frame_idx, repeat, kmeans7, score, lead, other, image_only, trajectory, the three quotes, class_3way (the combination of the three labels), class_2way.
+      - For both schemes: counts and shares; mean score per class minus the mean of all answers with the segment-bootstrap 95% interval (2,000 resamples, seed 20261021). For the three-way scheme also report each label on its own (mentioned vs not mentioned).
+      - The composition of each k-means theme (k = 7) under both schemes.
+      - The validation sample file for the user stays as it is (item, reason); the user will return labels for lead, other, image_only. Do not compute agreement yet.
+      Same rules as always: compute nodes only, python -I, no camera images, nothing deleted, commit with the Co-Authored-By line, report commits, job IDs and file paths with row numbers.
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
