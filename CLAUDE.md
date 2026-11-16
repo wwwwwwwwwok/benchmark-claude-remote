@@ -1127,6 +1127,27 @@
       - 11-15 实现和提交（805b8b4，假回答测试 srun 31822060 全过）：作业 31822093（21:33 起，sn17），输出 `tmp_checks/reason_27b/llm_labels/v2_rule_c/`，全过才复制到结果文件夹（`docs/handoff.md` 第 2 节"LLM 标注理由"）。
       - 初步结果（PRELIMINARY，没有通过核对，不接受）：用户要看 Llama 的初步结果，2026-11-15 21:35 PST 报给用户，这时 200 条核对样本的人工标注还没定稿。做法：31820897 第 1 遍的回答和已有的重问，离线按引文规则 C 重新核对，仍失败的不用（srun 31822116，`tmp_checks/reason_27b/llm_labels/preliminary_31820897_run1/`，`build.py` + `tables/`）；不进结果文件夹。关前缀缓存的重跑 31822093 照原计划进行。
       - 11-15 23:11 31822093 跑完（退出码 0）：第 1 轮（关前缀缓存）两遍逐字节一样（回答、重问、8 张表），没用到 --enforce-eager；表已复制到 `analysis/reason_27b/main_1084_llm_labels/`。能用 5,144 条，仍失败 276 条（首答 276 条，重问回答和首答一样，没有救回）。已报给我。
+  - 思考文字里的数（探索性、事后；我 2026-11-16 定，下面是原话，英文原样；先量过规模，见 `docs/handoff.md`；看到结果以后计划不改）：
+    Change of scope: the user only wants to know whether the thinking contains quantitative statements of SSM-related quantities. So:
+    1. Filter: a sentence passes if it contains a digit or an English number word (one to twenty, thirty, forty, fifty, sixty, hundred, half, quarter, couple, dozen), after removing the image time labels you already exclude (2.0 s ago, Moment 3, Now, 0.5 seconds apart, 5 pictures, etc.). Report the count of passing sentences and the projected run time one request at a time.
+    2. Prompt (use exactly this text):
+    [System]
+    You read one sentence from the reasoning of a model that judged the risk of a driving scene from camera images. Decide whether the sentence gives a NUMBER for a current physical quantity of a road user, and which:
+    - DISTANCE: a distance or gap (10 m, two car lengths, about 30 feet).
+    - SPEED: a speed (30 mph, 5 m/s, 20 km/h).
+    - ACCELERATION: an acceleration or deceleration (3 m/s^2).
+    - TIME: a time until reaching or hitting something, or a time headway (2 seconds to impact, 1.5 s behind).
+    Numbers that are not such quantities count as NONE: image time labels (2.0 s ago, Moment 5), lane or list numbers, risk scores, counts of objects, names, IDs, and quantities in rules or plans (keep a 2-second gap).
+    Also give the road user it concerns: EGO (the camera car, I, me, we), LEAD (the vehicle directly ahead in the ego lane), OTHER (any other road user), or UNCLEAR.
+    Reply with JSON only:
+    {"distance": true or false, "speed": true or false, "acceleration": true or false, "time": true or false, "subject": "EGO" | "LEAD" | "OTHER" | "UNCLEAR" | "NONE"}
+    [User]
+    Sentence: {SENT}
+    3. Serving as in the accepted run: Llama-3.1-8B-Instruct, official chat template, temperature 0, max_tokens 100, prefix caching off, one request at a time, two runs with a byte-identity check. JSON validity check with one re-ask; no quote check.
+    4. Before the full run, do a pilot on 2,000 random passing sentences (seed 20261116), run twice, and report time per sentence, label differences between runs, failures and label shares. Write 200 random pilot sentences for the user to label under /data/lab/cejli/sy/waymo_v143/to_office/thinking_labels/ with empty columns distance, speed, acceleration, time, subject. Wait for the user before the full run.
+    5. Afterwards (not now): aggregate per answer and per frame (any of the 5 answers, and at least 3 of 5), by quantity and subject.
+    Same rules as always: compute nodes only, python -I, no camera images, nothing deleted, commit with the Co-Authored-By line.
+    - Claude 的做法（跑之前记下）：分句和图片时间标签照 11-16 量规模那次（`tmp_checks/reason_27b/thinking_quantities/size.py`，修过 Let's 那次）；数词整词匹配、不分大小写；一句里的数字或数词全落在时间标签里就不算。系统提示原样存成 `code/thinking_numbers_system_prompt.txt`（"[System]"、"[User]" 两行是标记，不发）。JSON 合格 = 第一个 JSON 对象里四个键是 true/false、subject 是五个值之一；不合格的重问一次，还不合格的不用。试跑 2,000 句 = `default_rng(20261116).choice(过筛句数, 2000, replace=False)`，按抽出的顺序发；给我标的 200 句 = `default_rng(20261116).choice(2000, 200, replace=False)`（在试跑那 2,000 句里抽，和 Llama 的结果无关，可以先写）。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
