@@ -9,8 +9,9 @@ or OTHER, IMAGE_ONLY; class_2way = trajectory only / image only / both / neither
     a time, in the order default_rng(20261115).permutation(5420); system = code/llm_labels_v2_system_prompt.txt (the
     plan's text as given), user = "Explanation: <reason>", official chat template, temperature 0, max_tokens 300,
     nothing else sent. Each reply: the first JSON object; a label fails when a key is missing, a label is not
-    true/false, a quote is not a string or not an exact substring of the reason (case-sensitive), true has an empty quote
-    or false a non-empty one. The failed ones are asked once more with the same request (<out>_reask.jsonl).
+    true/false, a quote is not a string or is a paraphrase under quote rule C (user, 2026-11-15; see quote_kind: exact,
+    case only and joined pieces pass), true has an empty quote or false a non-empty one. The failed ones are asked once
+    more with the same request (<out>_reask.jsonl).
   analyze <waymo_v143> <round-1 work folder> <run jsonl> <out_dir> (waymo environment): labels = the first answer if it
     passes, else the re-ask if it passes, else none (class failed; not used). Answers matched to round 1's cluster table
     by segment, frame_idx, repeat. Writes exploratory_llm_v2_labels.csv (one row per answer), _classes.csv (counts and
@@ -19,13 +20,21 @@ or OTHER, IMAGE_ONLY; class_2way = trajectory only / image only / both / neither
     resample the class mean minus the mean of all drawn answers; 2.5 / 97.5 % numpy linear over the resamples where the
     class is present), _label_scores.csv (each of the three labels on its own: mentioned and not mentioned, each minus
     the mean of all answers, and mentioned minus not mentioned, same intervals), _theme_composition.csv (k-means k 7
-    themes under both schemes), _params.txt.
+    themes under both schemes), _failures.csv (failed replies by type, first answer and re-ask), _quote_kinds.csv
+    (exact / case / pieces / paraphrase per label, first answers and the used labels), _label_rates.csv (replies with
+    all three labels false and the share of each label true: usable labels, and all first answers with three
+    true/false labels), _params.txt.
+  compare <run A jsonl> <run B jsonl>: replies with different text (first answers, re-asks) and final label values
+    that differ; exit 1 when anything differs.
 usage: python -I llm_labels_v2.py run <round-1 work folder> <base_url> <out jsonl>
        python -I llm_labels_v2.py analyze <waymo_v143> <round-1 work folder> <run jsonl> <out_dir>
+       python -I llm_labels_v2.py compare <run A jsonl> <run B jsonl>
 """
+import collections
 import hashlib
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -44,8 +53,27 @@ N_BOOT, BOOT_SEED = 2000, 20261021
 HASH = '48bc1f413f9d5b99da57ff4edde7bbb4eb378c5a9343c44ccad4e0165466604c'
 
 
+QUOTE_SPLIT = re.compile(r'[,;]|\band\b', flags=re.IGNORECASE)
+
+
+def quote_kind(q, reason):
+    """Quote rule C (user, 2026-11-15, recorded in CLAUDE.md before the run): 'exact' (a case-sensitive substring), 'case'
+    (a substring when case is ignored), 'pieces' (not as a whole, but split on commas, semicolons and the word "and",
+    every non-empty piece, stripped of white space only, is a case-insensitive substring; at least one piece), or
+    'paraphrase' (a piece is not, or no piece at all). Only 'paraphrase' fails."""
+    if q in reason:
+        return 'exact'
+    if q.lower() in reason.lower():
+        return 'case'
+    pieces = [p.strip() for p in QUOTE_SPLIT.split(q)]
+    pieces = [p for p in pieces if p != '']
+    if pieces and all(p.lower() in reason.lower() for p in pieces):
+        return 'pieces'
+    return 'paraphrase'
+
+
 def check_label(reason, obj):
-    """'' when the label is usable, else why not (the plan's checks)."""
+    """'' when the label is usable, else why not (the plan's checks, quote rule C)."""
     if obj is None:
         return 'no JSON object'
     if any(k not in obj for k in KEYS):
@@ -63,9 +91,39 @@ def check_label(reason, obj):
             why.append(f'{f} true with an empty quote')
         if not lab and q != '':
             why.append(f'{f} false with a non-empty quote')
-        if q != '' and q not in reason:
-            why.append(f'{f}_quote not a substring')
+        if q != '' and quote_kind(q, reason) == 'paraphrase':
+            why.append(f'{f}_quote paraphrase')
     return '; '.join(why)
+
+
+def quote_kinds(reason, obj):
+    if not isinstance(obj, dict):
+        return {}
+    return {f: quote_kind(obj[f + '_quote'], reason) for f in LABELS
+            if isinstance(obj.get(f + '_quote'), str) and obj[f + '_quote'] != ''}
+
+
+def fail_type(d):
+    """One type per failed reply: length (cut at max_tokens), no JSON, missing key, label or quote type, paraphrase,
+    consistency (true with an empty quote / false with a non-empty one); several reasons are joined in that order."""
+    if d['fail'] == '':
+        return ''
+    t = []
+    if d.get('finish_reason') == 'length':
+        t.append('length')
+    w = d['fail']
+    if w == 'no JSON object':
+        t.append('no JSON')
+    elif w.startswith('missing key'):
+        t.append('missing key')
+    else:
+        if 'not true/false' in w or 'not a string' in w:
+            t.append('label or quote type')
+        if 'paraphrase' in w:
+            t.append('paraphrase')
+        if 'empty quote' in w or 'non-empty quote' in w:
+            t.append('consistency')
+    return '+'.join(dict.fromkeys(t))
 
 
 def ask(client, system, reason):
@@ -75,7 +133,8 @@ def ask(client, system, reason):
     text = ch.message.content
     obj = v1.first_json(text)
     return dict(text=text, finish_reason=ch.finish_reason, prompt_tokens=r.usage.prompt_tokens,
-                completion_tokens=r.usage.completion_tokens, parsed=obj, fail=check_label(reason, obj))
+                completion_tokens=r.usage.completion_tokens, parsed=obj, fail=check_label(reason, obj),
+                quote_kinds=quote_kinds(reason, obj))
 
 
 def run(W1, base_url, out):
@@ -245,6 +304,35 @@ def analyze(L, W1, run_file, O):
                 rows_t.append(dict(scheme=sch, kmeans7=k7, answers_in_theme=len(g), **{'class': c}, answers=n,
                                    share_of_theme=n / len(g), share_of_usable_in_theme=(n / nu if nu else np.nan)))
     pd.DataFrame(rows_t).to_csv(pfx + 'theme_composition.csv', index=False)
+    # failures by type, quote kinds, label rates (user, 2026-11-15)
+    final = {j: second.get(j, first[j]) for j in first}
+    rows_f = []
+    for stage, ds in (('first answer', first), ('re-ask (still failing = not used)', second)):
+        cnt = collections.Counter(fail_type(d) for d in ds.values() if d['fail'])
+        for k, v in sorted(cnt.items()):
+            rows_f.append(dict(stage=stage, failure_type=k, replies=v))
+        rows_f.append(dict(stage=stage, failure_type='all failures', replies=sum(cnt.values())))
+    pd.DataFrame(rows_f).to_csv(pfx + 'failures.csv', index=False)
+    rows_q = []
+    for stage, ds in (('first answer', first), ('final, used labels', {j: d for j, d in final.items() if not d['fail']})):
+        cnt = collections.Counter()
+        for j, d in ds.items():
+            for f, k in quote_kinds(recs[j]['reason'], d['parsed']).items():
+                cnt[(f, k)] += 1
+        for f in LABELS:
+            for k in ('exact', 'case', 'pieces', 'paraphrase'):
+                rows_q.append(dict(stage=stage, label=f, quote_kind=k, quotes=cnt[(f, k)]))
+    pd.DataFrame(rows_q).to_csv(pfx + 'quote_kinds.csv', index=False)
+    used = t[usable]
+    rows_r = [dict(group='usable labels', replies=len(used),
+                   all_three_false=int(((used.lead == False) & (used.other == False) & (used.image_only == False)).sum()),  # noqa: E712
+                   **{f'share_{f}_true': float((used[f] == True).mean()) for f in LABELS})]  # noqa: E712
+    fp = [d['parsed'] for d in first.values() if isinstance(d['parsed'], dict) and all(isinstance(d['parsed'].get(f), bool)
+                                                                                         for f in LABELS)]
+    rows_r.append(dict(group='first answers with three true/false labels (any check result)', replies=len(fp),
+                       all_three_false=int(sum(not any(p[f] for f in LABELS) for p in fp)),
+                       **{f'share_{f}_true': float(np.mean([p[f] for p in fp])) for f in LABELS}))
+    pd.DataFrame(rows_r).to_csv(pfx + 'label_rates.csv', index=False)
     n1 = sum(d['fail'] != '' for d in first.values())
     n2 = sum(d['fail'] != '' for d in second.values())
     with open(pfx + 'params.txt', 'w', encoding='utf-8') as f:
@@ -262,10 +350,37 @@ def analyze(L, W1, run_file, O):
     print(pd.DataFrame(rows_c).to_string(index=False))
 
 
+def compare(run_a, run_b):
+    """Two runs (each with its _reask file): replies whose text differs (first answers and re-asks) and final label values
+    (3 labels, after the re-ask rule) that differ; exit 1 when anything differs."""
+    out = {}
+    for name, p in (('a', run_a), ('b', run_b)):
+        first = {d['row']: d for d in map(json.loads, open(p, encoding='utf-8'))}
+        second = {d['row']: d for d in map(json.loads, open(p.replace('.jsonl', '_reask.jsonl'), encoding='utf-8'))}
+        out[name] = (first, second)
+    (fa, sa), (fb, sb) = out['a'], out['b']
+    d_first = sum(fa[k]['text'] != fb[k]['text'] for k in fa)
+    common_re = set(sa) & set(sb)
+    d_re = sum(sa[k]['text'] != sb[k]['text'] for k in common_re) + len(set(sa) ^ set(sb))
+
+    def lab(f, s, k):
+        d = s.get(k, f[k])
+        return tuple(d['parsed'][x] for x in LABELS) if d['fail'] == '' else ('failed',)
+    d_rows = [k for k in fa if lab(fa, sa, k) != lab(fb, sb, k)]
+    d_vals = sum(1 if ('failed',) in (lab(fa, sa, k), lab(fb, sb, k)) else
+                 sum(x != y for x, y in zip(lab(fa, sa, k), lab(fb, sb, k))) for k in d_rows)
+    print(f'first answers with different text: {d_first} of {len(fa)}; re-asks with different text or asked in one run '
+          f'only: {d_re}; answers whose final labels differ: {len(d_rows)} (label values differing: {d_vals}, a label set '
+          f'that failed in one run counted as 1)')
+    sys.exit(1 if d_first or d_re or d_rows else 0)
+
+
 if __name__ == '__main__':
     if len(sys.argv) == 5 and sys.argv[1] == 'run':
         run(*sys.argv[2:5])
     elif len(sys.argv) == 6 and sys.argv[1] == 'analyze':
         analyze(*sys.argv[2:6])
+    elif len(sys.argv) == 4 and sys.argv[1] == 'compare':
+        compare(*sys.argv[2:4])
     else:
         sys.exit(__doc__)
