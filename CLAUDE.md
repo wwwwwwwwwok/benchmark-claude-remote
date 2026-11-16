@@ -1117,6 +1117,13 @@
       - The composition of each k-means theme (k = 7) under both schemes.
       - Do not compute agreement with human labels yet. The user will send the final human labels for the 200-item sample (trajectory and image_only for both annotators, plus lead/other/image_only from one annotator).
       Same rules as always: compute nodes only, python -I, no camera images, nothing deleted, commit with the Co-Authored-By line, report commits, job IDs and file paths with row numbers.
+    - 我定（2026-11-15，31820897 两项核对没过以后；在和人工标注比之前）：
+      - 一、两遍不一样：先关掉前缀缓存重跑两遍（vLLM 加 `--no-enable-prefix-caching`）；还不一样，再加 `--enforce-eager` 重跑两遍；还不一样就停下，报不同的回答条数和 label 值个数，不再往下选。
+      - 二、引文怎么算合格（C）：引文按逗号、分号和单词 and 切开，每一段去掉首尾空白后不是空的，都要在理由里能找到（不分大小写，原样的连续一段）；改写的照样不合格。label 和引文一致的检查、一次重问照旧；剩下的失败按类型报（只差大小写、几段拼起来、改写、label 和引文不一致、写到上限）。
+        - 具体写法（Claude 照这个实现，跑之前记在这里）：`pieces = [p.strip() for p in re.split(r'[,;]|\band\b', quote, flags=re.IGNORECASE)]`，去掉空段；至少要有一段不是空的；每一段 `p.lower() in reason.lower()` 才合格。引文分四类记下：原样子串（exact）、只差大小写（整句不分大小写是子串）、几段拼起来（整句不是，但每段都是）、改写（有一段不是）；只有"改写"算失败。strip 只去空白（空格、换行等），不去标点。
+      - 三、作业改成：所有核对都过了（两遍逐字节一样、两遍的表逐字节一样），结果表才写进结果文件夹；不过就只写在 tmp_checks。
+      - 四、报告里给两遍各自：三个标签全是 false 的回答条数，每个标签是 true 的回答占比。
+      - 五、现在不换 70B，和人工标注比过再定。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
