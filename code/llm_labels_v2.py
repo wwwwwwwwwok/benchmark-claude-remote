@@ -2,7 +2,8 @@
 program was written and before any agreement was computed): Llama-3.1-8B-Instruct labels each of Qwen3.6-27B's 5,420
 stated reasons (sep_camera, main set) with three yes/no labels: LEAD, OTHER, IMAGE_ONLY (prompt v2; replaces the
 PHYSICAL / ENVIRONMENT prompt v1 and its rule 5, whose runs are kept in tmp_checks/reason_27b/llm_labels/prompt_v1*/ and
-not reported). Two schemes: three-way (the three labels; class_3way = their combination) and two-way (TRAJECTORY = LEAD
+not reported; the first draft of v2 run 31820857 is kept in prompt_v2_draft/, also not reported; the prompt file is the
+final v2 of 2026-11-15, extracted from the CLAUDE.md record). Two schemes: three-way (the three labels; class_3way = their combination) and two-way (TRAJECTORY = LEAD
 or OTHER, IMAGE_ONLY; class_2way = trajectory only / image only / both / neither).
   run <round-1 work folder> <base_url> <out jsonl> (vLLM environment, server running): every reason once, one request at
     a time, in the order default_rng(20261115).permutation(5420); system = code/llm_labels_v2_system_prompt.txt (the

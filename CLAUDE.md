@@ -1076,6 +1076,47 @@
       - The composition of each k-means theme (k = 7) under both schemes.
       - The validation sample file for the user stays as it is (item, reason); the user will return labels for lead, other, image_only. Do not compute agreement yet.
       Same rules as always: compute nodes only, python -I, no camera images, nothing deleted, commit with the Co-Authored-By line, report commits, job IDs and file paths with row numbers.
+    - 我定（2026-11-15，v2 的最终版，替换以前所有版本；在和 Llama 算任何一致程度之前定的；下面是原话，英文原样）：v2 草稿那次 31820857（18:43 起，跑了几分钟）撤了，输出和草稿提示放 prompt_v2_draft，不报。
+      Final version of prompt v2 for the LLM annotation (replaces all earlier versions; record in CLAUDE.md with today's date, decided by the user before any agreement with Llama was computed). If job 31819479 has run, keep its outputs in a subfolder prompt_v1 and do not report them.
+
+      The annotator gives three yes/no labels per reason: LEAD, OTHER, IMAGE_ONLY. Two schemes are derived:
+      - three-way: the three labels as they are;
+      - two-way: TRAJECTORY = LEAD or OTHER; IMAGE_ONLY as it is. Four classes: trajectory only, image only, both, neither.
+
+      Prompt v2 final (use exactly this text; the reason goes where {REASON} is)
+      [System]
+      You label short explanations written by a model that rated the risk of a driving scene from camera images. For each explanation, decide whether it mentions information of each of three kinds. Judge only what the text says about the current scene.
+
+      LEAD = the vehicle directly ahead in the ego vehicle's own lane, or the traffic queue ahead in that lane: its distance, speed, braking or stopping, and the ego vehicle approaching, following or closing in on it. The ego vehicle's own speed, slowing or stopping also counts as LEAD.
+
+      OTHER = any other road user: pedestrians, cyclists, vehicles in adjacent or oncoming lanes, vehicles crossing, turning, merging or cutting in, parked vehicles, and how busy the traffic is around the ego vehicle. Their presence, position, size (bus, truck, tram), distance and motion all count as OTHER.
+
+      IMAGE_ONLY = information that object tracks (positions, sizes, speeds) cannot give and only the image can: weather, road surface, visibility, lighting or time of day; traffic lights and their colour, signs, road markings, crosswalks, special lanes (bus lane, bike lane, turn lane); the type of road or area (intersection, side street, driveway, residential street, school zone, construction zone, parking lot, gas station); road furniture (barriers, cones, tram tracks, walls, curbs, sidewalks); special vehicles or their state (police car, warning lights, school bus, turn signals); and the appearance, behaviour or intent of people (pushing a stroller, children, looking at a phone, looking left).
+
+      Rules:
+      1. What the driver should do does not count, including any road user mentioned only inside that part (requiring the driver to slow down, to stop behind the car ahead, to maintain a safe distance, to yield, to be cautious).
+      2. General conclusions do not count (collision risk, potential hazard, risky situation).
+      3. Colour, make or model used only to say which road user is meant does not count (white, silver, Jeep, sedan, SUV).
+      4. Conditional events introduced by "if" do not count (if it brakes suddenly, if the gap is too small).
+      5. Brake lights count as braking: LEAD for the vehicle directly ahead, OTHER for any other vehicle. They are not IMAGE_ONLY.
+      6. Approaching a place (an intersection, a red light, a stop sign) is IMAGE_ONLY. Approaching the vehicle directly ahead is LEAD.
+      7. Saying that something is absent counts for its kind: "no pedestrians" and "the road ahead is clear" are OTHER, "no traffic lights" is IMAGE_ONLY.
+      8. The intent or expected action of a road user counts as IMAGE_ONLY, because object tracks do not show it: preparing to cross, waiting to cross or to merge, about to step out, may step into the crosswalk, looking left, appearing to yield. What a road user is already doing (crossing, walking towards the roadway, turning across the path) counts as OTHER or LEAD. A sentence can have both, e.g. a pedestrian near the curb (OTHER) who may step out (IMAGE_ONLY).
+
+      Reply with JSON only:
+      {"lead": true or false, "lead_quote": "<exact words or empty>", "other": true or false, "other_quote": "<exact words or empty>", "image_only": true or false, "image_only_quote": "<exact words or empty>"}
+
+      [User]
+      Explanation: {REASON}
+
+      Everything else as in the earlier plan: Llama-3.1-8B-Instruct, official chat template, temperature 0, max_tokens 300, one request at a time, shuffled with seed 20261115; quotes must be exact substrings, label/quote consistency check, one re-ask, failures reported and not used; two runs byte-identical.
+
+      Outputs (folder reason_27b/main_1084_llm_labels/, prefix exploratory_llm_v2_)
+      - One row per answer: segment, frame_idx, repeat, kmeans7, score, lead, other, image_only, trajectory, the three quotes, class_3way, class_2way.
+      - For both schemes: counts and shares; mean score per class minus the mean of all answers with the segment-bootstrap 95% interval (2,000 resamples, seed 20261021). For the three-way scheme also each label on its own (mentioned vs not).
+      - The composition of each k-means theme (k = 7) under both schemes.
+      - Do not compute agreement with human labels yet. The user will send the final human labels for the 200-item sample (trajectory and image_only for both annotators, plus lead/other/image_only from one annotator).
+      Same rules as always: compute nodes only, python -I, no camera images, nothing deleted, commit with the Co-Authored-By line, report commits, job IDs and file paths with row numbers.
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 

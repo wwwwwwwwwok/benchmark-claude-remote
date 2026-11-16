@@ -4,16 +4,17 @@ LEAD = the vehicle directly ahead in the ego vehicle's own lane, or the traffic 
 
 OTHER = any other road user: pedestrians, cyclists, vehicles in adjacent or oncoming lanes, vehicles crossing, turning, merging or cutting in, parked vehicles, and how busy the traffic is around the ego vehicle. Their presence, position, size (bus, truck, tram), distance and motion all count as OTHER.
 
-IMAGE_ONLY = information that object tracks (positions, sizes, speeds) cannot give and only the image can: weather, road surface, visibility, lighting or time of day; traffic lights and their colour, signs, road markings, crosswalks, special lanes (bus lane, bike lane, turn lane); the type of road or area (intersection, residential street, school zone, construction zone, parking lot, gas station); road furniture (barriers, cones, tram tracks, walls, curbs); special vehicles or their state (police car, warning lights, school bus, turn signals); and the appearance, behaviour or intent of people (pushing a stroller, children, looking at a phone, looking left).
+IMAGE_ONLY = information that object tracks (positions, sizes, speeds) cannot give and only the image can: weather, road surface, visibility, lighting or time of day; traffic lights and their colour, signs, road markings, crosswalks, special lanes (bus lane, bike lane, turn lane); the type of road or area (intersection, side street, driveway, residential street, school zone, construction zone, parking lot, gas station); road furniture (barriers, cones, tram tracks, walls, curbs, sidewalks); special vehicles or their state (police car, warning lights, school bus, turn signals); and the appearance, behaviour or intent of people (pushing a stroller, children, looking at a phone, looking left).
 
 Rules:
-1. What the driver should do does not count (requiring the driver to slow down, maintain a safe distance, yield, be cautious).
+1. What the driver should do does not count, including any road user mentioned only inside that part (requiring the driver to slow down, to stop behind the car ahead, to maintain a safe distance, to yield, to be cautious).
 2. General conclusions do not count (collision risk, potential hazard, risky situation).
 3. Colour, make or model used only to say which road user is meant does not count (white, silver, Jeep, sedan, SUV).
 4. Conditional events introduced by "if" do not count (if it brakes suddenly, if the gap is too small).
-5. Brake lights count as braking: LEAD for the vehicle directly ahead, OTHER for any other vehicle.
+5. Brake lights count as braking: LEAD for the vehicle directly ahead, OTHER for any other vehicle. They are not IMAGE_ONLY.
 6. Approaching a place (an intersection, a red light, a stop sign) is IMAGE_ONLY. Approaching the vehicle directly ahead is LEAD.
-7. Saying that something is absent counts for its kind: "no pedestrians" is OTHER, "the road ahead is clear" is OTHER, "no traffic lights" is IMAGE_ONLY.
-8. The intent or expected action of a road user counts as IMAGE_ONLY, because object tracks do not show it: preparing to cross, waiting to cross or to merge, about to step out, may step into the crosswalk, looking left, appearing to yield. What a road user is already doing (crossing, walking towards the roadway, turning across the path) counts as OTHER or LEAD.
+7. Saying that something is absent counts for its kind: "no pedestrians" and "the road ahead is clear" are OTHER, "no traffic lights" is IMAGE_ONLY.
+8. The intent or expected action of a road user counts as IMAGE_ONLY, because object tracks do not show it: preparing to cross, waiting to cross or to merge, about to step out, may step into the crosswalk, looking left, appearing to yield. What a road user is already doing (crossing, walking towards the roadway, turning across the path) counts as OTHER or LEAD. A sentence can have both, e.g. a pedestrian near the curb (OTHER) who may step out (IMAGE_ONLY).
+
 Reply with JSON only:
 {"lead": true or false, "lead_quote": "<exact words or empty>", "other": true or false, "other_quote": "<exact words or empty>", "image_only": true or false, "image_only_quote": "<exact words or empty>"}
