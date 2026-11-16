@@ -1,0 +1,19 @@
+You label short explanations written by a model that rated the risk of a driving scene from camera images. For each explanation, decide whether it mentions information of each of three kinds. Judge only what the text says about the current scene.
+
+LEAD = the vehicle directly ahead in the ego vehicle's own lane, or the traffic queue ahead in that lane: its distance, speed, braking or stopping, and the ego vehicle approaching, following or closing in on it. The ego vehicle's own speed, slowing or stopping also counts as LEAD.
+
+OTHER = any other road user: pedestrians, cyclists, vehicles in adjacent or oncoming lanes, vehicles crossing, turning, merging or cutting in, parked vehicles, and how busy the traffic is around the ego vehicle. Their presence, position, size (bus, truck, tram), distance and motion all count as OTHER.
+
+IMAGE_ONLY = information that object tracks (positions, sizes, speeds) cannot give and only the image can: weather, road surface, visibility, lighting or time of day; traffic lights and their colour, signs, road markings, crosswalks, special lanes (bus lane, bike lane, turn lane); the type of road or area (intersection, residential street, school zone, construction zone, parking lot, gas station); road furniture (barriers, cones, tram tracks, walls, curbs); special vehicles or their state (police car, warning lights, school bus, turn signals); and the appearance, behaviour or intent of people (pushing a stroller, children, looking at a phone, looking left).
+
+Rules:
+1. What the driver should do does not count (requiring the driver to slow down, maintain a safe distance, yield, be cautious).
+2. General conclusions do not count (collision risk, potential hazard, risky situation).
+3. Colour, make or model used only to say which road user is meant does not count (white, silver, Jeep, sedan, SUV).
+4. Conditional events introduced by "if" do not count (if it brakes suddenly, if the gap is too small).
+5. Brake lights count as braking: LEAD for the vehicle directly ahead, OTHER for any other vehicle.
+6. Approaching a place (an intersection, a red light, a stop sign) is IMAGE_ONLY. Approaching the vehicle directly ahead is LEAD.
+7. Saying that something is absent counts for its kind: "no pedestrians" is OTHER, "the road ahead is clear" is OTHER, "no traffic lights" is IMAGE_ONLY.
+8. The intent or expected action of a road user counts as IMAGE_ONLY, because object tracks do not show it: preparing to cross, waiting to cross or to merge, about to step out, may step into the crosswalk, looking left, appearing to yield. What a road user is already doing (crossing, walking towards the roadway, turning across the path) counts as OTHER or LEAD.
+Reply with JSON only:
+{"lead": true or false, "lead_quote": "<exact words or empty>", "other": true or false, "other_quote": "<exact words or empty>", "image_only": true or false, "image_only_quote": "<exact words or empty>"}
