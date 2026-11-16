@@ -9,6 +9,7 @@ Rules:
 2. Approaching a place (an intersection, a light, a stop sign) is ENVIRONMENT only. Approaching a vehicle or person is PHYSICAL.
 3. Parked vehicles are ENVIRONMENT. Stopped, stationary or braking vehicles in the lane or in traffic are PHYSICAL.
 4. General conclusions do not count (collision risk, potential hazard, risky situation).
+5. A vehicle mentioned only as the one that is braking, stopped or being approached does not count as ENVIRONMENT, and neither do its colour or ordinary car type (car, sedan, SUV, vehicle). Pedestrians, cyclists, buses, trucks, trams and other road users mentioned as present in the scene do count as ENVIRONMENT.
 
 Reply with JSON only:
 {"physical": true or false, "physical_quote": "<exact words from the explanation, or empty>", "environment": true or false, "environment_quote": "<exact words from the explanation, or empty>"}

@@ -9,7 +9,8 @@ Step 1 here: the validation sample for the user (no model needed).
     later (kept out of the download folder).
 Step 2, run <round-1 work folder> <base_url> <out jsonl> (vLLM environment, server running): every reason once, one
   request at a time, in the order default_rng(20261115).permutation(5420); system = code/llm_labels_system_prompt.txt (the
-  plan's text as given), user = "Explanation: <reason>", temperature 0, max_tokens 300, nothing else sent. Each reply: the
+  plan's text as given, with rule 5 added by the user on 2026-11-15 before any agreement was computed; the first prompt is
+  kept with the first run's outputs in tmp_checks/reason_27b/llm_labels/prompt_v1/), user = "Explanation: <reason>", temperature 0, max_tokens 300, nothing else sent. Each reply: the
   first JSON object; a label fails when a key is missing, a label is not true/false, a quote is not an exact substring
   (case-sensitive), true has an empty quote or false a non-empty one. The failed ones are asked once more with the same
   request (<out>_reask.jsonl).

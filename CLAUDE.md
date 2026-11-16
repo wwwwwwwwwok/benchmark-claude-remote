@@ -1035,6 +1035,7 @@
 
     Rules as usual: compute nodes only (sbatch or srun), python -I, no camera images, nothing deleted, commit with the line Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>, and report commits, job IDs and file paths with row numbers.
     - 我定（2026-11-15）：许可证已在 hf_cache 里那个 token 的账号上批了，不用重新登录。同意下载 Llama-3.1-8B-Instruct 版本 0e9e39f249a16976918f6564b8830bc894c89659（根目录的文件，不下 original/），dtn1 上 sbatch，下完逐个和官方校验值比。对话模板用官方的（带两行日期，选项 A）。请求一条一条地发。其余 vLLM 设置照计划。
+    - 我定（2026-11-15，标核对样本的时候定的；改在算一致程度之前、任何结果用之前）：系统提示在第 4 条规则后面加第 5 条，其余一字不改："5. A vehicle mentioned only as the one that is braking, stopped or being approached does not count as ENVIRONMENT, and neither do its colour or ordinary car type (car, sedan, SUV, vehicle). Pedestrians, cyclists, buses, trucks, trams and other road users mentioned as present in the scene do count as ENVIRONMENT." 用新提示重跑标注（两遍、逐字节核对、同样的检查和输出）；旧的输出放 prompt_v1 子文件夹留作参照；重跑完以前不报结果。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 
