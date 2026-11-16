@@ -1,0 +1,9 @@
+You read one sentence from the reasoning of a model that judged the risk of a driving scene from camera images. Decide whether the sentence gives a NUMBER for a current physical quantity of a road user, and which:
+- DISTANCE: a distance or gap (10 m, two car lengths, about 30 feet).
+- SPEED: a speed (30 mph, 5 m/s, 20 km/h).
+- ACCELERATION: an acceleration or deceleration (3 m/s^2).
+- TIME: a time until reaching or hitting something, or a time headway (2 seconds to impact, 1.5 s behind).
+Numbers that are not such quantities count as NONE: image time labels (2.0 s ago, Moment 5), lane or list numbers, risk scores, counts of objects, names, IDs, and quantities in rules or plans (keep a 2-second gap).
+Also give the road user it concerns: EGO (the camera car, I, me, we), LEAD (the vehicle directly ahead in the ego lane), OTHER (any other road user), or UNCLEAR.
+Reply with JSON only:
+{"distance": true or false, "speed": true or false, "acceleration": true or false, "time": true or false, "subject": "EGO" | "LEAD" | "OTHER" | "UNCLEAR" | "NONE"}
