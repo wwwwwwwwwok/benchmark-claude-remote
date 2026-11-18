@@ -1159,6 +1159,7 @@
       Same rules as always: compute nodes only, python -I, no camera images, nothing deleted, commit with the Co-Authored-By line.
     - 注：第 4 条说的两条 subject 规则，以前没有记进 CLAUDE.md 或 handoff；这里照这次的原话记下：四个量都是 false 的句子，subject 记成 NONE；LEAD 和 OTHER 合成 OTHER_ROAD_USER。只在汇总时改，Llama 的原始回答不动。
     - Claude 的做法（跑之前记下）：`thinking_numbers.py run` 加 `--concurrency N`（不给时和以前一样一条一条发，输出不变）；并发时结果按文件顺序写，`_seconds.json` 记总的墙钟时间。前缀缓存：vLLM 默认开着，不加 `--no-enable-prefix-caching`。两半：264,144 句按 id 顺序前一半、后一半（`split`）。汇总（`aggregate`）：不合格的句子不算；每条回答用 5,420 条全集（没有过筛句子的回答算"没有"）；按量（距离、速度、加速度、时间、任一个）× subject（EGO、OTHER_ROAD_USER、UNCLEAR、任一个）报回答数和占比、帧数（5 次里至少 1 次、至少 3 次）和占比，另报句子层面的数。
+    - 11-16 20:47–21:11 全量跑完（31826219，比 Slurm 估的早）：计时测试 97.98 句/秒、和试跑比 label 值不同 30 个，放行；264,144 句一遍 0 条不合格；汇总在 `analysis/reason_27b/main_1084_thinking_numbers/`（`docs/handoff.md` 第 2 节）。
 - 尾部形状（探索性；我 2026-11-14 定，下面是原话；看到结果以后计划不改）：
   新分析：尾部形状（探索性；用户 2026-11-14 要的）。比较 Qwen3.6-27B 风险分和 9 个 SSM 各自在 1,084 帧里的分布形状，不比较是不是同一批帧。两种取向都算，用户要分别看结果。只用 CPU，用 sbatch 提交到计算节点，不在登录节点跑；不打开任何图片；用现有环境，不装新包。先把下面这份计划原样记进 CLAUDE.md（新开"尾部形状"一条）并单独提交，再写程序、再跑；看到结果以后计划不改。
 

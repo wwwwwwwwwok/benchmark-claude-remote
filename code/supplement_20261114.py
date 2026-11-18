@@ -61,9 +61,10 @@ def sha(p):
         return hashlib.sha256(f.read()).hexdigest()
 
 
-def heatmap(L, O, folder='after_gemma-4-31b-it-nothink', order=None):
+def heatmap(L, O, folder='after_gemma-4-31b-it-nothink', order=None, drop=None):
     """order: the settings in this order (default: as they first appear in agreement.csv); added 2026-11-15 for the
-    11-setting figure, the defaults give the 2026-11-14 output unchanged."""
+    11-setting figure, the defaults give the 2026-11-14 output unchanged. drop: settings left out before the order check
+    (added 2026-11-17 for the supplement's 9-setting figure; None = unchanged)."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -72,6 +73,9 @@ def heatmap(L, O, folder='after_gemma-4-31b-it-nothink', order=None):
     ag['line'] = np.arange(len(ag)) + 2
     a = ag[ag.grouping == 'all']
     models = list(dict.fromkeys(a.model))
+    if drop is not None:
+        check(set(drop) <= set(models), f'heatmap: settings to drop {drop} are in agreement.csv')
+        models = [m for m in models if m not in set(drop)]
     if order is not None:
         check(sorted(order) == sorted(models), f'heatmap: the given order names the {len(models)} settings in agreement.csv')
         models = list(order)
