@@ -1,0 +1,69 @@
+item,quantity,object_id,frame_idx,value,unit,note
+1 lead speed over the segment,lead type (Waymo 3D box class),DqxMaKSBz3bejgVlEiQfcg,,vehicle,,
+1 lead speed over the segment,segment frames,,,198,frames,frame_idx 0 to n - 1
+1 lead speed over the segment,first frame tracked,DqxMaKSBz3bejgVlEiQfcg,,0,frame_idx,
+1 lead speed over the segment,last frame tracked,DqxMaKSBz3bejgVlEiQfcg,,197,frame_idx,
+1 lead speed over the segment,frames tracked,DqxMaKSBz3bejgVlEiQfcg,,198,frames,consecutive
+1 lead speed over the segment,"max speed, all tracked frames",DqxMaKSBz3bejgVlEiQfcg,74,0.028928119632770213,m/s,"speed = hypot(speed_x, speed_y) of the label (global frame); frame_idx = frame of the max"
+1 lead speed over the segment,"min speed, all tracked frames",DqxMaKSBz3bejgVlEiQfcg,153,0.0005296984705671498,m/s,
+1 lead speed over the segment,"frames with speed > 0.5 m/s, all tracked frames",DqxMaKSBz3bejgVlEiQfcg,,0,frames,
+1 lead speed over the segment,speed at frame 160,DqxMaKSBz3bejgVlEiQfcg,160,0.0017267230559783442,m/s,
+1 lead speed over the segment,frames used by the slow-lead rule (>= 9 frames from both track ends),DqxMaKSBz3bejgVlEiQfcg,,180,frames,"frames 9-188; wod_common.moving_tracks, KIN_WINDOW // 2 = 9"
+1 lead speed over the segment,"max speed, frames used by the slow-lead rule",DqxMaKSBz3bejgVlEiQfcg,74,0.028928119632770213,m/s,
+1 lead speed over the segment,"frames with speed > 0.5 m/s, frames used by the slow-lead rule",DqxMaKSBz3bejgVlEiQfcg,,0,frames,
+1 lead speed over the segment,counts as moving in the slow-lead rule (wod_common.moving_tracks),DqxMaKSBz3bejgVlEiQfcg,,False,,
+1 lead speed over the segment,lead_path pairing picks the same id at frame 160 (frame_ssm lead_path),DqxMaKSBz3bejgVlEiQfcg,160,True,,"the slow-lead rule keeps a map lead slower than 0.5 m/s if the path pairing picks it too, or it moves"
+1 lead speed over the segment,in labels/lead_exclusions.csv,DqxMaKSBz3bejgVlEiQfcg,,False,,
+1 lead speed over the segment,num_lidar_points at frame 160,DqxMaKSBz3bejgVlEiQfcg,160,3015,points,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,140,0.9749526392210746,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,140,0.9676262412549351,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,145,0.9150695514073013,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,145,0.8940509414863839,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,150,0.8953801564880189,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,150,0.8592319556928221,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,155,0.924030490373475,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,155,0.9055503276218123,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,160,0.9835486107768651,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,160,0.9889480888427652,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,165,1.008230067215527,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,165,1.059233877647045,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,170,0.9255870429414331,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,170,0.9567476029465302,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,175,0.6403298770527441,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,175,0.7716664643642165,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,180,0.2821404369247697,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,180,0.1613722067465687,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,185,0.03893053157452097,m/s,edge_ego False
+2 ego speed,ego speed as reported by Waymo (check only),,185,0.03784794200566109,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,190,0.034096270243750885,m/s,"edge_ego True; within 9 frames of the segment end, less accurate"
+2 ego speed,ego speed as reported by Waymo (check only),,190,0.010902007582860005,m/s,
+2 ego speed,"ego speed (Savitzky-Golay, used in the SSMs)",,195,0.06204874967742751,m/s,"edge_ego True; within 9 frames of the segment end, less accurate"
+2 ego speed,ego speed as reported by Waymo (check only),,195,0.13094771308511607,m/s,
+3 lead box at frame 160,ego lane matched at frame 160,,160,none,,"LaneMap.match_sequence (lane centre line within 2.5 m of the ego origin, heading within 45 deg)"
+3 lead box at frame 160,reference line used for the pairing,,160,the ego future path (no ego lane matched; lead_map falls back to lead_path),,
+3 lead box at frame 160,nearest map lane centre line to the ego origin: distance,,160,2.822740643108688,m,lane 230; heading difference 7.668833620301745 deg; the matching needs < 2.5 m and < 45 deg
+3 lead box at frame 160,nearest map lane centre line within 45 deg of the ego heading: distance,,160,2.822740643108688,m,lane 230; heading difference 7.668833620301745 deg
+3 lead box at frame 160,map lanes in this segment,,,120,lanes,
+3 lead box at frame 160,lead box centre: signed lateral offset from the reference line (left +),DqxMaKSBz3bejgVlEiQfcg,160,0.13074568943086584,m,same-lane rule: |offset| < 1.75 m (wod_common.LANE_HALF)
+3 lead box at frame 160,"lead box corners: lateral offsets, min",DqxMaKSBz3bejgVlEiQfcg,160,-0.9995123814476939,m,left +
+3 lead box at frame 160,"lead box corners: lateral offsets, max",DqxMaKSBz3bejgVlEiQfcg,160,1.2610037603097013,m,left +
+3 lead box at frame 160,ego box centre: lateral offset,,160,-0.10156373577989097,m,ego interval = this +- half width 1.025 m
+3 lead box at frame 160,"ego interval, min",,160,-1.1265637357798908,m,
+3 lead box at frame 160,"ego interval, max",,160,0.9234362642201089,m,
+3 lead box at frame 160,lead heading minus reference-line heading,DqxMaKSBz3bejgVlEiQfcg,160,3.0175051654993714,deg,same-lane rule: |.| < 30 deg
+3 lead box at frame 160,"lead centre along the reference line, ahead of the ego origin",DqxMaKSBz3bejgVlEiQfcg,160,8.842459290348526,m,rule: > 0
+3 lead box at frame 160,"gap (ego front bumper to lead rear, along the line)",DqxMaKSBz3bejgVlEiQfcg,160,2.4946379345140066,m,rule: > 0
+3 lead box at frame 160,lead box length,DqxMaKSBz3bejgVlEiQfcg,160,4.555642711669037,m,
+3 lead box at frame 160,lead box width,DqxMaKSBz3bejgVlEiQfcg,160,2.0235078872623444,m,
+3 lead box at frame 160,condition |lateral offset| < 1.75 m,DqxMaKSBz3bejgVlEiQfcg,160,True,,
+3 lead box at frame 160,condition |heading difference| < 30 deg,DqxMaKSBz3bejgVlEiQfcg,160,True,,
+3 lead box at frame 160,condition ahead and gap > 0,DqxMaKSBz3bejgVlEiQfcg,160,True,,
+3 lead box at frame 160,condition lateral overlap with the ego interval,DqxMaKSBz3bejgVlEiQfcg,160,True,,
+3 lead box at frame 160,inside the ego lane by the lead-selection rule (all four conditions),DqxMaKSBz3bejgVlEiQfcg,160,True,,the rule has no lane polygon: it is these four conditions on the reference line
+4 other vehicles ahead within 30 m at frame 160,object,1yXTTZU-h_gc3_1w6KKRPA,160,type vehicle; gap 19.24675309267663 m; lateral offset 1.3188611145659728 m; heading difference 5.013881441350964 deg; lateral overlap True; speed 0.011588706193046696 m/s; in a camera view and within 77 m True; same-lane rule True,,
+4 other vehicles ahead within 30 m at frame 160,object,9wx1ie1EEk4waBu63NqGvg,160,type vehicle; gap 7.723770810514855 m; lateral offset 0.3631977730887278 m; heading difference 5.724338391758287 deg; lateral overlap True; speed 0.003981739409854589 m/s; in a camera view and within 77 m True; same-lane rule True,,
+4 other vehicles ahead within 30 m at frame 160,object,JFLh73n8lWyMRDLXMQHCug,160,type vehicle; gap 13.560439723217808 m; lateral offset 0.8026442584777191 m; heading difference 5.013881441296971 deg; lateral overlap True; speed 8.556067554929069e-13 m/s; in a camera view and within 77 m True; same-lane rule True,,
+4 other vehicles ahead within 30 m at frame 160,object,pBbIw-qrjIehx7M7LOqDOg,160,type vehicle; gap 24.553311317157103 m; lateral offset 1.6813263114030352 m; heading difference 5.013881441296005 deg; lateral overlap True; speed 0.005059702819906812 m/s; in a camera view and within 77 m True; same-lane rule True,,
+4 other vehicles ahead within 30 m at frame 160,"labelled vehicles and cyclists ahead (0 < gap <= 30 m), lead excluded",,160,4,objects,"gap measured along the reference line, as for the lead"
+4 other vehicles ahead within 30 m at frame 160,"of these, in the ego lane by the lead-selection rule and in a camera view",,160,4,objects,
+4 other vehicles ahead within 30 m at frame 160,"of these, in the ego lane by the rule ignoring camera visibility",,160,4,objects,
